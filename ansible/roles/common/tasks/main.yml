@@ -1,0 +1,29 @@
+- name: ZSH Setup
+  import_tasks: zsh.yml
+  tags:
+    - zsh
+
+- name: Homebrew Setup
+  import_tasks: homebrew.yml
+  tags:
+    - homebrew
+
+- name: MacOS Setup
+  import_tasks: macos.yml
+  tags:
+    - macos
+
+- name: App Configuration
+  import_tasks: app-config.yml
+  tags:
+    - app-config
+
+- name: Python Setup
+  import_tasks: python.yml
+  tags:
+    - python
+
+- name: Node Setup
+  import_tasks: node.yml
+  tags:
+    - node

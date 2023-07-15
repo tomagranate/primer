@@ -1,0 +1,42 @@
+homebrew_taps:
+  - homebrew/cask-versions
+
+homebrew_packages:
+  - rtx
+  - pipx
+  - pnpm
+  - docker
+  - jq
+  - watchman
+  - pure
+  - mas
+
+homebrew_cask_apps:
+  - google-chrome
+  - firefox
+  - bluesnooze
+  - messenger
+  - slack
+  - spotify
+  - iterm2
+  - postman
+  - beekeeper-studio
+  - android-file-transfer
+  - private-internet-access
+  - the-unarchiver
+  - steam
+  - logi-options-plus
+  - visual-studio-code-insiders
+  - zoom
+
+python_global_packages:
+  - ansible
+  - poetry
+
+node_version: lts
+
+node_global_packages:
+  - tsx
+
+mac_app_store_app_ids:
+  - 441258766 # Magnet

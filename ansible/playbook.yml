@@ -1,0 +1,7 @@
+- name: Provision computer
+  hosts: all
+  vars_files:
+    - config.yml
+  roles:
+    - elliotweiser.osx-command-line-tools
+    - common
