@@ -5,11 +5,11 @@ homebrew_packages:
   - rtx
   - pipx
   - pnpm
+  - mas
   - docker
   - jq
   - watchman
   - pure
-  - mas
 
 homebrew_cask_apps:
   - google-chrome
