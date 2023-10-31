@@ -38,5 +38,7 @@ node_version: lts
 node_global_packages:
   - tsx
 
+bun_version: latest
+
 mac_app_store_app_ids:
   - 441258766 # Magnet

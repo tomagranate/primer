@@ -27,3 +27,8 @@
   import_tasks: node.yml
   tags:
     - node
+
+- name: Bun Setup
+  import_tasks: bun.yml
+  tags:
+    - bun
