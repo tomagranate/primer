@@ -40,5 +40,8 @@ node_global_packages:
 
 bun_version: latest
 
+bun_global_packages:
+  - vercel
+
 mac_app_store_app_ids:
   - 441258766 # Magnet

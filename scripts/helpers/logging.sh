@@ -18,25 +18,25 @@ error() {
 }
 
 verboseSuccess() {
-  if [[ "$VERBOSE" -ne 0 ]]; then
+  if [[ "$FLAG_VERBOSE" -ne 0 ]]; then
     printf -- "\033[32m✔\033[0m  %s\n" "$1"
   fi
 }
 
 verboseInfo() {
-  if [[ "$VERBOSE" -ne 0 ]]; then
+  if [[ "$FLAG_VERBOSE" -ne 0 ]]; then
     printf -- "\033[36m➜\033[0m  %s\n" "$1"
   fi
 }
 
 verboseError() {
-  if [[ "$VERBOSE" -ne 0 ]]; then
+  if [[ "$FLAG_VERBOSE" -ne 0 ]]; then
     printf -- "\033[31m✖\033[0m  %s\n" "$1"
   fi
 }
 
 verboseWarning() {
-  if [[ "$VERBOSE" -ne 0 ]]; then
+  if [[ "$FLAG_VERBOSE" -ne 0 ]]; then
     printf -- "\033[33m⚠\033[0m  %s\n" "$1"
   fi
 }

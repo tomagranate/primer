@@ -1,49 +1,57 @@
 #!/usr/bin/env bash
 ## The main script to setup a new Mac, with all the relevant configuration
 
-# ------ Variable Initialization & Argument Parsing ------
-VERBOSE=0
-PYTHON_VERSION_PREFIX=3.11
-
-usage() {
-  printf "\
-Usage: ./setup.sh    [ -h | --help ]       Show this message
-                     [ -v | --verbose ]    Show additional output
-  "
-  exit 2
-}
-
-while getopts ":hv-:" opt; do
-  case "$opt" in
-    -)
-      case "${OPTARG}" in
-        help)
-          usage
-          ;;
-        verbose)
-          VERBOSE=1
-          ;;
-        *)
-          usage
-          ;;
-      esac
-      ;;
-    h)
-      usage
-      ;;
-    v)
-      VERBOSE=1
-      ;;
-    *)
-      usage
-      ;;
-  esac
-done
-
 # ------ Dependencies ------
 source ./scripts/helpers/logging.sh
 source ./scripts/helpers/checks.sh
 source ./scripts/helpers/spinner.sh
+
+# ------ Variable Initialization & Argument Parsing ------
+PYTHON_VERSION_PREFIX=3.11
+
+# usage <exit_code (0)>
+usage() {
+  readonly exit_code="${1:-0}"
+  printf "\
+Usage: ./setup.sh    [ -h | --help ]       Show this message
+                     [ -v | --verbose ]    Show additional output
+                     [ --tags ]            Specify which Ansible tags to run
+                     [ --skip-tags ]       Specify which Ansible tags to skip
+  "
+  exit "$exit_code"
+}
+
+positional_args=()
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    -h|--help)
+      usage
+      ;;
+    -v|--verbose)
+      export FLAG_VERBOSE=1
+      shift # past argument
+      ;;
+    --tags)
+      arg_tags="$2"
+      shift # past argument
+      shift # past value
+      ;;
+    --skip-tags)
+      arg_skip_tags="$2"
+      shift # past argument
+      shift # past value
+      ;;
+    -*|--*)
+      error "Invalid option $1"
+      usage 1
+      ;;
+    *)
+      positional_args+=("$1") # save positional arg
+      shift # past argument
+      ;;
+  esac
+done
 
 # ------ Core Logic ------
 setup() {
@@ -96,12 +104,11 @@ setup() {
 }
 
 ansible() {
-  ANSIBLE_VERBOSE_FLAG=""
-  if [[ "$VERBOSE" -ne 0 ]]; then
-    ANSIBLE_VERBOSE_FLAG="-vvv"
-  fi
+  [[ -z "$FLAG_VERBOSE" ]] || local flag_ansible_verbose="-vvv"
+  [[ -z "$arg_tags" ]] || local flag_ansible_tags="--tags $arg_tags"
+  [[ -z "$arg_skip_tags" ]] || local flag_ansible_skip_tags="--skip-tags $arg_skip_tags"
   info "Running Ansible..."
-  ansible-playbook ./ansible/playbook.yml -K $ANSIBLE_VERBOSE_FLAG
+  ansible-playbook ./ansible/playbook.yml -K $flag_ansible_verbose $flag_ansible_tags $flag_ansible_skip_tags
   if [[ $? -ne 0 ]]; then
     error "Ansible failed, please review any errors above."
     exit 1

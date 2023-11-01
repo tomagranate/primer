@@ -47,6 +47,10 @@
       esac
       # pnpm end
 
+      ## bun
+      export BUN_INSTALL=$HOME/.bun
+      export PATH=$BUN_INSTALL/bin:$PATH
+
       ## Custom Aliases & Functions
       alias code=code-insiders
       alias editrc=code-insiders ~/.zshrc

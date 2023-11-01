@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 ## Provides helpers to check the existence of commands and dependencies
 
-source logging.sh
+source ./scripts/helpers/logging.sh
 
 check () {
   verboseInfo "Checking for $1..."
