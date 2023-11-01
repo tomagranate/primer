@@ -60,4 +60,7 @@
           git branch -D $branch;
         done
       }
+      killport() {
+        lsof -i TCP:$1 | grep LISTEN | awk '{print $2}' | xargs kill -9
+      }
     marker: '# {mark} ---- Ansible Managed Block ----'
