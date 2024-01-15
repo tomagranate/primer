@@ -2,7 +2,7 @@ homebrew_taps:
   - homebrew/cask-versions
 
 homebrew_packages:
-  - rtx
+  - mise
   - pipx
   - pnpm
   - mas
@@ -45,3 +45,4 @@ bun_global_packages:
 
 mac_app_store_app_ids:
   - 441258766 # Magnet
+  - 1475387142 # Tailscale

@@ -1,6 +1,6 @@
 - name: Install NodeJS
   ansible.builtin.shell:
-    cmd: 'rtx use --global nodejs@{{ node_version }}'
+    cmd: 'mise use --global nodejs@{{ node_version }}'
 
 - name: Install global NodeJS packages
   ansible.builtin.shell:

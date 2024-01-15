@@ -11,8 +11,10 @@ spin() {
   shift
   local cmd
   for param in "$@"; do
-    cmd+=" \"$param\""
+    cmd+=" $param"
   done
+
+  echo $cmd
 
   tput civis -- invisible
   local tmpfile=$(mktemp)

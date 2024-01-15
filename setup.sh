@@ -64,19 +64,19 @@ setup() {
     success "Homebrew already installed"
   fi
 
-  ## Install rtx
-  check "rtx"
+  ## Install mise
+  check "mise"
   if [[ $? -ne 0 ]]; then
-    spin "rtx not found, installing..." HOMEBREW_NO_AUTO_UPDATE=1 brew install rtx
-    eval "$(rtx activate bash)"
+    spin "mise not found, installing..." HOMEBREW_NO_AUTO_UPDATE=1 brew install mise
+    eval "$(mise activate bash)"
   else
-    success "rtx already installed"
+    success "mise already installed"
   fi
 
   ## Install Python
-  checkCommand "rtx ls --current python | grep ${PYTHON_VERSION_PREFIX}"
+  checkCommand "mise ls --current python | grep ${PYTHON_VERSION_PREFIX}"
   if [[ $? -ne 0 ]]; then
-    spin "Python ${PYTHON_VERSION_PREFIX} not found, installing..." rtx use -g python@${PYTHON_VERSION_PREFIX}
+    spin "Python ${PYTHON_VERSION_PREFIX} not found, installing..." mise use -g python@${PYTHON_VERSION_PREFIX}
   else
     success "Python ${PYTHON_VERSION_PREFIX} already installed"
   fi
@@ -84,7 +84,7 @@ setup() {
   ## Install pipx
   check "pipx"
   if [[ $? -ne 0 ]]; then
-    export PIPX_DEFAULT_PYTHON="$(rtx which python)"
+    export PIPX_DEFAULT_PYTHON="$(mise which python)"
     spin "pipx not found, installing..." HOMEBREW_NO_AUTO_UPDATE=1 brew install pipx
     export PATH=$PATH:~/.local/bin
   else

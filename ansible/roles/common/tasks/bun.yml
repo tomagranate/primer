@@ -1,6 +1,6 @@
 - name: Install Bun
   ansible.builtin.shell:
-    cmd: 'rtx use --global --yes bun@{{ bun_version }}'
+    cmd: 'mise use --global --yes bun@{{ bun_version }}'
 
 - name: Install global Bun packages
   ansible.builtin.shell:
