@@ -51,6 +51,9 @@
       export BUN_INSTALL=$HOME/.bun
       export PATH=$BUN_INSTALL/bin:$PATH
 
+      ## Java (for Android dev)
+      export JAVA_HOME=/Library/Java/JavaVirtualMachines/zulu-17.jdk/Contents/Home
+
       ## Custom Aliases & Functions
       alias code=code-insiders
       alias editrc=code-insiders ~/.zshrc

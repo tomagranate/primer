@@ -28,6 +28,7 @@ homebrew_cask_apps:
   - logi-options-plus
   - visual-studio-code-insiders
   - zoom
+  - zulu17
 
 python_global_packages:
   - ansible
