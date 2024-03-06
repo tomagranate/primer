@@ -26,9 +26,10 @@ homebrew_cask_apps:
   - the-unarchiver
   - steam
   - logi-options-plus
-  - visual-studio-code-insiders
+  - visual-studio-code
   - zoom
   - zulu17
+  - android-studio
 
 python_global_packages:
   - ansible
