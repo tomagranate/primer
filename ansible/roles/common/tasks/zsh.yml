@@ -58,8 +58,7 @@
       export PATH=$PATH:$ANDROID_HOME/platform-tools
 
       ## Custom Aliases & Functions
-      alias code=code-insiders
-      alias editrc=code-insiders ~/.zshrc
+      alias editrc=code ~/.zshrc
       alias tailscale="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
       gitclean() {
         git fetch -p
