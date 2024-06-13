@@ -13,6 +13,10 @@ autoload -Uz _zinit
 ### End of Zinit's installer chunk
 
 ## ==== Load Zsh plugins and CLI tools ====
+zinit light romkatv/zsh-defer
+
+zsh-defer eval "$(/opt/homebrew/bin/brew shellenv)"
+
 zinit ice wait lucid --depth=1 atinit"zicompinit; zicdreplay"
 zinit light zdharma-continuum/fast-syntax-highlighting
 
