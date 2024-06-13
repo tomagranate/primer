@@ -39,6 +39,8 @@ zinit light BurntSushi/ripgrep
 zinit ice wait lucid --depth=1 as"command" from"gh-r" mv"fd* -> fd" pick"fd/fd"
 zinit light sharkdp/fd
 
+zinit snippet OMZP::git
+
 ### Commented out until they release an aarm-apple-darwin version. 
 ### Not there as of 0.24.0 - already in master branch though, just need them to make another release
 ### Currently installed via brew
