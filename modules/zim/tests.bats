@@ -35,6 +35,16 @@ teardown() {
     assert_output --partial ".hushlogin"
 }
 
+@test "zim: update removes stale compiled managed configs" {
+    mkdir -p "$TEST_CONFIG_DIR/zsh"
+    touch "$TEST_CONFIG_DIR/zsh/.zshrc.zwc" "$TEST_CONFIG_DIR/zsh/.zimrc.zwc"
+
+    zsh_run_module zim "mod_update"
+    assert_success
+    [ ! -e "$TEST_CONFIG_DIR/zsh/.zshrc.zwc" ]
+    [ ! -e "$TEST_CONFIG_DIR/zsh/.zimrc.zwc" ]
+}
+
 @test "zim: deploys config files to ZSH_CONFIG_DIR" {
     # Use dry-run for the Zim install part but test deploy_files separately
     # We can't test the full wet path without real Zim, but we CAN test file deployment

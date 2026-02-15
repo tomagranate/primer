@@ -6,6 +6,16 @@ mod_update() {
     primer::status_msg "deploying configs..."
     deploy_files "$ZSH_CONFIG_DIR"
 
+    # Remove stale compiled managed configs so zsh reads fresh source files.
+    local stale_zwc
+    for stale_zwc in "$ZSH_CONFIG_DIR/.zshrc.zwc" "$ZSH_CONFIG_DIR/.zimrc.zwc"; do
+        if [[ "$DRY_RUN" == true ]]; then
+            echo "[dry-run] rm -f $stale_zwc"
+        else
+            rm -f "$stale_zwc"
+        fi
+    done
+
     # Hide "Last login ..." banner in new terminal sessions.
     local hushlogin="$HOME/.hushlogin"
     if [[ "$DRY_RUN" == true ]]; then
