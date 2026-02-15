@@ -21,7 +21,9 @@ mod_update() {
     if [[ -d "$zim_home" ]]; then
         primer::status_msg "updating modules..."
         if [[ "$DRY_RUN" != true ]]; then
-            zsh -c "source $zim_home/zimfw.zsh && zimfw install && zimfw compile" 2>/dev/null || true
+            ZDOTDIR="$ZSH_CONFIG_DIR" ZIM_HOME="$zim_home" \
+                zsh -c "source \"$zim_home/zimfw.zsh\" && zimfw install && zimfw compile" \
+                2>/dev/null || true
         else
             echo "[dry-run] zimfw install && zimfw compile"
         fi
@@ -31,8 +33,11 @@ mod_update() {
         if [[ "$DRY_RUN" == true ]]; then
             echo "[dry-run] Install Zim"
         else
-            curl -fsSL https://raw.githubusercontent.com/zimfw/install/master/install.zsh \
-                | ZDOTDIR="$ZSH_CONFIG_DIR" ZIM_HOME="$zim_home" zsh
+            mkdir -p "$zim_home"
+            curl -fsSL --create-dirs -o "$zim_home/zimfw.zsh" \
+                https://github.com/zimfw/zimfw/releases/latest/download/zimfw.zsh
+            ZDOTDIR="$ZSH_CONFIG_DIR" ZIM_HOME="$zim_home" \
+                zsh -c "source \"$zim_home/zimfw.zsh\" && zimfw init -q && zimfw install && zimfw compile"
         fi
         primer::status_msg "installed"
     fi

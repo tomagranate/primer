@@ -1,3 +1,4 @@
+# >>> PRIMER MANAGED START (modules/zim/files/.zimrc) >>>
 # Behaviour
 zmodule environment
 zmodule input
@@ -16,3 +17,4 @@ zmodule ohmyzsh/ohmyzsh --root plugins/git
 
 # Prompt
 zmodule joke/zim-starship
+# <<< PRIMER MANAGED END (modules/zim/files/.zimrc) <<<

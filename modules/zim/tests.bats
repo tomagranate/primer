@@ -51,3 +51,53 @@ teardown() {
     zsh_run_module zim "mod_status"
     assert_failure
 }
+
+@test "zim: deployed files include primer-managed markers" {
+    zsh_run_module zim '
+        deploy_files "$ZSH_CONFIG_DIR"
+    '
+    assert_success
+
+    run rg "PRIMER MANAGED START" "$TEST_CONFIG_DIR/zsh/.zshrc"
+    assert_success
+    run rg "PRIMER MANAGED START" "$TEST_CONFIG_DIR/zsh/.zimrc"
+    assert_success
+    run rg "PRIMER MANAGED START" "$TEST_CONFIG_DIR/zsh/.zshenv"
+    assert_success
+}
+
+@test "zim: install path bootstraps zimfw and avoids install script" {
+    local fakebin
+    fakebin="$(mktemp -d)"
+
+    cat > "${fakebin}/curl" <<'EOF'
+#!/bin/sh
+echo "curl $*" >> "${MOCK_LOG:-/dev/null}"
+out=""
+prev=""
+for arg in "$@"; do
+    if [ "$prev" = "-o" ]; then
+        out="$arg"
+        break
+    fi
+    prev="$arg"
+done
+if [ -n "$out" ]; then
+    mkdir -p "$(dirname "$out")"
+    cat > "$out" <<'ZEOF'
+zimfw() { return 0; }
+ZEOF
+fi
+exit 0
+EOF
+    chmod +x "${fakebin}/curl"
+
+    export PATH="${fakebin}:$PATH"
+    zsh_run_module zim "mod_update"
+    assert_success
+
+    run rg "install/master/install.zsh" "$MOCK_LOG"
+    assert_failure
+    run rg "releases/latest/download/zimfw.zsh" "$MOCK_LOG"
+    assert_success
+}

@@ -1,3 +1,4 @@
+# >>> PRIMER MANAGED START (modules/zim/files/.zshrc) >>>
 # ------- Zim Setup -------
 
 # Initialize zim
@@ -69,3 +70,4 @@ eval "$(mise activate zsh)"
 export ANDROID_HOME=$HOME/Library/Android/sdk
 path+=$ANDROID_HOME/emulator
 PATH=$PATH:$ANDROID_HOME/platform-tools
+# <<< PRIMER MANAGED END (modules/zim/files/.zshrc) <<<
