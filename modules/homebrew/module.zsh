@@ -28,7 +28,7 @@ mod_update() {
         echo "[dry-run] brew bundle with:"
         cat "$brewfile"
     else
-        brew bundle --file="$brewfile" --no-lock
+        brew bundle --file="$brewfile"
     fi
     rm -f "$brewfile"
     primer::status_msg "installed"

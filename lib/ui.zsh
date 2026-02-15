@@ -109,30 +109,29 @@ ui::module_line() {
 
 # ── Error Output Box ─────────────────────────────────────────────────────────
 
-# Display a module's error output in a red-bordered box
+# Display a module's error output with top/bottom separators.
+# We intentionally avoid side borders and truncation so long lines remain readable.
 # Usage: ui::error_box <title> <logfile_path>
 ui::error_box() {
     local title="$1" logfile="$2"
     local color="$C_RED"
-    local usable=$(( BOX_W - 2 ))   # text width inside box (1 char padding each side)
-    local label="─ ${title} ── error output "
+    local label=" ${title} -- error output "
+    local bar_len=$(( ${#label} > BOX_W ? ${#label} : BOX_W ))
+    local bar
+    bar="$(printf '─%.0s' {1..$bar_len})"
 
     print ""
-    ui::hline "╭" "╮" "$color" "$label"
+    printf '  %s%s%s\n' "$color" "$bar" "$C_RESET"
+    printf '  %s%s%s\n' "$color" "$label" "$C_RESET"
+    printf '  %s%s%s\n' "$color" "$bar" "$C_RESET"
 
     while IFS= read -r line || [[ -n "$line" ]]; do
         # Strip carriage returns
         line="${line//$'\r'/}"
-        # Truncate long lines
-        if (( ${#line} > usable )); then
-            line="${line[1,$((usable - 1))]}…"
-        fi
-        local pad=$(( usable - ${#line} ))
-        printf '  %s│%s %s%*s %s│%s\n' \
-            "$color" "$C_RESET" "$line" "$pad" "" "$color" "$C_RESET"
+        printf '  %s\n' "$line"
     done < "$logfile"
 
-    ui::hline "╰" "╯" "$color"
+    printf '  %s%s%s\n' "$color" "$bar" "$C_RESET"
 }
 
 # ── Module Helpers (available inside module subshells) ────────────────────────

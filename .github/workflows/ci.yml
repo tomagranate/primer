@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zsh bats shellcheck
+
+      - name: Install BATS helper libraries
+        run: |
+          rm -rf tests/helpers/bats-support tests/helpers/bats-assert
+          git clone --depth 1 https://github.com/bats-core/bats-support.git tests/helpers/bats-support
+          git clone --depth 1 https://github.com/bats-core/bats-assert.git tests/helpers/bats-assert
+
+      - name: Lint shell scripts
+        run: |
+          set -euo pipefail
+          for file in $(git ls-files '*.zsh' 'bin/primer'); do
+            zsh -n "$file"
+          done
+          sh -n setup.sh
+          shellcheck setup.sh tests/helpers/common.bash
+
+      - name: Run tests
+        run: bats tests/*.bats tests/unit/*.bats modules/*/tests.bats

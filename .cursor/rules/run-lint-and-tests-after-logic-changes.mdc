@@ -1,0 +1,18 @@
+---
+description: Run linting and tests after logic changes
+alwaysApply: true
+---
+
+# Validate Logic Changes
+
+When you change behavior, control flow, parsing, dependency handling, install logic, or other runtime logic:
+
+- Run lint checks before finishing:
+  - `zsh -n` for changed `.zsh` files and `bin/primer`
+  - `sh -n setup.sh` if touched
+  - `shellcheck setup.sh tests/helpers/common.bash` when relevant
+- Run test suites before finishing:
+  - Full suite: `bats tests/*.bats tests/unit/*.bats modules/*/tests.bats`
+  - If change is tightly scoped, run relevant subset first, then full suite if feasible
+- If checks fail, fix the code/tests and re-run until passing
+- In your final response, report what commands were run and whether they passed

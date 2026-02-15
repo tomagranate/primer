@@ -1,0 +1,15 @@
+---
+description: Require tests for logic changes
+alwaysApply: true
+---
+
+# Tests Are Required For Logic Changes
+
+When changing logic, add or update automated tests in the same PR/change.
+
+- New behavior requires tests that verify the new behavior
+- Bug fixes require a regression test that fails before and passes after
+- Refactors that preserve behavior must keep tests passing and update tests only when contracts changed
+- Prefer deterministic tests using local fixtures/mocks over tests coupled to mutable machine config
+- For config parsing tests, use temporary fake configs for most cases and keep only focused sanity checks for real `primer.conf`
+- If tests are missing, do not consider the task complete; add them and run the suite

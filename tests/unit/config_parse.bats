@@ -106,16 +106,6 @@ EOF
     assert_output --partial "jq"
 }
 
-@test "load_config: multi-line values from real primer.conf contain expected entries" {
-    zsh_run '
-        engine::load_config "$PRIMER_DIR/primer.conf"
-        echo "${_mod_config[homebrew.formulae]}"
-    '
-    assert_output --partial "mise"
-    assert_output --partial "starship"
-    assert_output --partial "ripgrep"
-}
-
 @test "load_config: casks multi-line values" {
     cat > "$TEST_CONF" <<'EOF'
 [homebrew]
@@ -198,29 +188,18 @@ EOF
     assert_output "Xcode CLT"
 }
 
-# ── Real config ──────────────────────────────────────────────────────────────
+# ── Real config sanity check ─────────────────────────────────────────────────
 
-@test "load_config: parses real primer.conf with correct module count" {
+@test "load_config: real primer.conf is parseable and has required keys" {
     zsh_run '
         engine::load_config "$PRIMER_DIR/primer.conf"
-        echo "${#_mod_order}"
+        [[ ${_mod_order[(Ie)homebrew]} -gt 0 ]] || { echo "missing:homebrew"; exit 1; }
+        [[ ${_mod_order[(Ie)mise]} -gt 0 ]] || { echo "missing:mise"; exit 1; }
+        [[ -n "${_mod_config[homebrew.formulae]}" ]] || { echo "missing:homebrew.formulae"; exit 1; }
+        [[ -n "${_mod_config[homebrew.casks]}" ]] || { echo "missing:homebrew.casks"; exit 1; }
+        [[ -n "${_mod_config[mise.tools]}" ]] || { echo "missing:mise.tools"; exit 1; }
+        echo "ok"
     '
-    assert_output "7"
-}
-
-@test "load_config: real config has correct module order" {
-    zsh_run '
-        engine::load_config "$PRIMER_DIR/primer.conf"
-        echo "${_mod_order[*]}"
-    '
-    assert_output "xcode homebrew zim starship mise touchid scripts"
-}
-
-@test "load_config: real config parses mas entries with colons" {
-    zsh_run '
-        engine::load_config "$PRIMER_DIR/primer.conf"
-        echo "${_mod_config[homebrew.mas]}"
-    '
-    assert_output --partial "Magnet:441258766"
-    assert_output --partial "Tailscale:1475387142"
+    assert_success
+    assert_output "ok"
 }

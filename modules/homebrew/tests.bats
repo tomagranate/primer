@@ -8,46 +8,75 @@ setup() {
     export TEST_CONFIG_DIR="$TEST_HOME/.config"
     export MOCK_DIR="$PRIMER_DIR/tests/helpers/mocks"
     export MOCK_LOG="$(mktemp)"
+    export TEST_CONF="$(mktemp)"
     export PATH="$MOCK_DIR:$PATH"
+
+    cat > "$TEST_CONF" <<'EOF'
+[homebrew]
+formulae =
+    alpha
+    bravo
+casks =
+    fake-app
+mas =
+    FakeApp:123456789
+EOF
 }
 
 teardown() {
-    rm -rf "$TEST_HOME" "$MOCK_LOG"
+    rm -rf "$TEST_HOME" "$MOCK_LOG" "$TEST_CONF"
+}
+
+run_homebrew_with_conf() {
+    local action="$1"
+    run zsh -c "
+        export PRIMER_DIR='${PRIMER_DIR}'
+        export DRY_RUN='${DRY_RUN:-false}'
+        export MOD_DIR='${PRIMER_DIR}/modules/homebrew'
+        export MOD_NAME='homebrew'
+        export MOD_STATUS_FILE='${TEST_HOME}/mod-status'
+        export CONFIG_DIR='${TEST_CONFIG_DIR:-/tmp/primer-test-config}'
+        export ZSH_CONFIG_DIR='${TEST_CONFIG_DIR:-/tmp/primer-test-config}/zsh'
+        export BIN_DIR='${TEST_BIN_DIR:-/tmp/primer-test-bin}'
+        export HOME='${TEST_HOME:-$HOME}'
+        source \"\$PRIMER_DIR/lib/ui.zsh\"
+        source \"\$PRIMER_DIR/lib/engine.zsh\"
+        engine::load_config '${TEST_CONF}'
+        source \"\$MOD_DIR/module.zsh\"
+        ${action}
+    "
 }
 
 @test "homebrew: dry-run generates Brewfile with formulae" {
     export DRY_RUN=true
-    zsh_run_module homebrew "mod_update"
+    run_homebrew_with_conf "mod_update"
     assert_success
-    assert_output --partial 'brew "fzf"'
-    assert_output --partial 'brew "ripgrep"'
-    assert_output --partial 'brew "mise"'
+    assert_output --partial 'brew "alpha"'
+    assert_output --partial 'brew "bravo"'
 }
 
 @test "homebrew: dry-run generates Brewfile with casks" {
     export DRY_RUN=true
-    zsh_run_module homebrew "mod_update"
+    run_homebrew_with_conf "mod_update"
     assert_success
-    assert_output --partial 'cask "google-chrome"'
-    assert_output --partial 'cask "visual-studio-code"'
+    assert_output --partial 'cask "fake-app"'
 }
 
 @test "homebrew: dry-run generates Brewfile with mas entries" {
     export DRY_RUN=true
-    zsh_run_module homebrew "mod_update"
+    run_homebrew_with_conf "mod_update"
     assert_success
-    assert_output --partial 'mas "Magnet"'
-    assert_output --partial 'mas "Tailscale"'
+    assert_output --partial 'mas "FakeApp", id: 123456789'
 }
 
 @test "homebrew: wet run calls brew bundle" {
-    zsh_run_module homebrew "mod_update"
+    run_homebrew_with_conf "mod_update"
     assert_success
     run grep "brew bundle" "$MOCK_LOG"
     assert_success
 }
 
 @test "homebrew: mod_status uses mock brew --version" {
-    zsh_run_module homebrew "mod_status"
+    run_homebrew_with_conf "mod_status"
     assert_success
 }
