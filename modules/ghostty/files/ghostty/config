@@ -1,0 +1,8 @@
+theme = Firewatch
+macos-titlebar-proxy-icon = hidden
+quit-after-last-window-closed = true
+keybind = cmd+backspace=esc:w
+keybind = cmd+ctrl+left=goto_split:left
+keybind = cmd+ctrl+right=goto_split:right
+keybind = cmd+ctrl+up=goto_split:top
+keybind = cmd+ctrl+down=goto_split:bottom

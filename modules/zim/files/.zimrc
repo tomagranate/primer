@@ -10,6 +10,8 @@ zmodule completion
 zmodule zsh-users/zsh-autosuggestions
 zmodule zsh-users/zsh-syntax-highlighting
 zmodule zsh-users/zsh-history-substring-search
+zmodule zsh-users/zsh-history-substring-search --cmd 'bindkey "^[[A" history-substring-search-up; bindkey "^[[B" history-substring-search-down'
+zmodule jirutka/zsh-shift-select
 zmodule ohmyzsh/ohmyzsh --root plugins/git
 
 # Prompt

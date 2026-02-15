@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Delete local branches that have been merged into the current branch,
+# excluding protected branches (master, main, dev, beta).
+
+git branch --merged \
+  | grep -Ev '(^\*|^\+|master|main|dev|beta)' \
+  | xargs --no-run-if-empty git branch -d
