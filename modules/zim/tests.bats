@@ -58,11 +58,11 @@ teardown() {
     '
     assert_success
 
-    run rg "PRIMER MANAGED START" "$TEST_CONFIG_DIR/zsh/.zshrc"
+    run grep -q "PRIMER MANAGED START" "$TEST_CONFIG_DIR/zsh/.zshrc"
     assert_success
-    run rg "PRIMER MANAGED START" "$TEST_CONFIG_DIR/zsh/.zimrc"
+    run grep -q "PRIMER MANAGED START" "$TEST_CONFIG_DIR/zsh/.zimrc"
     assert_success
-    run rg "PRIMER MANAGED START" "$TEST_CONFIG_DIR/zsh/.zshenv"
+    run grep -q "PRIMER MANAGED START" "$TEST_CONFIG_DIR/zsh/.zshenv"
     assert_success
 }
 
@@ -96,8 +96,23 @@ EOF
     zsh_run_module zim "mod_update"
     assert_success
 
-    run rg "install/master/install.zsh" "$MOCK_LOG"
+    run grep -q "install/master/install.zsh" "$MOCK_LOG"
     assert_failure
-    run rg "releases/latest/download/zimfw.zsh" "$MOCK_LOG"
+    run grep -q "releases/latest/download/zimfw.zsh" "$MOCK_LOG"
+    assert_success
+}
+
+@test "zim: zshrc uses zimfw init command after sourcing" {
+    zsh_run_module zim '
+        deploy_files "$ZSH_CONFIG_DIR"
+    '
+    assert_success
+
+    run grep -qE "source .*zimfw\\.zsh init -q" "$TEST_CONFIG_DIR/zsh/.zshrc"
+    assert_failure
+
+    run grep -qE "source .*zimfw\\.zsh" "$TEST_CONFIG_DIR/zsh/.zshrc"
+    assert_success
+    run grep -q "zimfw init -q" "$TEST_CONFIG_DIR/zsh/.zshrc"
     assert_success
 }
