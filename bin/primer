@@ -32,6 +32,39 @@ primer::download_framework() {
     PRIMER_DIR="$cache"
 }
 
+primer::should_self_update() {
+    [[ "$1" == "update" && "$DRY_RUN" != true && -z "$PRIMER_LOCAL" ]]
+}
+
+primer::self_update() {
+    local target="${BIN_DIR}/primer"
+    local tmp="${target}.tmp.$$"
+    local url="${REPO_RAW}/bin/primer"
+
+    mkdir -p "$BIN_DIR"
+
+    if ! curl -fsSL "$url" -o "$tmp"; then
+        rm -f "$tmp"
+        print "  ✗  Failed to self-update primer CLI" >&2
+        print "     Could not download: $url" >&2
+        return 1
+    fi
+
+    if ! chmod +x "$tmp"; then
+        rm -f "$tmp"
+        print "  ✗  Failed to self-update primer CLI" >&2
+        print "     Could not make executable: $tmp" >&2
+        return 1
+    fi
+
+    if ! mv "$tmp" "$target"; then
+        rm -f "$tmp"
+        print "  ✗  Failed to self-update primer CLI" >&2
+        print "     Could not replace: $target" >&2
+        return 1
+    fi
+}
+
 # ── Help ──────────────────────────────────────────────────────────────────────
 
 primer::help() {
@@ -94,6 +127,11 @@ main() {
     export DRY_RUN
     export SKIP_APP_STORE
 
+    # Keep the launcher itself current before running update.
+    if primer::should_self_update "$command"; then
+        primer::self_update || return 1
+    fi
+
     # Load framework (local or remote)
     if [[ -n "$PRIMER_LOCAL" ]]; then
         PRIMER_DIR="$PRIMER_LOCAL"
@@ -116,4 +154,6 @@ main() {
     esac
 }
 
-main "$@"
+if [[ -z "${PRIMER_SOURCE_ONLY:-}" ]]; then
+    main "$@"
+fi
