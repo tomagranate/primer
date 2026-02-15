@@ -120,19 +120,17 @@ EOF
     assert_success
 }
 
-@test "zim: zshrc uses zimfw init command after sourcing" {
+@test "zim: zshrc sources zimfw with init action" {
     zsh_run_module zim '
         deploy_files "$ZSH_CONFIG_DIR"
     '
     assert_success
 
     run grep -qE "source .*zimfw\\.zsh init -q" "$TEST_CONFIG_DIR/zsh/.zshrc"
-    assert_failure
+    assert_success
 
-    run grep -qE "source .*zimfw\\.zsh" "$TEST_CONFIG_DIR/zsh/.zshrc"
-    assert_success
-    run grep -q "zimfw init -q" "$TEST_CONFIG_DIR/zsh/.zshrc"
-    assert_success
+    run grep -qE "^  source .*zimfw\\.zsh$" "$TEST_CONFIG_DIR/zsh/.zshrc"
+    assert_failure
 }
 
 @test "zim: docker alias defers command substitution to invocation" {
