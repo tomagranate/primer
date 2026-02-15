@@ -5,10 +5,16 @@ mod_update() {
     ensure_brew
 
     if ! command -v mise &>/dev/null; then
-        primer::status_msg "mise not found"
-        echo "mise not found — it should have been installed by homebrew."
-        echo "Try restarting your shell and running: primer update"
-        return 1
+        if [[ "$DRY_RUN" == true ]]; then
+            # In dry-run we model intended actions even if binaries are not installed yet.
+            primer::status_msg "planning runtimes..."
+            echo "[dry-run] mise not found locally; assuming Homebrew install step provides it"
+        else
+            primer::status_msg "mise not found"
+            echo "mise not found — it should have been installed by homebrew."
+            echo "Try restarting your shell and running: primer update"
+            return 1
+        fi
     fi
 
     primer::status_msg "installing runtimes..."

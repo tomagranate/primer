@@ -23,6 +23,25 @@ teardown() {
     assert_output --partial "mise use --global bun@latest"
 }
 
+@test "mise: dry-run succeeds when mise is not installed" {
+    local fakebin
+    fakebin="$(mktemp -d)"
+
+    cat > "${fakebin}/brew" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+    chmod +x "${fakebin}/brew"
+
+    export DRY_RUN=true
+    export PATH="${fakebin}:/usr/bin:/bin:/usr/sbin:/sbin"
+
+    zsh_run_module mise "mod_update"
+    assert_success
+    assert_output --partial "assuming Homebrew install step provides it"
+    assert_output --partial "mise use --global node@lts"
+}
+
 @test "mise: wet run calls mise use for each tool" {
     zsh_run_module mise "mod_update"
     assert_success
