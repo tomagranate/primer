@@ -1,8 +1,0 @@
-- name: Install Bun
-  ansible.builtin.shell:
-    cmd: 'mise use --global --yes bun@{{ bun_version }}'
-
-- name: Install global Bun packages
-  ansible.builtin.shell:
-    cmd: 'bun install --global {{ item }}'
-  loop: '{{ bun_global_packages }}'

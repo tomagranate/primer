@@ -1,0 +1,12 @@
+# ShellCheck configuration
+# https://www.shellcheck.net/wiki/
+
+# setup.sh is the only POSIX sh file; the rest are zsh
+# SC2039: allow 'local' in sh (widely supported)
+disable=SC2039
+
+# SC1091: don't follow sourced files (they may not exist at lint time)
+disable=SC1091
+
+# SC3000-SC3999: zsh-specific features are intentional
+disable=SC3030,SC3010,SC3001,SC3054

@@ -1,0 +1,28 @@
+# Starship prompt configuration
+# Docs: https://starship.rs/config/
+
+# Reduce delay when checking for commands
+command_timeout = 500
+
+[character]
+success_symbol = "[>](bold green)"
+error_symbol = "[>](bold red)"
+
+[directory]
+truncation_length = 3
+truncate_to_repo = true
+
+[git_branch]
+format = "[$symbol$branch(:$remote_branch)]($style) "
+
+[git_status]
+format = '([$all_status$ahead_behind]($style) )'
+
+[nodejs]
+format = "[$symbol($version)]($style) "
+
+[python]
+format = "[$symbol($version)]($style) "
+
+[bun]
+format = "[$symbol($version)]($style) "

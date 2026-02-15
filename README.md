@@ -1,39 +1,205 @@
-# Personal Setup
+# primer
 
-This repo includes an ansible playbook and some scripts to setup my environment on a new Mac.
+Modular, DAG-based Mac setup. One command to install everything, with parallel execution and a rich terminal UI.
 
-**`setup.sh`**: This is the main script that you should run to setup your environment. It will install key ansible dependencies, prompt you for your password and then run the ansible playbook.
+## Quick Start
 
-```bash
-./setup.sh
-
-# For more usage information
-./setup.sh --help
+```sh
+curl -fsSL https://raw.githubusercontent.com/tomagranate/primer/main/setup.sh | sh
 ```
 
----
+Preview what would happen without making changes:
 
-**`scripts/save-system-state.sh`**: This script will save the settings for certain applications into this repo.
-
-**`scripts/restore-system-state.sh`**: This script will restore the settings for certain applications from this repo.
-
-```bash
-./scripts/save-system-state.sh
-./scripts/restore-system-state.sh
+```sh
+curl -fsSL https://raw.githubusercontent.com/tomagranate/primer/main/setup.sh | sh -s -- --dry-run
 ```
+
+## Commands
+
+After the initial setup, `primer` is installed to `~/bin/`:
+
+```sh
+primer update              # Re-run everything (idempotent)
+primer update --dry-run    # Preview changes
+primer status              # Check what's installed and healthy
+primer --help              # Show all commands
+```
+
+## What It Does
+
+Modules run in parallel as a DAG -- each starts as soon as its dependencies are met:
+
+| Module | Depends On | What It Does |
+| --- | --- | --- |
+| **xcode** | -- | Installs Xcode Command Line Tools |
+| **homebrew** | xcode | Installs Homebrew + all formulae, casks, and MAS apps |
+| **zim** | homebrew | Deploys zsh configs, symlinks .zshenv, installs Zim |
+| **starship** | homebrew | Deploys starship.toml to ~/.config/ |
+| **mise** | homebrew | Installs language runtimes (Node, Python, Bun) |
+| **touchid** | -- | Enables Touch ID for sudo |
+| **scripts** | -- | Installs custom scripts to ~/bin/ |
+
+## Architecture
+
+Each module is a **self-contained folder** that owns its config files, scripts, and install logic. `primer.conf` is an INI-style config that activates modules and holds their data (brew packages, mise tools, etc.).
+
+```
+├── setup.sh                      # Bootstrap (curl-able, installs primer CLI)
+├── primer.conf                   # INI config (modules + deps + per-module settings)
+├── lib/
+│   ├── engine.zsh                # Ready-queue DAG executor + INI parser
+│   └── ui.zsh                    # Terminal UI (spinners, boxes, colors, helpers)
+├── modules/
+│   ├── xcode/
+│   │   └── module.zsh
+│   ├── homebrew/
+│   │   └── module.zsh            # Generates Brewfile from config, runs brew bundle
+│   ├── zim/
+│   │   ├── module.zsh
+│   │   └── files/                # .zshenv, .zshrc, .zimrc
+│   ├── starship/
+│   │   ├── module.zsh
+│   │   └── files/                # starship.toml
+│   ├── mise/
+│   │   └── module.zsh            # Installs tools from config via mise use --global
+│   ├── touchid/
+│   │   └── module.zsh
+│   └── scripts/
+│       ├── module.zsh
+│       └── bin/                   # rgf, etc.
+└── bin/
+    └── primer                     # CLI entry point
+```
+
+## Adding a Module
+
+### Simple module (config file deployment)
+
+1. Create `modules/<name>/files/` with your config files
+2. Write a 5-line `module.zsh`:
+
+```zsh
+mod_update() {
+    deploy_files "$CONFIG_DIR/<name>"
+    primer::status_msg "configured"
+}
+mod_status() {
+    check_files "$CONFIG_DIR/<name>"
+}
+```
+
+3. Add a section to `primer.conf`:
+
+```ini
+[name]
+label = Display Name
+depends_on = homebrew  # optional
+```
+
+### Complex module (custom logic)
+
+Write `mod_update()` and `mod_status()` with whatever logic you need. Use `mod_config <key>` to read values from `primer.conf`.
+
+## Configuration
+
+All module settings live in `primer.conf`. Each `[section]` activates a module. Remove a section to disable it. Indented lines continue the previous key's value.
+
+```ini
+[homebrew]
+label = Homebrew
+depends_on = xcode
+formulae =
+    mise
+    starship
+    fzf
+casks =
+    google-chrome
+    slack
+mas =
+    Magnet:441258766
+
+[mise]
+label = Mise languages
+depends_on = homebrew
+tools =
+    node:lts
+    python:3.12
+    bun:latest
+```
+
+## Config Locations (on your Mac)
+
+| What | Where |
+| --- | --- |
+| Zsh config | `~/.config/zsh/.zshrc` |
+| Zim modules | `~/.config/zsh/.zimrc` |
+| Starship prompt | `~/.config/starship.toml` |
+| Custom scripts | `~/bin/` |
 
 ## Development
 
-To test your changes, the following might be helpful tips:
+Use a local checkout instead of fetching from GitHub:
 
-- Manually add the `--check` arg to the `ansible-playbook` call in setup.sh. This causes ansible to perform a dry run. Other parts of the script will still run as usual and a dry run might not be as good a test as a full run. It might be faster, though.
-- Call `ansible-playbook` with the `--tags "..."` or `--skip-tags "..."` args to limit the scope of the playbook run. This can be useful if you're working on a specific part of the playbook and don't want to wait for the whole thing to run. See which tags are available by reviewing the `common` role's task files.
-- (Advanced) try [UTM](https://getutm.app/), which includes a handy wrapper over Apple's virtualization APIs. This allows you to [run a MacOS guest VM on MacOS](https://docs.getutm.app/guest-support/macos/).
+```sh
+PRIMER_LOCAL=/path/to/primer primer update
+PRIMER_LOCAL=/path/to/primer primer status
+```
 
-#### Some quick notes on using UTM
+## Testing
 
-- The IPSW image that UTM downloads by default doesn't seem to work (as of 2023-06-13). You can download IPSW files direct from Apple's CDN instead of potentially-shady 3rd paty sites. [Here's a sample one](https://updates.cdn-apple.com/2023SpringFCS/fullrestores/032-84884/F97A22EE-9B5E-4FD5-94C1-B39DCEE8D80F/UniversalMac_13.4_22F66_Restore.ipsw).
-- I recommend changing the wallpaper in your guest VM to something distinctive so that it's harder to mistake it for your actual OS.
-- Letting the devenv script download Apple's "Command line tools" package may be very slow. I recommend downloading it yourself, though you may need an Apple developer account to do so. This means that your testing won't properly cover this part of the script.
-- You can temporarily enable MacOS File Sharing (in System Settings -> General -> Sharing) to share your devenv repo and the command line tools file into the guest VM. I don't recommend leaving MacOS File Sharing running permanently, especially if you're connecting to public wifi. It's handy to mount it as a share so you can just check out branches as you need them on your host OS. If your guest VM has different login credentials than your host, you should use "Connect as" in Finder on the guest to log in as a real user available on the host.
-- For a productive workflow, you should create a "base" VM, with the initial MacOS setup complete, the wallpaper changed, and the command line tools installed. Do not run the devenv script yet and make no further changes to this VM, but create a distinctive name for it in UTM ("DO NOT BOOT READONLY MacOS Base"), and mark its drive as "Read-only" in settings. The image will no longer be bootable. When you want to test, make a clone of the base VM, remove the "Read-only" flag on your cloned image, run your tests, and delete the clone. Clone the MacOS Base again any time you want a test with a fresh install.
+Tests use [BATS-core](https://github.com/bats-core/bats-core). Unit tests live in `tests/unit/`, module tests are co-located in `modules/<name>/tests.bats`.
+
+### Setup
+
+```sh
+brew install bats-core
+git clone --depth 1 https://github.com/bats-core/bats-support.git tests/helpers/bats-support
+git clone --depth 1 https://github.com/bats-core/bats-assert.git tests/helpers/bats-assert
+```
+
+### Running tests
+
+```sh
+# Everything (unit + module + dry-run smoke)
+bats tests/unit/ tests/dry_run.bats modules/*/tests.bats
+
+# Unit tests only
+bats tests/unit/
+
+# Single module
+bats modules/starship/tests.bats
+
+# Dry-run smoke test
+bats tests/dry_run.bats
+```
+
+### Wet-run testing (macOS VM)
+
+For full end-to-end validation on a clean macOS, use [Tart](https://github.com/cirruslabs/tart):
+
+```sh
+brew install cirruslabs/cli/tart
+tart clone ghcr.io/cirruslabs/macos-sequoia-base:latest primer-test
+tart run primer-test
+```
+
+Inside the VM:
+
+```sh
+# Test the bootstrap flow
+curl -fsSL https://raw.githubusercontent.com/tomagranate/primer/main/setup.sh | sh
+
+# Or test from a local checkout
+git clone https://github.com/tomagranate/primer.git && cd primer
+PRIMER_LOCAL=$PWD ./bin/primer update
+./bin/primer status
+```
+
+Reset to a clean slate with `tart delete primer-test` and re-clone.
+
+## Shell Stack
+
+- **Zsh** with [Zim](https://zimfw.sh/) for plugin management
+- **[Starship](https://starship.rs/)** prompt (via `joke/zim-starship` module)
+- Plugins: autosuggestions, syntax highlighting, history substring search, git aliases
+- **[mise](https://mise.jdx.dev/)** for managing Node, Python, and Bun versions

@@ -1,0 +1,10 @@
+#!/bin/sh
+# Mock mise -- logs invocations and exits 0
+echo "mise $*" >> "${MOCK_LOG:-/dev/null}"
+
+# Simulate list for mod_status checks
+case "$1" in
+    list) echo "node   lts    ~/.local/share/mise/installs/node/lts" ;;
+esac
+
+exit 0

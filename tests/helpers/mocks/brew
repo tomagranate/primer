@@ -1,0 +1,10 @@
+#!/bin/sh
+# Mock brew -- logs invocations and exits 0
+echo "brew $*" >> "${MOCK_LOG:-/dev/null}"
+
+# Simulate --version for mod_status checks
+case "$1" in
+    --version) echo "Homebrew 4.0.0-mock" ;;
+esac
+
+exit 0

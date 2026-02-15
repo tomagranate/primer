@@ -1,5 +1,0 @@
-- name: Install global Python packages
-  community.general.pipx:
-    executable: /usr/local/bin/pipx
-    name: '{{ item }}'
-  loop: '{{ python_global_packages }}'

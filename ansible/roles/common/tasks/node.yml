@@ -1,8 +1,0 @@
-- name: Install NodeJS
-  ansible.builtin.shell:
-    cmd: 'mise use --global nodejs@{{ node_version }}'
-
-- name: Install global NodeJS packages
-  ansible.builtin.shell:
-    cmd: 'pnpm install -g {{ item }}'
-  loop: '{{ node_global_packages }}'

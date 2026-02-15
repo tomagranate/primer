@@ -1,0 +1,16 @@
+#!/bin/sh
+# Mock xcode-select -- logs invocations
+echo "xcode-select $*" >> "${MOCK_LOG:-/dev/null}"
+
+# Simulate already-installed by default; set MOCK_XCODE_MISSING=1 to simulate missing
+if [ "${MOCK_XCODE_MISSING:-0}" = "1" ]; then
+    case "$1" in
+        -p) exit 2 ;;   # not installed
+    esac
+else
+    case "$1" in
+        -p) echo "/Library/Developer/CommandLineTools"; exit 0 ;;
+    esac
+fi
+
+exit 0

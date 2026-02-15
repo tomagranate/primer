@@ -1,0 +1,16 @@
+# Behaviour
+zmodule environment
+zmodule input
+
+# Completions
+zmodule zsh-users/zsh-completions --fpath src
+zmodule completion
+
+# Plugins
+zmodule zsh-users/zsh-autosuggestions
+zmodule zsh-users/zsh-syntax-highlighting
+zmodule zsh-users/zsh-history-substring-search
+zmodule ohmyzsh/ohmyzsh --root plugins/git
+
+# Prompt
+zmodule joke/zim-starship

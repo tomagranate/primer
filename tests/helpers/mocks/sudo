@@ -1,0 +1,19 @@
+#!/bin/sh
+# Mock sudo -- logs invocations and exits 0
+echo "sudo $*" >> "${MOCK_LOG:-/dev/null}"
+
+# Pass through to the command if given one (for sudo tee, etc.)
+# but don't actually use real sudo
+if [ "$1" = "-n" ]; then
+    exit 0
+elif [ "$1" = "-v" ]; then
+    exit 0
+fi
+
+# For 'sudo tee' or other commands, just consume stdin
+shift
+if [ $# -gt 0 ]; then
+    cat > /dev/null
+fi
+
+exit 0

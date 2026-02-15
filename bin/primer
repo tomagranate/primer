@@ -1,0 +1,109 @@
+#!/bin/zsh
+# primer -- CLI for managing your Mac setup
+# https://github.com/tomagranate/primer
+set -eo pipefail
+
+# ── Configuration ─────────────────────────────────────────────────────────────
+
+export REPO_URL="https://github.com/tomagranate/primer"
+export REPO_RAW="https://raw.githubusercontent.com/tomagranate/primer/main"
+export CONFIG_DIR="$HOME/.config"
+export ZSH_CONFIG_DIR="$CONFIG_DIR/zsh"
+export BIN_DIR="$HOME/bin"
+
+typeset -g PRIMER_DIR=""   # Set after download or from PRIMER_LOCAL
+typeset -g DRY_RUN=false
+
+# ── Framework Download ────────────────────────────────────────────────────────
+
+primer::download_framework() {
+    local cache="$HOME/.cache/primer"
+    mkdir -p "$cache"
+
+    # Download the entire repo as a tarball and extract
+    if ! curl -fsSL "$REPO_URL/archive/refs/heads/main.tar.gz" \
+        | tar -xzf - -C "$cache" --strip-components=1 2>/dev/null; then
+        print "  ✗  Failed to download primer framework" >&2
+        print "     Check your internet connection and try again." >&2
+        return 1
+    fi
+
+    PRIMER_DIR="$cache"
+}
+
+# ── Help ──────────────────────────────────────────────────────────────────────
+
+primer::help() {
+    cat <<'EOF'
+primer -- Mac setup manager
+
+Usage:
+  primer <command> [flags]
+
+Commands:
+  update      Install/update everything (idempotent)
+  status      Check what's installed and healthy
+
+Flags:
+  --dry-run   Preview changes without applying them (update only)
+  --help      Show this help message
+
+Examples:
+  primer update              # Run the full setup
+  primer update --dry-run    # Preview what would happen
+  primer status              # Check current state
+
+Environment:
+  PRIMER_LOCAL=/path/to/repo   Use a local checkout instead of GitHub
+EOF
+}
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
+main() {
+    local command=""
+
+    # Parse arguments
+    for arg in "$@"; do
+        case "$arg" in
+            update|status)  command="$arg" ;;
+            --dry-run)      DRY_RUN=true ;;
+            --help|-h|help) primer::help; return 0 ;;
+            *)
+                print "Unknown argument: $arg" >&2
+                print "Run 'primer --help' for usage." >&2
+                return 1
+                ;;
+        esac
+    done
+
+    if [[ -z "$command" ]]; then
+        primer::help
+        return 0
+    fi
+
+    export DRY_RUN
+
+    # Load framework (local or remote)
+    if [[ -n "$PRIMER_LOCAL" ]]; then
+        PRIMER_DIR="$PRIMER_LOCAL"
+    else
+        primer::download_framework || return 1
+    fi
+    export PRIMER_DIR
+
+    # Source engine and UI
+    source "$PRIMER_DIR/lib/ui.zsh"
+    source "$PRIMER_DIR/lib/engine.zsh"
+
+    # Load the DAG config
+    engine::load_config "$PRIMER_DIR/primer.conf"
+
+    # Dispatch
+    case "$command" in
+        update) engine::run_update ;;
+        status) engine::run_status ;;
+    esac
+}
+
+main "$@"
