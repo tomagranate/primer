@@ -13,6 +13,8 @@ setup() {
 
     cat > "$TEST_CONF" <<'EOF'
 [homebrew]
+taps =
+    owner/tap
 formulae =
     alpha
     bravo
@@ -32,6 +34,7 @@ run_homebrew_with_conf() {
     run zsh -c "
         export PRIMER_DIR='${PRIMER_DIR}'
         export DRY_RUN='${DRY_RUN:-false}'
+        export SKIP_APP_STORE='${SKIP_APP_STORE:-false}'
         export MOD_DIR='${PRIMER_DIR}/modules/homebrew'
         export MOD_NAME='homebrew'
         export MOD_STATUS_FILE='${TEST_HOME}/mod-status'
@@ -55,6 +58,13 @@ run_homebrew_with_conf() {
     assert_output --partial 'brew "bravo"'
 }
 
+@test "homebrew: dry-run generates Brewfile with taps" {
+    export DRY_RUN=true
+    run_homebrew_with_conf "mod_update"
+    assert_success
+    assert_output --partial 'tap "owner/tap"'
+}
+
 @test "homebrew: dry-run generates Brewfile with casks" {
     export DRY_RUN=true
     run_homebrew_with_conf "mod_update"
@@ -67,6 +77,14 @@ run_homebrew_with_conf() {
     run_homebrew_with_conf "mod_update"
     assert_success
     assert_output --partial 'mas "FakeApp", id: 123456789'
+}
+
+@test "homebrew: dry-run skips mas entries when skip flag set" {
+    export DRY_RUN=true
+    export SKIP_APP_STORE=true
+    run_homebrew_with_conf "mod_update"
+    assert_success
+    refute_output --partial 'mas "FakeApp", id: 123456789'
 }
 
 @test "homebrew: wet run calls brew bundle" {

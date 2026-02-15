@@ -51,3 +51,15 @@ load '../helpers/common'
     assert_success
     assert_output --partial "Usage"
 }
+
+@test "cli: --skip-app-store alone (no command) shows help" {
+    run zsh "$PRIMER_DIR/bin/primer" --skip-app-store
+    assert_success
+    assert_output --partial "Usage"
+}
+
+@test "cli: --skip-app-store is rejected for status" {
+    run zsh "$PRIMER_DIR/bin/primer" status --skip-app-store
+    assert_failure
+    assert_output --partial "only valid with 'update'"
+}

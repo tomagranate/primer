@@ -17,12 +17,15 @@ mod_update() {
     primer::status_msg "installing packages..."
     local brewfile="$(mktemp)"
     local item
+    for item in $(mod_config taps); do echo "tap \"$item\"" >> "$brewfile"; done
     for item in $(mod_config formulae); do echo "brew \"$item\"" >> "$brewfile"; done
     for item in $(mod_config casks);    do echo "cask \"$item\"" >> "$brewfile"; done
-    for item in $(mod_config mas); do
-        local name="${item%%:*}" id="${item#*:}"
-        echo "mas \"$name\", id: $id" >> "$brewfile"
-    done
+    if [[ "$SKIP_APP_STORE" != true ]]; then
+        for item in $(mod_config mas); do
+            local name="${item%%:*}" id="${item#*:}"
+            echo "mas \"$name\", id: $id" >> "$brewfile"
+        done
+    fi
 
     if [[ "$DRY_RUN" == true ]]; then
         echo "[dry-run] brew bundle with:"

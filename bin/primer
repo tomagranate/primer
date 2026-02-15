@@ -13,6 +13,7 @@ export BIN_DIR="$HOME/bin"
 
 typeset -g PRIMER_DIR=""   # Set after download or from PRIMER_LOCAL
 typeset -g DRY_RUN=false
+typeset -g SKIP_APP_STORE=false
 
 # ── Framework Download ────────────────────────────────────────────────────────
 
@@ -46,11 +47,13 @@ Commands:
 
 Flags:
   --dry-run   Preview changes without applying them (update only)
+  --skip-app-store  Skip App Store installs (update only)
   --help      Show this help message
 
 Examples:
   primer update              # Run the full setup
   primer update --dry-run    # Preview what would happen
+  primer update --skip-app-store  # Skip App Store installs
   primer status              # Check current state
 
 Environment:
@@ -68,6 +71,7 @@ main() {
         case "$arg" in
             update|status)  command="$arg" ;;
             --dry-run)      DRY_RUN=true ;;
+            --skip-app-store) SKIP_APP_STORE=true ;;
             --help|-h|help) primer::help; return 0 ;;
             *)
                 print "Unknown argument: $arg" >&2
@@ -82,7 +86,13 @@ main() {
         return 0
     fi
 
+    if [[ "$SKIP_APP_STORE" == true && "$command" != "update" ]]; then
+        print -- "--skip-app-store is only valid with 'update'." >&2
+        return 1
+    fi
+
     export DRY_RUN
+    export SKIP_APP_STORE
 
     # Load framework (local or remote)
     if [[ -n "$PRIMER_LOCAL" ]]; then

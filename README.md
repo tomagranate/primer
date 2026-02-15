@@ -14,15 +14,37 @@ Preview what would happen without making changes:
 curl -fsSL https://raw.githubusercontent.com/tomagranate/primer/main/setup.sh | sh -s -- --dry-run
 ```
 
-## Commands
+## Commands and Options
 
 After the initial setup, `primer` is installed to `~/bin/`:
 
 ```sh
-primer update              # Re-run everything (idempotent)
-primer update --dry-run    # Preview changes
-primer status              # Check what's installed and healthy
-primer --help              # Show all commands
+primer <command> [options]
+```
+
+### Commands
+
+- `update` - install/update all enabled modules (idempotent)
+- `status` - check install/health status for all enabled modules
+- `help` - show help text (same as `--help`/`-h`)
+
+### Options
+
+- `--dry-run` - preview changes without applying them (valid with `update`)
+- `--skip-app-store` - skip App Store (`mas`) installs (valid with `update`)
+- `--help` - show help text
+- `-h` - show help text
+
+### Examples
+
+```sh
+primer update
+primer update --dry-run
+primer update --skip-app-store
+primer status
+primer --help
+primer -h
+primer help
 ```
 
 ## What It Does
@@ -108,10 +130,13 @@ All module settings live in `primer.conf`. Each `[section]` activates a module. 
 [homebrew]
 label = Homebrew
 depends_on = xcode
+taps =
+    tomagranate/tap
 formulae =
     mise
     starship
     fzf
+    corsa
 casks =
     google-chrome
     slack
@@ -196,10 +221,3 @@ PRIMER_LOCAL=$PWD ./bin/primer update
 ```
 
 Reset to a clean slate with `tart delete primer-test` and re-clone.
-
-## Shell Stack
-
-- **Zsh** with [Zim](https://zimfw.sh/) for plugin management
-- **[Starship](https://starship.rs/)** prompt (via `joke/zim-starship` module)
-- Plugins: autosuggestions, syntax highlighting, history substring search, git aliases
-- **[mise](https://mise.jdx.dev/)** for managing Node, Python, and Bun versions
