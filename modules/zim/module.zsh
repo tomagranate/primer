@@ -6,6 +6,14 @@ mod_update() {
     primer::status_msg "deploying configs..."
     deploy_files "$ZSH_CONFIG_DIR"
 
+    # Hide "Last login ..." banner in new terminal sessions.
+    local hushlogin="$HOME/.hushlogin"
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "[dry-run] touch $hushlogin"
+    else
+        [[ -f "$hushlogin" ]] || touch "$hushlogin"
+    fi
+
     # Symlink ~/.zshenv -> $ZSH_CONFIG_DIR/.zshenv
     local target="$ZSH_CONFIG_DIR/.zshenv" link="$HOME/.zshenv"
     if [[ ! -L "$link" ]] || [[ "$(readlink "$link")" != "$target" ]]; then

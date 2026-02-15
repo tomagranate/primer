@@ -42,7 +42,7 @@ alias ll="ls -lah"
 alias du="dust"
 alias df="duf"
 alias top="htop"
-alias docker-kill-all="docker stop $(docker ps -q) && docker rm $(docker ps -aq)"
+alias docker-kill-all='docker stop $(docker ps -q) && docker rm $(docker ps -aq)'
 alias port="lsof -i -P | grep LISTEN | grep $1"
 alias editrc="nvim ~/.zshrc"
 

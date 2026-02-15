@@ -27,6 +27,14 @@ teardown() {
     assert_output --partial "dry-run"
 }
 
+@test "zim: dry-run plans creating hushlogin" {
+    export DRY_RUN=true
+    zsh_run_module zim "mod_update"
+    assert_success
+    assert_output --partial "[dry-run] touch"
+    assert_output --partial ".hushlogin"
+}
+
 @test "zim: deploys config files to ZSH_CONFIG_DIR" {
     # Use dry-run for the Zim install part but test deploy_files separately
     # We can't test the full wet path without real Zim, but we CAN test file deployment
@@ -114,5 +122,18 @@ EOF
     run grep -qE "source .*zimfw\\.zsh" "$TEST_CONFIG_DIR/zsh/.zshrc"
     assert_success
     run grep -q "zimfw init -q" "$TEST_CONFIG_DIR/zsh/.zshrc"
+    assert_success
+}
+
+@test "zim: docker alias defers command substitution to invocation" {
+    zsh_run_module zim '
+        deploy_files "$ZSH_CONFIG_DIR"
+    '
+    assert_success
+
+    run grep -q 'alias docker-kill-all="docker stop \$(docker ps -q) && docker rm \$(docker ps -aq)"' "$TEST_CONFIG_DIR/zsh/.zshrc"
+    assert_failure
+
+    run grep -q "alias docker-kill-all='docker stop \$(docker ps -q) && docker rm \$(docker ps -aq)'" "$TEST_CONFIG_DIR/zsh/.zshrc"
     assert_success
 }
