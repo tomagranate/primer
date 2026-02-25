@@ -330,28 +330,6 @@ engine::run_update() {
             fi
         fi
     fi
-    # Pre-check App Store sign-in if mac-app-store module is active and mas is available
-    if [[ "$DRY_RUN" != true ]] \
-        && (( ${_mod_order[(I)mac-app-store]} )) \
-        && [[ " ${PRIMER_SKIP} " != *" mac-app-store "* ]] \
-        && command -v mas &>/dev/null; then
-        if ! mas account &>/dev/null; then
-            print ""
-            print "  ${C_YELLOW}App Store sign-in required.${C_RESET}"
-            print "  ${C_DIM}Open the App Store app and sign in, then press Enter to continue.${C_RESET}"
-            print "  ${C_DIM}Or press 's' to skip (equivalent to --skip mac-app-store).${C_RESET}"
-            local _choice=""
-            if [[ -t 0 ]]; then
-                read -r -k1 "_choice?  > "
-            elif [[ -e /dev/tty ]]; then
-                read -r -k1 "_choice?  > " </dev/tty
-            fi
-            print ""
-            if [[ "$_choice" == "s" || "$_choice" == "S" ]]; then
-                PRIMER_SKIP="${PRIMER_SKIP:+$PRIMER_SKIP }mac-app-store"
-            fi
-        fi
-    fi
 
     print ""
     ui::box "$title" "$header_color"
