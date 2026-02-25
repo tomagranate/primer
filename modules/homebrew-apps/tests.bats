@@ -45,6 +45,8 @@ run_homebrew_apps_with_conf() {
     "
 }
 
+# ── dry-run ───────────────────────────────────────────────────────────────────
+
 @test "homebrew-apps: dry-run installs each cask individually" {
     export DRY_RUN=true
     run_homebrew_apps_with_conf "mod_update"
@@ -59,6 +61,8 @@ run_homebrew_apps_with_conf() {
     assert_success
     refute_output --partial 'brew bundle'
 }
+
+# ── wet run: not installed (default mock state) ───────────────────────────────
 
 @test "homebrew-apps: wet run calls brew install --cask for each app" {
     run_homebrew_apps_with_conf "mod_update"
@@ -77,6 +81,76 @@ run_homebrew_apps_with_conf() {
     run grep "done:another-app" "$MOD_ITEMS_FILE"
     assert_success
 }
+
+# ── wet run: already installed and outdated → upgrade ─────────────────────────
+
+@test "homebrew-apps: wet run upgrades cask when installed and outdated" {
+    export MOCK_BREW_INSTALLED_CASKS="fake-app another-app"
+    export MOCK_BREW_OUTDATED_CASKS="fake-app"
+    run_homebrew_apps_with_conf "mod_update"
+    assert_success
+    run grep "brew upgrade --cask fake-app" "$MOCK_LOG"
+    assert_success
+}
+
+@test "homebrew-apps: wet run does not reinstall cask when upgrading" {
+    export MOCK_BREW_INSTALLED_CASKS="fake-app another-app"
+    export MOCK_BREW_OUTDATED_CASKS="fake-app"
+    run_homebrew_apps_with_conf "mod_update"
+    assert_success
+    run grep "brew install --cask fake-app" "$MOCK_LOG"
+    assert_failure
+}
+
+# ── wet run: already installed and up to date → skip ─────────────────────────
+
+@test "homebrew-apps: wet run skips cask when already up to date" {
+    export MOCK_BREW_INSTALLED_CASKS="fake-app another-app"
+    run_homebrew_apps_with_conf "mod_update"
+    assert_success
+    run grep -E "brew (install|upgrade) .* fake-app" "$MOCK_LOG"
+    assert_failure
+    run grep -E "brew (install|upgrade) .* another-app" "$MOCK_LOG"
+    assert_failure
+}
+
+@test "homebrew-apps: items file marks up-to-date casks as done" {
+    export MOCK_BREW_INSTALLED_CASKS="fake-app another-app"
+    run_homebrew_apps_with_conf "mod_update"
+    assert_success
+    run grep "done:fake-app" "$MOD_ITEMS_FILE"
+    assert_success
+    run grep "done:another-app" "$MOD_ITEMS_FILE"
+    assert_success
+}
+
+# ── failure propagation ───────────────────────────────────────────────────────
+
+@test "homebrew-apps: mod_update fails when a cask install fails" {
+    export MOCK_BREW_FAIL_PACKAGES="fake-app"
+    run_homebrew_apps_with_conf "mod_update"
+    assert_failure
+}
+
+@test "homebrew-apps: items file marks failed cask as failed" {
+    export MOCK_BREW_FAIL_PACKAGES="fake-app"
+    run_homebrew_apps_with_conf "mod_update"
+    assert_failure
+    run grep "failed:fake-app" "$MOD_ITEMS_FILE"
+    assert_success
+}
+
+@test "homebrew-apps: mod_update fails when a cask upgrade fails" {
+    export MOCK_BREW_INSTALLED_CASKS="fake-app"
+    export MOCK_BREW_OUTDATED_CASKS="fake-app"
+    export MOCK_BREW_FAIL_PACKAGES="fake-app"
+    run_homebrew_apps_with_conf "mod_update"
+    assert_failure
+    run grep "failed:fake-app" "$MOD_ITEMS_FILE"
+    assert_success
+}
+
+# ── status ────────────────────────────────────────────────────────────────────
 
 @test "homebrew-apps: mod_status succeeds with mock brew" {
     run_homebrew_apps_with_conf "mod_status"

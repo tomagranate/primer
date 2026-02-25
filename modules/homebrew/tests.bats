@@ -47,6 +47,8 @@ run_homebrew_with_conf() {
     "
 }
 
+# ── dry-run ───────────────────────────────────────────────────────────────────
+
 @test "homebrew: calls brew update before installing" {
     export DRY_RUN=true
     run_homebrew_with_conf "mod_update"
@@ -76,6 +78,8 @@ run_homebrew_with_conf() {
     refute_output --partial 'brew bundle'
 }
 
+# ── wet run: not installed (default mock state) ───────────────────────────────
+
 @test "homebrew: wet run calls brew install for each formula" {
     run_homebrew_with_conf "mod_update"
     assert_success
@@ -102,6 +106,84 @@ run_homebrew_with_conf() {
     run grep "done:owner/tap" "$MOD_ITEMS_FILE"
     assert_success
 }
+
+# ── wet run: already installed and outdated → upgrade ─────────────────────────
+
+@test "homebrew: wet run upgrades formula when installed and outdated" {
+    export MOCK_BREW_INSTALLED_FORMULAE="alpha bravo"
+    export MOCK_BREW_OUTDATED_FORMULAE="alpha"
+    run_homebrew_with_conf "mod_update"
+    assert_success
+    run grep "brew upgrade alpha" "$MOCK_LOG"
+    assert_success
+}
+
+@test "homebrew: wet run does not reinstall formula when upgrading" {
+    export MOCK_BREW_INSTALLED_FORMULAE="alpha bravo"
+    export MOCK_BREW_OUTDATED_FORMULAE="alpha"
+    run_homebrew_with_conf "mod_update"
+    assert_success
+    run grep "brew install alpha" "$MOCK_LOG"
+    assert_failure
+}
+
+# ── wet run: already installed and up to date → skip ─────────────────────────
+
+@test "homebrew: wet run skips formula when already up to date" {
+    export MOCK_BREW_INSTALLED_FORMULAE="alpha bravo"
+    run_homebrew_with_conf "mod_update"
+    assert_success
+    run grep -E "brew (install|upgrade) alpha" "$MOCK_LOG"
+    assert_failure
+    run grep -E "brew (install|upgrade) bravo" "$MOCK_LOG"
+    assert_failure
+}
+
+@test "homebrew: items file marks up-to-date formulae as done" {
+    export MOCK_BREW_INSTALLED_FORMULAE="alpha bravo"
+    run_homebrew_with_conf "mod_update"
+    assert_success
+    run grep "done:alpha" "$MOD_ITEMS_FILE"
+    assert_success
+    run grep "done:bravo" "$MOD_ITEMS_FILE"
+    assert_success
+}
+
+@test "homebrew: wet run skips tap when already tapped" {
+    export MOCK_BREW_INSTALLED_TAPS="owner/tap"
+    run_homebrew_with_conf "mod_update"
+    assert_success
+    run grep "brew tap owner/tap" "$MOCK_LOG"
+    assert_failure
+}
+
+# ── failure propagation ───────────────────────────────────────────────────────
+
+@test "homebrew: mod_update fails when a formula install fails" {
+    export MOCK_BREW_FAIL_PACKAGES="alpha"
+    run_homebrew_with_conf "mod_update"
+    assert_failure
+}
+
+@test "homebrew: items file marks failed formula as failed" {
+    export MOCK_BREW_FAIL_PACKAGES="alpha"
+    run_homebrew_with_conf "mod_update"
+    assert_failure
+    run grep "failed:alpha" "$MOD_ITEMS_FILE"
+    assert_success
+}
+
+@test "homebrew: mod_update fails when a formula upgrade fails" {
+    export MOCK_BREW_INSTALLED_FORMULAE="alpha"
+    export MOCK_BREW_OUTDATED_FORMULAE="alpha"
+    export MOCK_BREW_FAIL_PACKAGES="alpha"
+    run_homebrew_with_conf "mod_update"
+    assert_failure
+    run grep "failed:alpha" "$MOD_ITEMS_FILE"
+    assert_success
+}
+
+# ── status ────────────────────────────────────────────────────────────────────
 
 @test "homebrew: mod_status uses mock brew --version" {
     run_homebrew_with_conf "mod_status"

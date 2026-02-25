@@ -254,16 +254,21 @@ engine::_render() {
             "$(engine::_get_detail "$mod")" \
             "$(engine::_get_elapsed "$mod")")"
 
-        # While running, show only active/failed sub-items beneath the module line.
-        # Skipping pending/done items keeps the frame height bounded regardless of
-        # how many packages a module manages, preventing terminal scroll corruption.
-        if [[ "${_state[$mod]}" == "running" ]]; then
+        # Show sub-items beneath the module line.
+        # While running: show active/failed items (pending/done omitted to bound frame height).
+        # After completion: show only failed items so errors remain visible.
+        local mod_state="${_state[$mod]}"
+        if [[ "$mod_state" == "running" || "$mod_state" == "done" || "$mod_state" == "failed" ]]; then
             local items_file="${PRIMER_TMPDIR}/${mod}.items"
             if [[ -f "$items_file" ]]; then
                 local item_state item_name
                 while IFS=: read -r item_state item_name; do
                     [[ -z "$item_name" ]] && continue
-                    [[ "$item_state" == "pending" || "$item_state" == "done" ]] && continue
+                    if [[ "$mod_state" == "running" ]]; then
+                        [[ "$item_state" == "pending" || "$item_state" == "done" ]] && continue
+                    else
+                        [[ "$item_state" != "failed" ]] && continue
+                    fi
                     ui::frame_line "$(ui::sub_item_line "$item_state" "$item_name")"
                 done < "$items_file"
             fi

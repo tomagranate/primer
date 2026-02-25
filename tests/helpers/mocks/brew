@@ -1,10 +1,49 @@
 #!/bin/sh
 # Mock brew -- logs invocations and exits 0
+#
+# Configurable via environment variables:
+#   MOCK_BREW_INSTALLED_TAPS      space-separated list of already-tapped repos
+#   MOCK_BREW_INSTALLED_FORMULAE  space-separated list of installed formulae
+#   MOCK_BREW_OUTDATED_FORMULAE   space-separated list of outdated formulae
+#   MOCK_BREW_INSTALLED_CASKS     space-separated list of installed casks
+#   MOCK_BREW_OUTDATED_CASKS      space-separated list of outdated casks
+#   MOCK_BREW_FAIL_PACKAGES       space-separated list of packages that should fail
+
+case "$1" in
+    --version)
+        echo "Homebrew 4.0.0-mock"
+        exit 0
+        ;;
+    tap)
+        if [ $# -eq 1 ]; then
+            # brew tap (no args) -- list installed taps
+            printf '%s\n' $MOCK_BREW_INSTALLED_TAPS
+            exit 0
+        fi
+        ;;
+    list)
+        case "${2:-}" in
+            --formula) printf '%s\n' $MOCK_BREW_INSTALLED_FORMULAE; exit 0 ;;
+            --cask)    printf '%s\n' $MOCK_BREW_INSTALLED_CASKS;    exit 0 ;;
+        esac
+        ;;
+    outdated)
+        case "${2:-}" in
+            --formula) printf '%s\n' $MOCK_BREW_OUTDATED_FORMULAE; exit 0 ;;
+            --cask)    printf '%s\n' $MOCK_BREW_OUTDATED_CASKS;    exit 0 ;;
+        esac
+        ;;
+esac
+
+# Log this invocation
 echo "brew $*" >> "${MOCK_LOG:-/dev/null}"
 
-# Simulate --version for mod_status checks
-case "$1" in
-    --version) echo "Homebrew 4.0.0-mock" ;;
-esac
+# Simulate failure for specific packages (last argument is the package name)
+if [ -n "${MOCK_BREW_FAIL_PACKAGES:-}" ]; then
+    eval "last_arg=\$$#"
+    case " ${MOCK_BREW_FAIL_PACKAGES} " in
+        *" ${last_arg} "*) exit 1 ;;
+    esac
+fi
 
 exit 0
