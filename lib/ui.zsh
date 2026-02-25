@@ -46,7 +46,7 @@ ui::refresh_layout() {
     fi
     [[ -z "$cols" || "$cols" != <-> ]] && cols=80
 
-    local min_total=56
+    local min_total=40
     local total="$cols"
     (( total < min_total )) && total=$min_total
     (( total > UI_MAX_TOTAL_W )) && total=$UI_MAX_TOTAL_W
@@ -56,11 +56,21 @@ ui::refresh_layout() {
 
     # "   X  {name}  {detail}  {time}" => fixed chars = 10 + time width.
     local remaining=$(( UI_TOTAL_W - 10 - UI_TIME_W ))
-    (( remaining < 12 )) && remaining=12
-    UI_NAME_W=$(( remaining * 45 / 100 ))
-    UI_DETAIL_W=$(( remaining - UI_NAME_W ))
-    (( UI_NAME_W < 10 )) && UI_NAME_W=10
-    (( UI_DETAIL_W < 12 )) && UI_DETAIL_W=12
+    (( remaining < 8 )) && remaining=8
+
+    if (( remaining >= 24 )); then
+        UI_NAME_W=$(( remaining * 45 / 100 ))
+        UI_DETAIL_W=$(( remaining - UI_NAME_W ))
+        (( UI_NAME_W < 10 )) && UI_NAME_W=10
+        (( UI_DETAIL_W < 12 )) && UI_DETAIL_W=12
+    else
+        # Very narrow terminal: prioritize keeping both columns visible.
+        UI_NAME_W=$(( remaining * 45 / 100 ))
+        (( UI_NAME_W < 4 )) && UI_NAME_W=4
+        UI_DETAIL_W=$(( remaining - UI_NAME_W ))
+        (( UI_DETAIL_W < 4 )) && UI_DETAIL_W=4
+        UI_NAME_W=$(( remaining - UI_DETAIL_W ))
+    fi
 
     UI_SUBITEM_W=$(( UI_TOTAL_W - 12 ))
     (( UI_SUBITEM_W < 12 )) && UI_SUBITEM_W=12
@@ -184,20 +194,21 @@ ui::sub_item_line() {
         *)       glyph="$GLYPH_WAIT";              color="$C_DIM";      detail_color="$C_DIM"      ;;
     esac
 
-    (( ${#name} > UI_NAME_W )) && name="${name[1,$(( UI_NAME_W - 1 ))]}…"
+    local display_name="  $name"
+    (( ${#display_name} > UI_NAME_W )) && display_name="${display_name[1,$(( UI_NAME_W - 1 ))]}…"
     local padded_name
-    padded_name=$(printf "%-${UI_NAME_W}s" "$name")
+    padded_name=$(printf "%-${UI_NAME_W}s" "$display_name")
 
     if [[ -n "$detail" ]]; then
         (( ${#detail} > UI_DETAIL_W )) && detail="${detail[1,$(( UI_DETAIL_W - 1 ))]}…"
         local padded_detail
         padded_detail=$(printf "%-${UI_DETAIL_W}s" "$detail")
-        printf '        %s%s%s  %s%s%s  %s%s%s' \
+        printf '   %s%s%s  %s%s%s  %s%s%s' \
             "$color" "$glyph" "$C_RESET" \
             "$C_DIM" "$padded_name" "$C_RESET" \
             "$detail_color" "$padded_detail" "$C_RESET"
     else
-        printf '        %s%s%s  %s%s%s' "$color" "$glyph" "$C_RESET" "$C_DIM" "$padded_name" "$C_RESET"
+        printf '   %s%s%s  %s%s%s' "$color" "$glyph" "$C_RESET" "$C_DIM" "$padded_name" "$C_RESET"
     fi
 }
 

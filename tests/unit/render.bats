@@ -21,6 +21,7 @@ _render_with_items() {
 
     run zsh -c "
         export PRIMER_DIR='${PRIMER_DIR}'
+        export COLUMNS=80
         source \"\$PRIMER_DIR/lib/ui.zsh\"
         source \"\$PRIMER_DIR/lib/engine.zsh\"
         PRIMER_TMPDIR='${items_dir}'
@@ -70,6 +71,7 @@ _render_with_items() {
 
     run zsh -c "
         export PRIMER_DIR='${PRIMER_DIR}'
+        export COLUMNS=80
         source \"\$PRIMER_DIR/lib/ui.zsh\"
         source \"\$PRIMER_DIR/lib/engine.zsh\"
         PRIMER_TMPDIR='${TEST_ITEMS_DIR}'
@@ -112,6 +114,7 @@ _render_with_items() {
     # are cleared on each cycle.
     run zsh -c "
         export PRIMER_DIR='${PRIMER_DIR}'
+        export COLUMNS=80
         source \"\$PRIMER_DIR/lib/ui.zsh\"
         source \"\$PRIMER_DIR/lib/engine.zsh\"
         PRIMER_TMPDIR='${TEST_ITEMS_DIR}'
@@ -136,6 +139,7 @@ _render_with_items() {
 
     run zsh -c "
         export PRIMER_DIR='${PRIMER_DIR}'
+        export COLUMNS=80
         source \"\$PRIMER_DIR/lib/ui.zsh\"
         source \"\$PRIMER_DIR/lib/engine.zsh\"
         PRIMER_TMPDIR='${TEST_ITEMS_DIR}'
@@ -210,5 +214,59 @@ _render_with_items() {
     }
     [[ "$output" == *"already installed outside brew"* ]] || {
         echo "Expected warning detail text in sub-item output: $output"; false
+    }
+}
+
+@test "sub_item_line: detail starts in same middle column as module detail" {
+    run zsh -c '
+        export PRIMER_DIR="'"$PRIMER_DIR"'"
+        source "$PRIMER_DIR/lib/ui.zsh"
+        COLUMNS=80
+        module="$(ui::module_line done "Mac Apps" "done with 1 warning(s)" "1.0s")"
+        sub="$(ui::sub_item_line skipped "cursor" "already installed outside brew cask")"
+        mod_plain="$(printf "%s" "$module" | sed -E "s/\x1B\\[[0-9;]*[A-Za-z]//g")"
+        sub_plain="$(printf "%s" "$sub" | sed -E "s/\x1B\\[[0-9;]*[A-Za-z]//g")"
+        mod_detail="${mod_plain#*"done with 1 warning(s)"}"
+        sub_detail="${sub_plain#*"already installed outside brew"}"
+        echo "${#mod_plain}"
+        echo "${#sub_plain}"
+        # Emit the lines for assertions and debugging.
+        echo "$mod_plain"
+        echo "$sub_plain"
+    '
+    assert_success
+    local mod_plain
+    local sub_plain
+    mod_plain="$(printf '%s\n' "$output" | sed -n '3p')"
+    sub_plain="$(printf '%s\n' "$output" | sed -n '4p')"
+
+    local mod_idx
+    local sub_idx
+    mod_idx=$(python - <<'PY'
+line = """'"$(printf '%s' "$mod_plain" | sed "s/'/'\\\\''/g")"'"""
+print(line.find("done with 1 warning(s)"))
+PY
+)
+    sub_idx=$(python - <<'PY'
+line = """'"$(printf '%s' "$sub_plain" | sed "s/'/'\\\\''/g")"'"""
+print(line.find("already installed outside brew"))
+PY
+)
+    (( sub_idx == mod_idx )) || {
+        echo "Expected aligned detail columns, got module=$mod_idx sub=$sub_idx"; false
+    }
+}
+
+@test "sub_item_line: truncates at low widths" {
+    run zsh -c '
+        export PRIMER_DIR="'"$PRIMER_DIR"'"
+        source "$PRIMER_DIR/lib/ui.zsh"
+        COLUMNS=40
+        out="$(ui::sub_item_line skipped "extremely-long-subtask-name-for-testing" "very long warning detail text to force truncation")"
+        print "$out"
+    '
+    assert_success
+    [[ "$output" == *"…"* ]] || {
+        echo "Expected truncation ellipsis at low width: $output"; false
     }
 }
