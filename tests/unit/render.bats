@@ -86,7 +86,7 @@ _render_with_items() {
     [[ "$output" == *"warn-pkg"* ]] || {
         echo "Expected warn-pkg in output when module is done: $output"; false
     }
-    [[ "$output" == *"warn-pkg -- already installed outside brew"* ]] || {
+    [[ "$output" == *"already installed"* ]] || {
         echo "Expected warning detail in output when module is done: $output"; false
     }
     [[ "$output" != *"waiting-pkg"* ]] || {
@@ -170,9 +170,9 @@ _render_with_items() {
         source "$PRIMER_DIR/lib/ui.zsh"
         name="Extremely Long Module Name For Width Testing"
         detail="Detail should truncate on narrow terminals, not on wide."
-        COLUMNS=80
+        COLUMNS=56
         narrow="$(ui::module_line running "$name" "$detail" "0.1s")"
-        COLUMNS=140
+        COLUMNS=80
         wide="$(ui::module_line running "$name" "$detail" "0.1s")"
         print "$narrow"
         print "$wide"
@@ -193,5 +193,22 @@ _render_with_items() {
     }
     (( ${#wide_plain} > ${#narrow_plain} )) || {
         echo "Expected wide line to have more visible content"; false
+    }
+}
+
+@test "sub_item_line: warning detail uses yellow detail column" {
+    run zsh -c '
+        export PRIMER_DIR="'"$PRIMER_DIR"'"
+        source "$PRIMER_DIR/lib/ui.zsh"
+        COLUMNS=80
+        out="$(ui::sub_item_line skipped "cursor" "already installed outside brew cask")"
+        print "$out"
+    '
+    assert_success
+    [[ "$output" == *$'\e[33m'* ]] || {
+        echo "Expected yellow ANSI color for warning detail: $output"; false
+    }
+    [[ "$output" == *"already installed outside brew"* ]] || {
+        echo "Expected warning detail text in sub-item output: $output"; false
     }
 }

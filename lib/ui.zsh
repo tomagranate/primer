@@ -31,7 +31,7 @@ typeset -gi SPIN_IDX=0
 
 typeset -gi BOX_W=52  # inner width between │ and │ (including 1-char padding each side)
 typeset -gi UI_TOTAL_W=56
-typeset -gi UI_MAX_TOTAL_W=100
+typeset -gi UI_MAX_TOTAL_W=80
 typeset -gi UI_NAME_W=18
 typeset -gi UI_DETAIL_W=22
 typeset -gi UI_TIME_W=6
@@ -174,21 +174,31 @@ ui::module_line() {
 ui::sub_item_line() {
     ui::refresh_layout
     local state="$1" name="$2" detail="${3:-}"
-    local glyph color
+    local glyph color detail_color
 
     case "$state" in
-        done)    glyph="$GLYPH_OK";              color="$C_GREEN"    ;;
-        failed)  glyph="$GLYPH_FAIL";            color="$C_BOLD_RED" ;;
-        running) glyph="${SPINNER[SPIN_IDX + 1]}"; color="$C_BLUE"   ;;
-        skipped) glyph="$GLYPH_SKIP";            color="$C_YELLOW"   ;;
-        *)       glyph="$GLYPH_WAIT";            color="$C_DIM"      ;;
+        done)    glyph="$GLYPH_OK";                color="$C_GREEN";    detail_color="$C_GREEN"    ;;
+        failed)  glyph="$GLYPH_FAIL";              color="$C_BOLD_RED"; detail_color="$C_BOLD_RED" ;;
+        running) glyph="${SPINNER[SPIN_IDX + 1]}"; color="$C_BLUE";     detail_color="$C_BLUE"     ;;
+        skipped) glyph="$GLYPH_SKIP";              color="$C_YELLOW";   detail_color="$C_YELLOW"   ;;
+        *)       glyph="$GLYPH_WAIT";              color="$C_DIM";      detail_color="$C_DIM"      ;;
     esac
 
+    (( ${#name} > UI_NAME_W )) && name="${name[1,$(( UI_NAME_W - 1 ))]}…"
+    local padded_name
+    padded_name=$(printf "%-${UI_NAME_W}s" "$name")
+
     if [[ -n "$detail" ]]; then
-        name="${name} -- ${detail}"
+        (( ${#detail} > UI_DETAIL_W )) && detail="${detail[1,$(( UI_DETAIL_W - 1 ))]}…"
+        local padded_detail
+        padded_detail=$(printf "%-${UI_DETAIL_W}s" "$detail")
+        printf '        %s%s%s  %s%s%s  %s%s%s' \
+            "$color" "$glyph" "$C_RESET" \
+            "$C_DIM" "$padded_name" "$C_RESET" \
+            "$detail_color" "$padded_detail" "$C_RESET"
+    else
+        printf '        %s%s%s  %s%s%s' "$color" "$glyph" "$C_RESET" "$C_DIM" "$padded_name" "$C_RESET"
     fi
-    (( ${#name} > UI_SUBITEM_W )) && name="${name[1,$(( UI_SUBITEM_W - 1 ))]}…"
-    printf '        %s%s%s  %s%s%s' "$color" "$glyph" "$C_RESET" "$C_DIM" "$name" "$C_RESET"
 }
 
 # ── Error Output Box ─────────────────────────────────────────────────────────
