@@ -55,7 +55,7 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | --- | --- | --- |
 | **xcode** | -- | Installs Xcode Command Line Tools |
 | **homebrew** | xcode | Installs Homebrew + all formulae, casks, and MAS apps |
-| **zim** | homebrew | Deploys zsh configs, symlinks .zshenv, installs Zim |
+| **zsh** | homebrew | Updates managed section in ~/.zshrc, manages ~/.zimrc, installs Zim |
 | **starship** | homebrew | Deploys starship.toml to ~/.config/ |
 | **mise** | homebrew | Installs language runtimes (Node, Python, Bun) |
 | **touchid** | -- | Enables Touch ID for sudo |
@@ -76,9 +76,9 @@ Each module is a **self-contained folder** that owns its config files, scripts, 
 │   │   └── module.zsh
 │   ├── homebrew/
 │   │   └── module.zsh            # Generates Brewfile from config, runs brew bundle
-│   ├── zim/
+│   ├── zsh/
 │   │   ├── module.zsh
-│   │   └── files/                # .zshenv, .zshrc, .zimrc
+│   │   └── files/                # .zshrc managed block + .zimrc
 │   ├── starship/
 │   │   ├── module.zsh
 │   │   └── files/                # starship.toml
@@ -156,8 +156,8 @@ tools =
 
 | What | Where |
 | --- | --- |
-| Zsh config | `~/.config/zsh/.zshrc` |
-| Zim modules | `~/.config/zsh/.zimrc` |
+| Zsh config | `~/.zshrc` (Primer-managed section) |
+| Zim modules | `~/.zimrc` |
 | Starship prompt | `~/.config/starship.toml` |
 | Custom scripts | `~/bin/` |
 

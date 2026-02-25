@@ -147,20 +147,20 @@ load '../helpers/common'
 
 # ── Transitive dependency scenarios ──────────────────────────────────────────
 
-@test "deps_met: zim requires homebrew done (transitive through xcode)" {
+@test "deps_met: zsh requires homebrew done (transitive through xcode)" {
     zsh_run '
         engine::load_config "$PRIMER_DIR/primer.conf"
         _state[homebrew]=done
-        engine::_deps_met zim && echo YES || echo NO
+        engine::_deps_met zsh && echo YES || echo NO
     '
     assert_output "YES"
 }
 
-@test "deps_met: zim blocked when homebrew is not done" {
+@test "deps_met: zsh blocked when homebrew is not done" {
     zsh_run '
         engine::load_config "$PRIMER_DIR/primer.conf"
         _state[homebrew]=running
-        engine::_deps_met zim && echo YES || echo NO
+        engine::_deps_met zsh && echo YES || echo NO
     '
     assert_output "NO"
 }
