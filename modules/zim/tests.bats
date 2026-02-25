@@ -145,3 +145,26 @@ EOF
     run grep -q "alias docker-kill-all='docker stop \$(docker ps -q) && docker rm \$(docker ps -aq)'" "$TEST_CONFIG_DIR/zsh/.zshrc"
     assert_success
 }
+
+@test "zim: rgf is defined as a function" {
+    zsh_run_module zim '
+        deploy_files "$ZSH_CONFIG_DIR"
+    '
+    assert_success
+
+    run grep -q 'rgf()' "$TEST_CONFIG_DIR/zsh/.zshrc"
+    assert_success
+}
+
+@test "zim: port is a function not an alias" {
+    zsh_run_module zim '
+        deploy_files "$ZSH_CONFIG_DIR"
+    '
+    assert_success
+
+    run grep -q 'alias port=' "$TEST_CONFIG_DIR/zsh/.zshrc"
+    assert_failure
+
+    run grep -q 'port()' "$TEST_CONFIG_DIR/zsh/.zshrc"
+    assert_success
+}

@@ -109,7 +109,7 @@ load '../helpers/common'
     zsh_run '
         engine::load_config "$PRIMER_DIR/primer.conf"
         local m; for m in $_mod_order; do _state[$m]=done; done
-        _state[scripts]=pending
+        _state[touchid]=pending
         engine::_has_active && echo YES || echo NO
     '
     assert_output "YES"

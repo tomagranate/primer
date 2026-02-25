@@ -42,8 +42,18 @@ alias du="dust"
 alias df="duf"
 alias top="htop"
 alias docker-kill-all='docker stop $(docker ps -q) && docker rm $(docker ps -aq)'
-alias port="lsof -i -P | grep LISTEN | grep $1"
+port() { lsof -i -P | grep LISTEN | grep "$1" }
 alias editrc="nvim ~/.zshrc"
+
+rgf() {
+  rg --color=always --line-number --no-heading --smart-case "${*:-}" |
+  fzf --ansi \
+      --color "hl:-1:underline,hl+:-1:underline:reverse" \
+      --delimiter : \
+      --preview 'bat --color=always {1} --highlight-line {2}' \
+      --preview-window 'right,70%,border-bottom,+{2}+3/3,~3' \
+      --bind 'enter:become(code {1})'
+}
 
 # ---- Path updates ----
 path+=~/bin

@@ -52,23 +52,40 @@ teardown() {
 }
 
 # ── deploy_scripts ───────────────────────────────────────────────────────────
+# Uses a self-contained fake module rather than relying on any real module.
+
+_run_deploy_scripts() {
+    local dry_run="${1:-false}"
+    local fake_mod="$TEST_HOME/fake-mod"
+    mkdir -p "$fake_mod/bin"
+    printf '#!/bin/zsh\necho hello\n' > "$fake_mod/bin/fake-script"
+    run zsh -c "
+        export PRIMER_DIR='${PRIMER_DIR}'
+        export DRY_RUN='${dry_run}'
+        export MOD_DIR='${fake_mod}'
+        export MOD_NAME='fake'
+        export BIN_DIR='${TEST_BIN_DIR}'
+        export HOME='${TEST_HOME}'
+        source \"\$PRIMER_DIR/lib/ui.zsh\"
+        source \"\$PRIMER_DIR/lib/engine.zsh\"
+        deploy_scripts \"\$BIN_DIR\"
+    "
+}
 
 @test "deploy_scripts: copies scripts and makes executable" {
-    zsh_run_module scripts "mod_update"
+    _run_deploy_scripts false
     assert_success
-    [ -x "$TEST_BIN_DIR/rgf" ]
+    [ -x "$TEST_BIN_DIR/fake-script" ]
 }
 
 @test "deploy_scripts: dry-run does not copy scripts" {
-    export DRY_RUN=true
-    zsh_run_module scripts "mod_update"
+    _run_deploy_scripts true
     assert_success
-    [ ! -f "$TEST_BIN_DIR/rgf" ]
+    [ ! -f "$TEST_BIN_DIR/fake-script" ]
 }
 
 @test "deploy_scripts: dry-run prints message" {
-    export DRY_RUN=true
-    zsh_run_module scripts "mod_update"
+    _run_deploy_scripts true
     assert_success
     assert_output --partial "dry-run"
 }
