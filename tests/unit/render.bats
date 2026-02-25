@@ -85,6 +85,17 @@ _render_with_items() {
     }
 }
 
+@test "render: does not print local declaration noise" {
+    _render_with_items $'running:active-pkg\nfailed:broken-pkg\n'
+    assert_success
+    [[ "$output" != *"item_state='"* ]] || {
+        echo "Did not expect local declaration output for item_state: $output"; false
+    }
+    [[ "$output" != *"item_name='"* ]] || {
+        echo "Did not expect local declaration output for item_name: $output"; false
+    }
+}
+
 # ── ui::frame_end ghost-line tests ───────────────────────────────────────────
 
 @test "frame_end: emits erase-to-end-of-screen escape after every render" {

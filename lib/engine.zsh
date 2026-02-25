@@ -261,7 +261,7 @@ engine::_render() {
         if [[ "$mod_state" == "running" || "$mod_state" == "done" || "$mod_state" == "failed" ]]; then
             local items_file="${PRIMER_TMPDIR}/${mod}.items"
             if [[ -f "$items_file" ]]; then
-                local item_state item_name
+                local item_state="" item_name=""
                 while IFS=: read -r item_state item_name; do
                     [[ -z "$item_name" ]] && continue
                     if [[ "$mod_state" == "running" ]]; then
