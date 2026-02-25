@@ -30,10 +30,47 @@ typeset -gi SPIN_IDX=0
 # ── Box Drawing ───────────────────────────────────────────────────────────────
 
 typeset -gi BOX_W=52  # inner width between │ and │ (including 1-char padding each side)
+typeset -gi UI_TOTAL_W=56
+typeset -gi UI_MAX_TOTAL_W=140
+typeset -gi UI_NAME_W=18
+typeset -gi UI_DETAIL_W=22
+typeset -gi UI_TIME_W=6
+typeset -gi UI_SUBITEM_W=36
+
+ui::refresh_layout() {
+    local cols="${COLUMNS:-}"
+    if [[ -z "$cols" || "$cols" != <-> ]]; then
+        if [[ -t 1 ]]; then
+            cols="$(tput cols 2>/dev/null)"
+        fi
+    fi
+    [[ -z "$cols" || "$cols" != <-> ]] && cols=80
+
+    local min_total=56
+    local total="$cols"
+    (( total < min_total )) && total=$min_total
+    (( total > UI_MAX_TOTAL_W )) && total=$UI_MAX_TOTAL_W
+
+    UI_TOTAL_W=$total
+    BOX_W=$(( UI_TOTAL_W - 4 ))
+
+    # "   X  {name}  {detail}  {time}" => fixed chars = 10 + time width.
+    local remaining=$(( UI_TOTAL_W - 10 - UI_TIME_W ))
+    (( remaining < 12 )) && remaining=12
+    UI_NAME_W=$(( remaining * 45 / 100 ))
+    UI_DETAIL_W=$(( remaining - UI_NAME_W ))
+    (( UI_NAME_W < 10 )) && UI_NAME_W=10
+    (( UI_DETAIL_W < 12 )) && UI_DETAIL_W=12
+
+    UI_SUBITEM_W=$(( UI_TOTAL_W - 12 ))
+    (( UI_SUBITEM_W < 12 )) && UI_SUBITEM_W=12
+    return 0
+}
 
 # Print a horizontal border line: ╭───╮ or ╰───╯
 # Usage: ui::hline <corner_left> <corner_right> [color] [label]
 ui::hline() {
+    ui::refresh_layout
     local cl="$1" cr="$2" color="${3:-$C_BLUE}" label="$4"
     if [[ -n "$label" ]]; then
         local fill_len=$(( BOX_W - ${#label} ))
@@ -48,6 +85,7 @@ ui::hline() {
 # Print a 3-line box with text
 # Usage: ui::box <text> [color]
 ui::box() {
+    ui::refresh_layout
     local text="$1" color="${2:-$C_BLUE}"
     local pad=$(( BOX_W - 2 - ${#text} ))
 
@@ -101,6 +139,7 @@ ui::frame_end() {
 # Format a single module status line (returns via stdout)
 # Usage: ui::module_line <state> <name> <detail> [elapsed]
 ui::module_line() {
+    ui::refresh_layout
     local state="$1" name="$2" detail="$3" elapsed="$4"
     local glyph color
 
@@ -114,10 +153,12 @@ ui::module_line() {
     esac
 
     # Truncate long values, then pad (so ANSI codes don't affect alignment)
-    (( ${#name} > 18 ))   && name="${name[1,17]}…"
-    (( ${#detail} > 22 )) && detail="${detail[1,21]}…"
-    local padded_name=$(printf '%-18s' "$name")
-    local padded_detail=$(printf '%-22s' "$detail")
+    (( ${#name} > UI_NAME_W ))   && name="${name[1,$(( UI_NAME_W - 1 ))]}…"
+    (( ${#detail} > UI_DETAIL_W )) && detail="${detail[1,$(( UI_DETAIL_W - 1 ))]}…"
+    local padded_name
+    local padded_detail
+    padded_name=$(printf "%-${UI_NAME_W}s" "$name")
+    padded_detail=$(printf "%-${UI_DETAIL_W}s" "$detail")
     local time_str=""
     [[ -n "$elapsed" ]] && time_str=$(printf '%6s' "$elapsed")
 
@@ -131,6 +172,7 @@ ui::module_line() {
 # Format a single sub-item line shown indented under a running module
 # Usage: ui::sub_item_line <state> <name>
 ui::sub_item_line() {
+    ui::refresh_layout
     local state="$1" name="$2"
     local glyph color
 
@@ -142,7 +184,7 @@ ui::sub_item_line() {
         *)       glyph="$GLYPH_WAIT";            color="$C_DIM"      ;;
     esac
 
-    (( ${#name} > 36 )) && name="${name[1,35]}…"
+    (( ${#name} > UI_SUBITEM_W )) && name="${name[1,$(( UI_SUBITEM_W - 1 ))]}…"
     printf '        %s%s%s  %s%s%s' "$color" "$glyph" "$C_RESET" "$C_DIM" "$name" "$C_RESET"
 }
 

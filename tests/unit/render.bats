@@ -160,3 +160,31 @@ _render_with_items() {
         echo "Expected at least 2 ESC[J sequences (one per render), got: $count"; false
     }
 }
+
+@test "module_line: widens columns on wider terminals" {
+    run zsh -c '
+        export PRIMER_DIR="'"$PRIMER_DIR"'"
+        source "$PRIMER_DIR/lib/ui.zsh"
+        name="Extremely Long Module Name For Width Testing"
+        detail="Detail should truncate on narrow terminals, not on wide."
+        COLUMNS=80
+        narrow="$(ui::module_line running "$name" "$detail" "0.1s")"
+        COLUMNS=140
+        wide="$(ui::module_line running "$name" "$detail" "0.1s")"
+        print "$narrow"
+        print "$wide"
+    '
+    assert_success
+
+    local narrow_line
+    local wide_line
+    narrow_line="$(printf '%s\n' "$output" | sed -n '1p')"
+    wide_line="$(printf '%s\n' "$output" | sed -n '2p')"
+
+    [[ "$narrow_line" == *"…"* ]] || {
+        echo "Expected truncation on narrow line: $narrow_line"; false
+    }
+    [[ "$wide_line" != *"…"* ]] || {
+        echo "Did not expect truncation on wide line: $wide_line"; false
+    }
+}
