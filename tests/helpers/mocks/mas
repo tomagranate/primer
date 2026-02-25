@@ -1,16 +1,4 @@
 #!/bin/sh
 # Mock mas -- logs invocations and exits 0
-# Set MAS_SIGNED_IN=false to simulate a signed-out state for `mas account`
 echo "mas $*" >> "${MOCK_LOG:-/dev/null}"
-
-case "$1" in
-    account)
-        if [ "${MAS_SIGNED_IN:-true}" = "false" ]; then
-            echo "Not signed in" >&2
-            exit 1
-        fi
-        echo "test@example.com"
-        ;;
-esac
-
 exit 0

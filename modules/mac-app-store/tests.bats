@@ -111,26 +111,3 @@ run_mac_app_store_with_conf() {
     assert_output --partial '[dry-run] brew install mas'
 }
 
-@test "mac-app-store: fails clearly when not signed in to App Store" {
-    export MAS_SIGNED_IN=false
-    run_mac_app_store_with_conf "mod_update"
-    assert_failure
-    run cat "${TEST_HOME}/mod-status"
-    assert_output "not signed in to App Store"
-}
-
-@test "mac-app-store: proceeds to install when signed in" {
-    export MAS_SIGNED_IN=true
-    run_mac_app_store_with_conf "mod_update"
-    assert_success
-    run grep "mas install 123456789" "$MOCK_LOG"
-    assert_success
-}
-
-@test "mac-app-store: dry-run skips sign-in check" {
-    export DRY_RUN=true
-    export MAS_SIGNED_IN=false
-    run_mac_app_store_with_conf "mod_update"
-    assert_success
-    assert_output --partial 'mas install 123456789'
-}

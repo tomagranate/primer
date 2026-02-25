@@ -14,12 +14,6 @@ mod_update() {
         fi
     fi
 
-    # Verify App Store sign-in
-    if [[ "$DRY_RUN" != true ]] && ! mas account &>/dev/null; then
-        primer::status_msg "not signed in to App Store"
-        return 1
-    fi
-
     local items=($(mod_config mas))
     local names=()
     local item
