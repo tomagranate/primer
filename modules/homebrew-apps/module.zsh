@@ -20,6 +20,13 @@ _homebrew_apps::guess_app_bundle_name() {
     print "${(j: :)out}.app"
 }
 
+_homebrew_apps::first_line() {
+    local text="$1"
+    local first="${text%%$'\n'*}"
+    first="${first//$'\r'/}"
+    print "$first"
+}
+
 mod_update() {
     ensure_brew
 
@@ -64,7 +71,7 @@ mod_update() {
             local resolved_app_path="${cask_app_path[$item]:-${applications_dir}/${guessed_bundle}}"
             if [[ -d "$resolved_app_path" ]]; then
                 primer::status_msg "warning: $item already installed outside brew cask"
-                primer::item_update "$item" "skipped"
+                primer::item_update "$item" "skipped" "already installed outside brew cask"
                 any_warnings=true
                 warning_count=$(( warning_count + 1 ))
                 continue
@@ -78,18 +85,24 @@ mod_update() {
                 print -r -- "$install_output"
                 if [[ "$install_output" == *"It seems there is already an App at"* ]]; then
                     primer::status_msg "warning: $item already installed outside brew cask"
-                    primer::item_update "$item" "skipped"
+                    primer::item_update "$item" "skipped" "already installed outside brew cask"
                     any_warnings=true
                     warning_count=$(( warning_count + 1 ))
                 else
-                    primer::item_update "$item" "failed"
+                    primer::item_update "$item" "failed" "$(_homebrew_apps::first_line "$install_output")"
                     any_failed=true
                 fi
             fi
         elif (( ${outdated_casks[(I)$item]} )); then
             primer::status_msg "updating $item..."
-            brew upgrade --cask "$item" && primer::item_update "$item" "done" \
-                                        || { primer::item_update "$item" "failed"; any_failed=true; }
+            local upgrade_output=""
+            if upgrade_output="$(brew upgrade --cask "$item" 2>&1)"; then
+                primer::item_update "$item" "done"
+            else
+                print -r -- "$upgrade_output"
+                primer::item_update "$item" "failed" "$(_homebrew_apps::first_line "$upgrade_output")"
+                any_failed=true
+            fi
         else
             primer::status_msg "$item up to date"
             primer::item_update "$item" "done"

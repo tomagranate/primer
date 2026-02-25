@@ -31,7 +31,7 @@ typeset -gi SPIN_IDX=0
 
 typeset -gi BOX_W=52  # inner width between │ and │ (including 1-char padding each side)
 typeset -gi UI_TOTAL_W=56
-typeset -gi UI_MAX_TOTAL_W=140
+typeset -gi UI_MAX_TOTAL_W=100
 typeset -gi UI_NAME_W=18
 typeset -gi UI_DETAIL_W=22
 typeset -gi UI_TIME_W=6
@@ -169,11 +169,11 @@ ui::module_line() {
         "$C_DIM" "$time_str" "$C_RESET"
 }
 
-# Format a single sub-item line shown indented under a running module
-# Usage: ui::sub_item_line <state> <name>
+# Format a single sub-item line shown under a module
+# Usage: ui::sub_item_line <state> <name> [detail]
 ui::sub_item_line() {
     ui::refresh_layout
-    local state="$1" name="$2"
+    local state="$1" name="$2" detail="${3:-}"
     local glyph color
 
     case "$state" in
@@ -184,6 +184,9 @@ ui::sub_item_line() {
         *)       glyph="$GLYPH_WAIT";            color="$C_DIM"      ;;
     esac
 
+    if [[ -n "$detail" ]]; then
+        name="${name} -- ${detail}"
+    fi
     (( ${#name} > UI_SUBITEM_W )) && name="${name[1,$(( UI_SUBITEM_W - 1 ))]}…"
     printf '        %s%s%s  %s%s%s' "$color" "$glyph" "$C_RESET" "$C_DIM" "$name" "$C_RESET"
 }
@@ -243,16 +246,25 @@ primer::items_init() {
 }
 
 # Update the state of one item in the sub-items list.
-# Usage: primer::item_update <name> <state>   (state: pending|running|done|failed|skipped)
+# Usage: primer::item_update <name> <state> [detail]
+# detail is optional human-readable context, shown in final subtask lines.
 primer::item_update() {
     [[ -z "$MOD_ITEMS_FILE" || ! -f "$MOD_ITEMS_FILE" ]] && return
-    local name="$1" state="$2"
+    local name="$1" state="$2" detail="${3:-}"
     local tmp="${MOD_ITEMS_FILE}.tmp.$$"
-    while IFS=: read -r s n; do
+    while IFS=: read -r s n d; do
         if [[ "$n" == "$name" ]]; then
-            printf '%s:%s\n' "$state" "$name"
+            if [[ -n "$detail" ]]; then
+                printf '%s:%s:%s\n' "$state" "$name" "$detail"
+            else
+                printf '%s:%s\n' "$state" "$name"
+            fi
         else
-            printf '%s:%s\n' "$s" "$n"
+            if [[ -n "$d" ]]; then
+                printf '%s:%s:%s\n' "$s" "$n" "$d"
+            else
+                printf '%s:%s\n' "$s" "$n"
+            fi
         fi
     done < "$MOD_ITEMS_FILE" > "$tmp"
     mv "$tmp" "$MOD_ITEMS_FILE"

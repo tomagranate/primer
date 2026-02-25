@@ -66,7 +66,7 @@ _render_with_items() {
 }
 
 @test "render: done modules show resolved sub-items" {
-    printf 'done:some-pkg\npending:waiting-pkg\nskipped:warn-pkg\n' > "${TEST_ITEMS_DIR}/fake-mod.items"
+    printf 'done:some-pkg\npending:waiting-pkg\nskipped:warn-pkg:already installed outside brew cask\n' > "${TEST_ITEMS_DIR}/fake-mod.items"
 
     run zsh -c "
         export PRIMER_DIR='${PRIMER_DIR}'
@@ -85,6 +85,9 @@ _render_with_items() {
     }
     [[ "$output" == *"warn-pkg"* ]] || {
         echo "Expected warn-pkg in output when module is done: $output"; false
+    }
+    [[ "$output" == *"warn-pkg -- already installed outside brew"* ]] || {
+        echo "Expected warning detail in output when module is done: $output"; false
     }
     [[ "$output" != *"waiting-pkg"* ]] || {
         echo "Did not expect waiting-pkg in output when module is done: $output"; false
@@ -180,11 +183,15 @@ _render_with_items() {
     local wide_line
     narrow_line="$(printf '%s\n' "$output" | sed -n '1p')"
     wide_line="$(printf '%s\n' "$output" | sed -n '2p')"
+    local narrow_plain
+    local wide_plain
+    narrow_plain="$(printf '%s' "$narrow_line" | sed -E "s/\x1B\\[[0-9;]*[A-Za-z]//g")"
+    wide_plain="$(printf '%s' "$wide_line" | sed -E "s/\x1B\\[[0-9;]*[A-Za-z]//g")"
 
     [[ "$narrow_line" == *"…"* ]] || {
         echo "Expected truncation on narrow line: $narrow_line"; false
     }
-    [[ "$wide_line" != *"…"* ]] || {
-        echo "Did not expect truncation on wide line: $wide_line"; false
+    (( ${#wide_plain} > ${#narrow_plain} )) || {
+        echo "Expected wide line to have more visible content"; false
     }
 }

@@ -73,6 +73,13 @@ items_run() {
     [[ "$output" =~ ^[[:space:]]*1 ]]
 }
 
+@test "item_update: stores optional detail text" {
+    items_run "primer::items_init alpha && primer::item_update alpha skipped 'already installed outside brew cask'"
+    assert_success
+    run grep "skipped:alpha:already installed outside brew cask" "$ITEMS_FILE"
+    assert_success
+}
+
 @test "items_init: no-op when MOD_ITEMS_FILE is unset" {
     run zsh -c "
         export PRIMER_DIR='${PRIMER_DIR}'
