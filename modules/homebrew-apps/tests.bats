@@ -124,6 +124,26 @@ run_homebrew_apps_with_conf() {
     assert_success
 }
 
+# ── non-cask preinstalled app warning ─────────────────────────────────────────
+
+@test "homebrew-apps: existing app outside brew cask is warning and skipped" {
+    export MOCK_BREW_EXISTING_APP_PACKAGES="fake-app"
+    run_homebrew_apps_with_conf "mod_update"
+    assert_success
+    run grep "skipped:fake-app" "$MOD_ITEMS_FILE"
+    assert_success
+    run grep "done:another-app" "$MOD_ITEMS_FILE"
+    assert_success
+}
+
+@test "homebrew-apps: warning updates module status text" {
+    export MOCK_BREW_EXISTING_APP_PACKAGES="fake-app"
+    run_homebrew_apps_with_conf "mod_update"
+    assert_success
+    run grep "done with 1 warning(s)" "$TEST_HOME/mod-status"
+    assert_success
+}
+
 # ── failure propagation ───────────────────────────────────────────────────────
 
 @test "homebrew-apps: mod_update fails when a cask install fails" {

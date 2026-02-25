@@ -8,6 +8,8 @@
 #   MOCK_BREW_INSTALLED_CASKS     space-separated list of installed casks
 #   MOCK_BREW_OUTDATED_CASKS      space-separated list of outdated casks
 #   MOCK_BREW_FAIL_PACKAGES       space-separated list of packages that should fail
+#   MOCK_BREW_EXISTING_APP_PACKAGES space-separated casks that fail with
+#                                  "already an App at '/Applications/...'"
 
 case "$1" in
     --version)
@@ -37,6 +39,17 @@ esac
 
 # Log this invocation
 echo "brew $*" >> "${MOCK_LOG:-/dev/null}"
+
+# Simulate brew cask conflict where app already exists in /Applications.
+if [ "$1" = "install" ] && [ "${2:-}" = "--cask" ] && [ -n "${MOCK_BREW_EXISTING_APP_PACKAGES:-}" ]; then
+    pkg="${3:-}"
+    case " ${MOCK_BREW_EXISTING_APP_PACKAGES} " in
+        *" ${pkg} "*)
+            echo "Error: It seems there is already an App at '/Applications/${pkg}.app'." >&2
+            exit 1
+            ;;
+    esac
+fi
 
 # Simulate failure for specific packages (last argument is the package name)
 if [ -n "${MOCK_BREW_FAIL_PACKAGES:-}" ]; then
