@@ -164,3 +164,76 @@ load '../helpers/common'
     '
     assert_output "NO"
 }
+
+# ── engine::_apply_filters ────────────────────────────────────────────────────
+
+@test "apply_filters: PRIMER_SKIP marks named module as skipped" {
+    zsh_run '
+        PRIMER_SKIP="mac-app-store"
+        engine::load_config "$PRIMER_DIR/primer.conf"
+        local m; for m in $_mod_order; do _state[$m]=pending; done
+        engine::_apply_filters
+        echo "${_state[mac-app-store]}"
+    '
+    assert_output "skipped"
+}
+
+@test "apply_filters: PRIMER_SKIP leaves other modules pending" {
+    zsh_run '
+        PRIMER_SKIP="mac-app-store"
+        engine::load_config "$PRIMER_DIR/primer.conf"
+        local m; for m in $_mod_order; do _state[$m]=pending; done
+        engine::_apply_filters
+        echo "${_state[homebrew]}"
+    '
+    assert_output "pending"
+}
+
+@test "apply_filters: PRIMER_SKIP accepts multiple space-separated modules" {
+    zsh_run '
+        PRIMER_SKIP="mac-app-store homebrew-apps"
+        engine::load_config "$PRIMER_DIR/primer.conf"
+        local m; for m in $_mod_order; do _state[$m]=pending; done
+        engine::_apply_filters
+        echo "${_state[mac-app-store]} ${_state[homebrew-apps]}"
+    '
+    assert_output "skipped skipped"
+}
+
+@test "apply_filters: PRIMER_ONLY marks all other modules as skipped" {
+    zsh_run '
+        PRIMER_ONLY="homebrew"
+        engine::load_config "$PRIMER_DIR/primer.conf"
+        local m; for m in $_mod_order; do _state[$m]=pending; done
+        engine::_apply_filters
+        echo "${_state[homebrew]} ${_state[mac-app-store]}"
+    '
+    assert_output "pending skipped"
+}
+
+@test "apply_filters: PRIMER_ONLY keeps listed modules pending" {
+    zsh_run '
+        PRIMER_ONLY="homebrew homebrew-apps"
+        engine::load_config "$PRIMER_DIR/primer.conf"
+        local m; for m in $_mod_order; do _state[$m]=pending; done
+        engine::_apply_filters
+        echo "${_state[homebrew]} ${_state[homebrew-apps]} ${_state[mac-app-store]}"
+    '
+    assert_output "pending pending skipped"
+}
+
+@test "apply_filters: empty PRIMER_SKIP and PRIMER_ONLY leaves all pending" {
+    zsh_run '
+        PRIMER_SKIP=""
+        PRIMER_ONLY=""
+        engine::load_config "$PRIMER_DIR/primer.conf"
+        local m; for m in $_mod_order; do _state[$m]=pending; done
+        engine::_apply_filters
+        local any_skipped=false
+        for m in $_mod_order; do
+            [[ "${_state[$m]}" == "skipped" ]] && any_skipped=true
+        done
+        echo "$any_skipped"
+    '
+    assert_output "false"
+}

@@ -32,8 +32,8 @@ engine::load_config() {
         [[ "$line" =~ ^[[:space:]]*# ]] && continue
         [[ -z "${line// /}" ]] && continue
 
-        # Section header: [module_name]
-        if [[ "$line" =~ '^\[([a-z_]+)\]' ]]; then
+        # Section header: [module_name] (allows hyphens)
+        if [[ "$line" =~ '^\[([a-z_-]+)\]' ]]; then
             section="${match[1]}"
             _mod_order+=("$section")
             key=""
@@ -85,6 +85,23 @@ engine::_deps_failed() {
     return 1
 }
 
+# Pre-mark modules as skipped based on PRIMER_SKIP / PRIMER_ONLY env vars.
+# Called once after all states are set to "pending". The DAG loop then
+# cascade-skips dependents of skipped modules via engine::_deps_failed.
+engine::_apply_filters() {
+    local mod
+    if [[ -n "${PRIMER_SKIP:-}" ]]; then
+        for mod in $_mod_order; do
+            [[ " ${PRIMER_SKIP} " == *" ${mod} "* ]] && _state[$mod]="skipped"
+        done
+    fi
+    if [[ -n "${PRIMER_ONLY:-}" ]]; then
+        for mod in $_mod_order; do
+            [[ " ${PRIMER_ONLY} " != *" ${mod} "* ]] && _state[$mod]="skipped"
+        done
+    fi
+}
+
 # Are there any modules still pending or running?
 engine::_has_active() {
     local mod
@@ -105,6 +122,7 @@ engine::_start_module() {
 
     (
         export MOD_STATUS_FILE="$statusfile"
+        export MOD_ITEMS_FILE="${PRIMER_TMPDIR}/${mod}.items"
         export MOD_DIR="$mod_dir"
         export MOD_NAME="$mod"
         # Source helpers (run, deploy_files, check_files, primer::status_msg, ensure_brew)
@@ -235,6 +253,18 @@ engine::_render() {
             "${_mod_desc[$mod]}" \
             "$(engine::_get_detail "$mod")" \
             "$(engine::_get_elapsed "$mod")")"
+
+        # While running, show per-item progress indented beneath the module line
+        if [[ "${_state[$mod]}" == "running" ]]; then
+            local items_file="${PRIMER_TMPDIR}/${mod}.items"
+            if [[ -f "$items_file" ]]; then
+                local item_state item_name
+                while IFS=: read -r item_state item_name; do
+                    [[ -z "$item_name" ]] && continue
+                    ui::frame_line "$(ui::sub_item_line "$item_state" "$item_name")"
+                done < "$items_file"
+            fi
+        fi
     done
 
     # Blank line before footer
@@ -272,6 +302,9 @@ engine::run_update() {
         _state[$mod]="pending"
     done
 
+    # Apply --skip / --only filters
+    engine::_apply_filters
+
     # Header
     local title="primer update"
     local header_color="$C_BLUE"
@@ -294,6 +327,29 @@ engine::run_update() {
             fi
         fi
     fi
+    # Pre-check App Store sign-in if mac-app-store module is active and mas is available
+    if [[ "$DRY_RUN" != true ]] \
+        && (( ${_mod_order[(I)mac-app-store]} )) \
+        && [[ " ${PRIMER_SKIP} " != *" mac-app-store "* ]] \
+        && command -v mas &>/dev/null; then
+        if ! mas account &>/dev/null; then
+            print ""
+            print "  ${C_YELLOW}App Store sign-in required.${C_RESET}"
+            print "  ${C_DIM}Open the App Store app and sign in, then press Enter to continue.${C_RESET}"
+            print "  ${C_DIM}Or press 's' to skip (equivalent to --skip mac-app-store).${C_RESET}"
+            local _choice=""
+            if [[ -t 0 ]]; then
+                read -r -k1 "_choice?  > "
+            elif [[ -e /dev/tty ]]; then
+                read -r -k1 "_choice?  > " </dev/tty
+            fi
+            print ""
+            if [[ "$_choice" == "s" || "$_choice" == "S" ]]; then
+                PRIMER_SKIP="${PRIMER_SKIP:+$PRIMER_SKIP }mac-app-store"
+            fi
+        fi
+    fi
+
     print ""
     ui::box "$title" "$header_color"
     print ""

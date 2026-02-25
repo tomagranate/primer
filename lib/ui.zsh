@@ -107,6 +107,24 @@ ui::module_line() {
         "$C_DIM" "$time_str" "$C_RESET"
 }
 
+# Format a single sub-item line shown indented under a running module
+# Usage: ui::sub_item_line <state> <name>
+ui::sub_item_line() {
+    local state="$1" name="$2"
+    local glyph color
+
+    case "$state" in
+        done)    glyph="$GLYPH_OK";              color="$C_GREEN"    ;;
+        failed)  glyph="$GLYPH_FAIL";            color="$C_BOLD_RED" ;;
+        running) glyph="${SPINNER[SPIN_IDX + 1]}"; color="$C_BLUE"   ;;
+        skipped) glyph="$GLYPH_SKIP";            color="$C_YELLOW"   ;;
+        *)       glyph="$GLYPH_WAIT";            color="$C_DIM"      ;;
+    esac
+
+    (( ${#name} > 36 )) && name="${name[1,35]}…"
+    printf '        %s%s%s  %s%s%s' "$color" "$glyph" "$C_RESET" "$C_DIM" "$name" "$C_RESET"
+}
+
 # ── Error Output Box ─────────────────────────────────────────────────────────
 
 # Display a module's error output with top/bottom separators.
@@ -148,6 +166,33 @@ run() {
 # Set the one-line status message displayed next to the module name
 primer::status_msg() {
     [[ -n "$MOD_STATUS_FILE" ]] && print -n "$1" > "$MOD_STATUS_FILE"
+}
+
+# Initialise the sub-items list with every name in "pending" state.
+# Call once before the install loop begins.
+# Usage: primer::items_init name1 name2 ...
+primer::items_init() {
+    [[ -z "$MOD_ITEMS_FILE" ]] && return
+    local name
+    for name in "$@"; do
+        printf 'pending:%s\n' "$name"
+    done > "$MOD_ITEMS_FILE"
+}
+
+# Update the state of one item in the sub-items list.
+# Usage: primer::item_update <name> <state>   (state: pending|running|done|failed|skipped)
+primer::item_update() {
+    [[ -z "$MOD_ITEMS_FILE" || ! -f "$MOD_ITEMS_FILE" ]] && return
+    local name="$1" state="$2"
+    local tmp="${MOD_ITEMS_FILE}.tmp.$$"
+    while IFS=: read -r s n; do
+        if [[ "$n" == "$name" ]]; then
+            printf '%s:%s\n' "$state" "$name"
+        else
+            printf '%s:%s\n' "$s" "$n"
+        fi
+    done < "$MOD_ITEMS_FILE" > "$tmp"
+    mv "$tmp" "$MOD_ITEMS_FILE"
 }
 
 # Ensure Homebrew is on PATH (for modules that depend on brew packages)

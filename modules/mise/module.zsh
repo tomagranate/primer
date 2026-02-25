@@ -18,14 +18,28 @@ mod_update() {
     fi
 
     primer::status_msg "installing runtimes..."
+    local tools=($(mod_config tools))
     local tool name version
-    for tool in $(mod_config tools); do
+
+    local labels=()
+    for tool in "${tools[@]}"; do
+        labels+=("${tool%%:*}@${tool#*:}")
+    done
+    primer::items_init "${labels[@]}"
+
+    for tool in "${tools[@]}"; do
         name="${tool%%:*}"
         version="${tool#*:}"
+        local label="${name}@${version}"
+        primer::status_msg "installing $label..."
+        primer::item_update "$label" "running"
         if [[ "$DRY_RUN" == true ]]; then
-            echo "[dry-run] mise use --global ${name}@${version} --yes"
+            echo "[dry-run] mise use --global ${label} --yes"
+            primer::item_update "$label" "done"
         else
-            mise use --global "${name}@${version}" --yes
+            mise use --global "${label}" --yes \
+                && primer::item_update "$label" "done" \
+                || primer::item_update "$label" "failed"
         fi
     done
     primer::status_msg "runtimes installed"

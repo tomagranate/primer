@@ -2,7 +2,7 @@
 # modules/touchid -- Enable Touch ID for sudo
 
 mod_update() {
-    local sudo_local="/etc/pam.d/sudo_local"
+    local sudo_local="${PRIMER_PAM_SUDO_LOCAL:-/etc/pam.d/sudo_local}"
     local tid_line="auth       sufficient     pam_tid.so"
 
     if [[ -f "$sudo_local" ]] && grep -q "pam_tid.so" "$sudo_local"; then
@@ -21,7 +21,7 @@ mod_update() {
 }
 
 mod_status() {
-    local sudo_local="/etc/pam.d/sudo_local"
+    local sudo_local="${PRIMER_PAM_SUDO_LOCAL:-/etc/pam.d/sudo_local}"
 
     if [[ -f "$sudo_local" ]] && grep -q "pam_tid.so" "$sudo_local"; then
         primer::status_msg "enabled"

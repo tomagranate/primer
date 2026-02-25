@@ -194,12 +194,49 @@ EOF
     zsh_run '
         engine::load_config "$PRIMER_DIR/primer.conf"
         [[ ${_mod_order[(Ie)homebrew]} -gt 0 ]] || { echo "missing:homebrew"; exit 1; }
+        [[ ${_mod_order[(Ie)homebrew-apps]} -gt 0 ]] || { echo "missing:homebrew-apps"; exit 1; }
+        [[ ${_mod_order[(Ie)mac-app-store]} -gt 0 ]] || { echo "missing:mac-app-store"; exit 1; }
         [[ ${_mod_order[(Ie)mise]} -gt 0 ]] || { echo "missing:mise"; exit 1; }
         [[ -n "${_mod_config[homebrew.formulae]}" ]] || { echo "missing:homebrew.formulae"; exit 1; }
-        [[ -n "${_mod_config[homebrew.casks]}" ]] || { echo "missing:homebrew.casks"; exit 1; }
+        [[ -n "${_mod_config[homebrew-apps.casks]}" ]] || { echo "missing:homebrew-apps.casks"; exit 1; }
+        [[ -n "${_mod_config[mac-app-store.mas]}" ]] || { echo "missing:mac-app-store.mas"; exit 1; }
         [[ -n "${_mod_config[mise.tools]}" ]] || { echo "missing:mise.tools"; exit 1; }
         echo "ok"
     '
     assert_success
     assert_output "ok"
+}
+
+@test "load_config: section names with hyphens are parsed correctly" {
+    cat > "$TEST_CONF" <<'EOF'
+[homebrew-apps]
+label = Mac Apps
+casks =
+    fake-app
+
+[mac-app-store]
+label = App Store
+mas =
+    FakeApp:123456789
+EOF
+    zsh_run "
+        engine::load_config '$TEST_CONF'
+        echo \"\${_mod_order[*]}\"
+    "
+    assert_output "homebrew-apps mac-app-store"
+}
+
+@test "load_config: hyphenated section config values are accessible" {
+    cat > "$TEST_CONF" <<'EOF'
+[homebrew-apps]
+casks =
+    google-chrome
+    spotify
+EOF
+    zsh_run "
+        engine::load_config '$TEST_CONF'
+        echo \"\${_mod_config[homebrew-apps.casks]}\"
+    "
+    assert_output --partial "google-chrome"
+    assert_output --partial "spotify"
 }

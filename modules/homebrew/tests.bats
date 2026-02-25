@@ -9,6 +9,7 @@ setup() {
     export MOCK_DIR="$PRIMER_DIR/tests/helpers/mocks"
     export MOCK_LOG="$(mktemp)"
     export TEST_CONF="$(mktemp)"
+    export MOD_ITEMS_FILE="$(mktemp)"
     export PATH="$MOCK_DIR:$PATH"
 
     cat > "$TEST_CONF" <<'EOF'
@@ -18,15 +19,11 @@ taps =
 formulae =
     alpha
     bravo
-casks =
-    fake-app
-mas =
-    FakeApp:123456789
 EOF
 }
 
 teardown() {
-    rm -rf "$TEST_HOME" "$MOCK_LOG" "$TEST_CONF"
+    rm -rf "$TEST_HOME" "$MOCK_LOG" "$TEST_CONF" "$MOD_ITEMS_FILE"
 }
 
 run_homebrew_with_conf() {
@@ -34,10 +31,10 @@ run_homebrew_with_conf() {
     run zsh -c "
         export PRIMER_DIR='${PRIMER_DIR}'
         export DRY_RUN='${DRY_RUN:-false}'
-        export SKIP_APP_STORE='${SKIP_APP_STORE:-false}'
         export MOD_DIR='${PRIMER_DIR}/modules/homebrew'
         export MOD_NAME='homebrew'
         export MOD_STATUS_FILE='${TEST_HOME}/mod-status'
+        export MOD_ITEMS_FILE='${MOD_ITEMS_FILE}'
         export CONFIG_DIR='${TEST_CONFIG_DIR:-/tmp/primer-test-config}'
         export ZSH_CONFIG_DIR='${TEST_CONFIG_DIR:-/tmp/primer-test-config}/zsh'
         export BIN_DIR='${TEST_BIN_DIR:-/tmp/primer-test-bin}'
@@ -50,47 +47,59 @@ run_homebrew_with_conf() {
     "
 }
 
-@test "homebrew: dry-run generates Brewfile with formulae" {
+@test "homebrew: calls brew update before installing" {
     export DRY_RUN=true
     run_homebrew_with_conf "mod_update"
     assert_success
-    assert_output --partial 'brew "alpha"'
-    assert_output --partial 'brew "bravo"'
+    assert_output --partial 'brew update'
 }
 
-@test "homebrew: dry-run generates Brewfile with taps" {
+@test "homebrew: dry-run installs formulae individually" {
     export DRY_RUN=true
     run_homebrew_with_conf "mod_update"
     assert_success
-    assert_output --partial 'tap "owner/tap"'
+    assert_output --partial 'brew install alpha'
+    assert_output --partial 'brew install bravo'
 }
 
-@test "homebrew: dry-run generates Brewfile with casks" {
+@test "homebrew: dry-run taps repos individually" {
     export DRY_RUN=true
     run_homebrew_with_conf "mod_update"
     assert_success
-    assert_output --partial 'cask "fake-app"'
+    assert_output --partial 'brew tap owner/tap'
 }
 
-@test "homebrew: dry-run generates Brewfile with mas entries" {
+@test "homebrew: dry-run does not use brew bundle" {
     export DRY_RUN=true
     run_homebrew_with_conf "mod_update"
     assert_success
-    assert_output --partial 'mas "FakeApp", id: 123456789'
+    refute_output --partial 'brew bundle'
 }
 
-@test "homebrew: dry-run skips mas entries when skip flag set" {
-    export DRY_RUN=true
-    export SKIP_APP_STORE=true
+@test "homebrew: wet run calls brew install for each formula" {
     run_homebrew_with_conf "mod_update"
     assert_success
-    refute_output --partial 'mas "FakeApp", id: 123456789'
+    run grep "brew install alpha" "$MOCK_LOG"
+    assert_success
+    run grep "brew install bravo" "$MOCK_LOG"
+    assert_success
 }
 
-@test "homebrew: wet run calls brew bundle" {
+@test "homebrew: wet run calls brew tap for each tap" {
     run_homebrew_with_conf "mod_update"
     assert_success
-    run grep "brew bundle" "$MOCK_LOG"
+    run grep "brew tap owner/tap" "$MOCK_LOG"
+    assert_success
+}
+
+@test "homebrew: items file contains all packages as done after wet run" {
+    run_homebrew_with_conf "mod_update"
+    assert_success
+    run grep "done:alpha" "$MOD_ITEMS_FILE"
+    assert_success
+    run grep "done:bravo" "$MOD_ITEMS_FILE"
+    assert_success
+    run grep "done:owner/tap" "$MOD_ITEMS_FILE"
     assert_success
 }
 

@@ -1,5 +1,5 @@
 #!/bin/zsh
-# modules/homebrew -- Homebrew package manager + all packages from config
+# modules/homebrew -- Homebrew package manager + formulae from config
 
 mod_update() {
     # Install Homebrew if missing
@@ -13,27 +13,54 @@ mod_update() {
     fi
     ensure_brew
 
-    # Generate Brewfile from config and run brew bundle
-    primer::status_msg "installing packages..."
-    local brewfile="$(mktemp)"
-    local item
-    for item in $(mod_config taps); do echo "tap \"$item\"" >> "$brewfile"; done
-    for item in $(mod_config formulae); do echo "brew \"$item\"" >> "$brewfile"; done
-    for item in $(mod_config casks);    do echo "cask \"$item\"" >> "$brewfile"; done
-    if [[ "$SKIP_APP_STORE" != true ]]; then
-        for item in $(mod_config mas); do
-            local name="${item%%:*}" id="${item#*:}"
-            echo "mas \"$name\", id: $id" >> "$brewfile"
-        done
-    fi
+    primer::status_msg "updating Homebrew..."
+    run brew update
 
-    if [[ "$DRY_RUN" == true ]]; then
-        echo "[dry-run] brew bundle with:"
-        cat "$brewfile"
-    else
-        brew bundle --file="$brewfile"
-    fi
-    rm -f "$brewfile"
+    local taps=($(mod_config taps))
+    local formulae=($(mod_config formulae))
+    local casks=($(mod_config casks))
+
+    # Initialise sub-item list with all packages
+    primer::items_init "${taps[@]}" "${formulae[@]}" "${casks[@]}"
+
+    local item
+
+    for item in "${taps[@]}"; do
+        primer::status_msg "tapping $item..."
+        primer::item_update "$item" "running"
+        if [[ "$DRY_RUN" == true ]]; then
+            echo "[dry-run] brew tap $item"
+            primer::item_update "$item" "done"
+        else
+            brew tap "$item" && primer::item_update "$item" "done" \
+                             || primer::item_update "$item" "failed"
+        fi
+    done
+
+    for item in "${formulae[@]}"; do
+        primer::status_msg "installing $item..."
+        primer::item_update "$item" "running"
+        if [[ "$DRY_RUN" == true ]]; then
+            echo "[dry-run] brew install $item"
+            primer::item_update "$item" "done"
+        else
+            brew install "$item" && primer::item_update "$item" "done" \
+                                 || primer::item_update "$item" "failed"
+        fi
+    done
+
+    for item in "${casks[@]}"; do
+        primer::status_msg "installing $item..."
+        primer::item_update "$item" "running"
+        if [[ "$DRY_RUN" == true ]]; then
+            echo "[dry-run] brew install --cask $item"
+            primer::item_update "$item" "done"
+        else
+            brew install --cask "$item" && primer::item_update "$item" "done" \
+                                        || primer::item_update "$item" "failed"
+        fi
+    done
+
     primer::status_msg "installed"
 }
 

@@ -16,9 +16,20 @@ teardown() {
 
 @test "touchid: dry-run prints enable message" {
     export DRY_RUN=true
+    export PRIMER_PAM_SUDO_LOCAL="$TEST_HOME/sudo_local"  # does not exist
     zsh_run_module touchid "mod_update"
     assert_success
     assert_output --partial "dry-run"
+}
+
+@test "touchid: dry-run skips when already enabled" {
+    export DRY_RUN=true
+    local sudo_local="$TEST_HOME/sudo_local"
+    echo "auth       sufficient     pam_tid.so" > "$sudo_local"
+    export PRIMER_PAM_SUDO_LOCAL="$sudo_local"
+    zsh_run_module touchid "mod_update"
+    assert_success
+    refute_output --partial "dry-run"
 }
 
 @test "touchid: mod_status reports not enabled (no sudo_local on test system)" {

@@ -52,14 +52,44 @@ load '../helpers/common'
     assert_output --partial "Usage"
 }
 
-@test "cli: --skip-app-store alone (no command) shows help" {
-    run zsh "$PRIMER_DIR/bin/primer" --skip-app-store
+@test "cli: --skip alone (no command) shows help" {
+    run zsh "$PRIMER_DIR/bin/primer" --skip mac-app-store
     assert_success
     assert_output --partial "Usage"
 }
 
-@test "cli: --skip-app-store is rejected for status" {
-    run zsh "$PRIMER_DIR/bin/primer" status --skip-app-store
+@test "cli: --only alone (no command) shows help" {
+    run zsh "$PRIMER_DIR/bin/primer" --only homebrew
+    assert_success
+    assert_output --partial "Usage"
+}
+
+@test "cli: --skip is rejected for status" {
+    run zsh "$PRIMER_DIR/bin/primer" status --skip mac-app-store
     assert_failure
     assert_output --partial "only valid with 'update'"
+}
+
+@test "cli: --only is rejected for status" {
+    run zsh "$PRIMER_DIR/bin/primer" status --only homebrew
+    assert_failure
+    assert_output --partial "only valid with 'update'"
+}
+
+@test "cli: --skip without argument exits 1" {
+    run zsh "$PRIMER_DIR/bin/primer" update --skip
+    assert_failure
+    assert_output --partial "Missing argument for --skip"
+}
+
+@test "cli: --only without argument exits 1" {
+    run zsh "$PRIMER_DIR/bin/primer" update --only
+    assert_failure
+    assert_output --partial "Missing argument for --only"
+}
+
+@test "cli: --skip and --only together exits 1" {
+    run zsh "$PRIMER_DIR/bin/primer" update --skip mac-app-store --only homebrew
+    assert_failure
+    assert_output --partial "cannot be used together"
 }

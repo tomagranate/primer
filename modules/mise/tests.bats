@@ -7,11 +7,12 @@ setup() {
     export TEST_HOME="$(mktemp -d)"
     export MOCK_DIR="$PRIMER_DIR/tests/helpers/mocks"
     export MOCK_LOG="$(mktemp)"
+    export MOD_ITEMS_FILE="$(mktemp)"
     export PATH="$MOCK_DIR:$PATH"
 }
 
 teardown() {
-    rm -rf "$TEST_HOME" "$MOCK_LOG"
+    rm -rf "$TEST_HOME" "$MOCK_LOG" "$MOD_ITEMS_FILE"
 }
 
 @test "mise: dry-run prints mise use for each tool" {
@@ -46,6 +47,15 @@ EOF
     zsh_run_module mise "mod_update"
     assert_success
     run grep "mise use" "$MOCK_LOG"
+    assert_success
+}
+
+@test "mise: wet run writes each tool to items file as done" {
+    zsh_run_module mise "mod_update"
+    assert_success
+    run grep "done:node@lts" "$MOD_ITEMS_FILE"
+    assert_success
+    run grep "done:python@3.12" "$MOD_ITEMS_FILE"
     assert_success
 }
 

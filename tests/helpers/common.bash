@@ -43,6 +43,8 @@ zsh_run_module() {
         export MOD_DIR='${PRIMER_DIR}/modules/${mod}'
         export MOD_NAME='${mod}'
         export MOD_STATUS_FILE='${status_file}'
+        export MOD_ITEMS_FILE='${MOD_ITEMS_FILE:-}'
+        export PRIMER_PAM_SUDO_LOCAL='${PRIMER_PAM_SUDO_LOCAL:-}'
         export CONFIG_DIR='${TEST_CONFIG_DIR:-/tmp/primer-test-config}'
         export ZSH_CONFIG_DIR='${TEST_CONFIG_DIR:-/tmp/primer-test-config}/zsh'
         export BIN_DIR='${TEST_BIN_DIR:-/tmp/primer-test-bin}'
