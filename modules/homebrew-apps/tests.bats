@@ -29,6 +29,7 @@ run_homebrew_apps_with_conf() {
     run zsh -c "
         export PRIMER_DIR='${PRIMER_DIR}'
         export DRY_RUN='${DRY_RUN:-false}'
+        export PRIMER_APPLICATIONS_DIR='${PRIMER_APPLICATIONS_DIR:-/Applications}'
         export MOD_DIR='${PRIMER_DIR}/modules/homebrew-apps'
         export MOD_NAME='homebrew-apps'
         export MOD_STATUS_FILE='${TEST_HOME}/mod-status'
@@ -142,6 +143,35 @@ run_homebrew_apps_with_conf() {
     assert_success
     run grep "done with 1 warning(s)" "$TEST_HOME/mod-status"
     assert_success
+}
+
+@test "homebrew-apps: precheck skips install when app bundle exists (heuristic)" {
+    export PRIMER_APPLICATIONS_DIR="$TEST_HOME/Applications"
+    mkdir -p "$PRIMER_APPLICATIONS_DIR/Fake App.app"
+    run_homebrew_apps_with_conf "mod_update"
+    assert_success
+    run grep "skipped:fake-app" "$MOD_ITEMS_FILE"
+    assert_success
+    run grep "brew install --cask fake-app" "$MOCK_LOG"
+    assert_failure
+}
+
+@test "homebrew-apps: precheck uses explicit app_paths mapping override" {
+    export PRIMER_APPLICATIONS_DIR="$TEST_HOME/Applications"
+    mkdir -p "$PRIMER_APPLICATIONS_DIR/Custom Fake.app"
+    cat > "$TEST_CONF" <<'EOF'
+[homebrew-apps]
+casks =
+    fake-app
+app_paths =
+    fake-app:Custom Fake.app
+EOF
+    run_homebrew_apps_with_conf "mod_update"
+    assert_success
+    run grep "skipped:fake-app" "$MOD_ITEMS_FILE"
+    assert_success
+    run grep "brew install --cask fake-app" "$MOCK_LOG"
+    assert_failure
 }
 
 # ── failure propagation ───────────────────────────────────────────────────────

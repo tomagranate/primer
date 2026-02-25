@@ -255,8 +255,9 @@ engine::_render() {
             "$(engine::_get_elapsed "$mod")")"
 
         # Show sub-items beneath the module line.
-        # While running: show active/failed items (pending/done omitted to bound frame height).
-        # After completion: show only failed items so errors remain visible.
+        # While running: hide pending/done to keep the frame compact.
+        # After completion: show all resolved subtasks (done/skipped/failed),
+        # so users can review what happened, including warnings (skipped).
         local mod_state="${_state[$mod]}"
         if [[ "$mod_state" == "running" || "$mod_state" == "done" || "$mod_state" == "failed" ]]; then
             local items_file="${PRIMER_TMPDIR}/${mod}.items"
@@ -267,7 +268,7 @@ engine::_render() {
                     if [[ "$mod_state" == "running" ]]; then
                         [[ "$item_state" == "pending" || "$item_state" == "done" ]] && continue
                     else
-                        [[ "$item_state" != "failed" ]] && continue
+                        [[ "$item_state" == "pending" ]] && continue
                     fi
                     ui::frame_line "$(ui::sub_item_line "$item_state" "$item_name")"
                 done < "$items_file"

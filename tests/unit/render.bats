@@ -65,8 +65,8 @@ _render_with_items() {
     }
 }
 
-@test "render: sub-items not shown when module is done" {
-    printf 'done:some-pkg\n' > "${TEST_ITEMS_DIR}/fake-mod.items"
+@test "render: done modules show resolved sub-items" {
+    printf 'done:some-pkg\npending:waiting-pkg\nskipped:warn-pkg\n' > "${TEST_ITEMS_DIR}/fake-mod.items"
 
     run zsh -c "
         export PRIMER_DIR='${PRIMER_DIR}'
@@ -80,8 +80,14 @@ _render_with_items() {
         engine::_render
     "
     assert_success
-    [[ "$output" != *"some-pkg"* ]] || {
-        echo "Did not expect some-pkg in output when module is done: $output"; false
+    [[ "$output" == *"some-pkg"* ]] || {
+        echo "Expected some-pkg in output when module is done: $output"; false
+    }
+    [[ "$output" == *"warn-pkg"* ]] || {
+        echo "Expected warn-pkg in output when module is done: $output"; false
+    }
+    [[ "$output" != *"waiting-pkg"* ]] || {
+        echo "Did not expect waiting-pkg in output when module is done: $output"; false
     }
 }
 
