@@ -287,6 +287,8 @@ engine::_render() {
     ui::frame_line "$(printf '  %s│%s %s%*s %s│%s' \
         "$footer_color" "$C_RESET" "$summary" "$pad" "" "$footer_color" "$C_RESET")"
     ui::frame_line "$(ui::hline "╰" "╯" "$footer_color")"
+
+    ui::frame_end
 }
 
 # ── Public API ────────────────────────────────────────────────────────────────

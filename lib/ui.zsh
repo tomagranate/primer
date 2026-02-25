@@ -60,6 +60,7 @@ ui::box() {
 # ── Frame Management (cursor control for redraws) ────────────────────────────
 
 typeset -gi _frame_lines=0
+typeset -gi _prev_frame_lines=0
 typeset -g  _frame_active=false
 
 ui::frame_begin() {
@@ -67,12 +68,32 @@ ui::frame_begin() {
         printf '\e[%dA' $_frame_lines
     fi
     _frame_active=true
+    _prev_frame_lines=$_frame_lines
     _frame_lines=0
 }
 
 ui::frame_line() {
     printf '\e[2K%s\n' "$1"
     _frame_lines=$(( _frame_lines + 1 ))
+}
+
+# Call at the end of each render pass to clean up two categories of pollution:
+#   1. Ghost lines from a previous taller frame (frame shrank, e.g. sub-items
+#      disappeared when a module finished).
+#   2. Any content written to the terminal by external processes (brew, sudo)
+#      below the current frame position.
+ui::frame_end() {
+    local extra=$(( _prev_frame_lines - _frame_lines ))
+    local i
+    for (( i = 0; i < extra; i++ )); do
+        printf '\e[2K\n'
+    done
+    if (( extra > 0 )); then
+        printf '\e[%dA' "$extra"
+    fi
+    # Erase everything below the current frame in case any external process
+    # (brew progress, sudo prompt via /dev/tty) wrote lines beneath us.
+    printf '\e[J'
 }
 
 # ── Module Line Formatting ────────────────────────────────────────────────────

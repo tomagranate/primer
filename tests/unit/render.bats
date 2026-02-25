@@ -84,3 +84,62 @@ _render_with_items() {
         echo "Did not expect some-pkg in output when module is done: $output"; false
     }
 }
+
+# ── ui::frame_end ghost-line tests ───────────────────────────────────────────
+
+@test "frame_end: emits erase-to-end-of-screen escape after every render" {
+    # \e[J must appear in render output so external writes below the frame
+    # are cleared on each cycle.
+    run zsh -c "
+        export PRIMER_DIR='${PRIMER_DIR}'
+        source \"\$PRIMER_DIR/lib/ui.zsh\"
+        source \"\$PRIMER_DIR/lib/engine.zsh\"
+        PRIMER_TMPDIR='${TEST_ITEMS_DIR}'
+        _mod_order=(fake-mod)
+        _mod_desc[fake-mod]='Fake Module'
+        _state[fake-mod]=done
+        _elapsed[fake-mod]=0.1
+        engine::_render
+    "
+    assert_success
+    # \e[J is the CSI erase-to-end-of-screen sequence
+    [[ "$output" == *$'\e[J'* ]] || {
+        echo "Expected ESC[J in render output"; false
+    }
+}
+
+@test "frame_end: clears extra lines when frame shrinks" {
+    # Simulate: first render with 1 sub-item (frame N+1 lines), second render
+    # with module done and no sub-item (frame N lines). The second render must
+    # emit a \e[2K blank-line to erase the orphaned sub-item line.
+    printf 'running:active-pkg\n' > "${TEST_ITEMS_DIR}/fake-mod.items"
+
+    run zsh -c "
+        export PRIMER_DIR='${PRIMER_DIR}'
+        source \"\$PRIMER_DIR/lib/ui.zsh\"
+        source \"\$PRIMER_DIR/lib/engine.zsh\"
+        PRIMER_TMPDIR='${TEST_ITEMS_DIR}'
+        _mod_order=(fake-mod)
+        _mod_desc[fake-mod]='Fake Module'
+
+        # First render: module running with 1 sub-item → _frame_lines = N+1
+        _state[fake-mod]=running
+        _start[fake-mod]=\$EPOCHREALTIME
+        engine::_render
+
+        # Second render: module done, no sub-items → frame shrank by 1
+        _state[fake-mod]=done
+        _elapsed[fake-mod]=1.0
+        engine::_render
+
+        # Emit a sentinel so we can see the second render's output
+        printf 'SENTINEL'
+    "
+    assert_success
+    # The output must contain \e[J (frame_end erase-below) from both renders
+    local count
+    count=$(printf '%s' "$output" | grep -o $'\e\[J' | wc -l | tr -d ' ')
+    (( count >= 2 )) || {
+        echo "Expected at least 2 ESC[J sequences (one per render), got: $count"; false
+    }
+}
