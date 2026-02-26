@@ -13,6 +13,8 @@ load '../helpers/common'
         fake_root=\"\$(mktemp -d)\"
         mkdir -p \"\$fake_root/lib\" \"\$fake_root/modules/one\" \"\$fake_root/modules/two\"
         cp \"${PRIMER_DIR}/lib/ui.zsh\" \"\$fake_root/lib/ui.zsh\"
+        cp \"${PRIMER_DIR}/lib/engine.zsh\" \"\$fake_root/lib/engine.zsh\"
+        cp \"${PRIMER_DIR}/lib/engine.zsh\" \"\$fake_root/lib/engine.zsh\"
 
         cat > \"\$fake_root/primer.conf\" <<'EOF'
 [one]
@@ -99,6 +101,7 @@ EOF
         fake_root=\"\$(mktemp -d)\"
         mkdir -p \"\$fake_root/lib\" \"\$fake_root/modules/one\" \"\$fake_root/modules/two\"
         cp \"${PRIMER_DIR}/lib/ui.zsh\" \"\$fake_root/lib/ui.zsh\"
+        cp \"${PRIMER_DIR}/lib/engine.zsh\" \"\$fake_root/lib/engine.zsh\"
 
         cat > \"\$fake_root/primer.conf\" <<'EOF'
 [one]
@@ -126,12 +129,12 @@ EOF
 
         PRIMER_DIR=\"\$fake_root\"
         source \"\$fake_root/lib/ui.zsh\"
-        source \"\$PRIMER_DIR/lib/engine.zsh\"
+        source \"\$fake_root/lib/engine.zsh\"
         engine::load_config \"\$fake_root/primer.conf\"
         engine::run_status
     "
     assert_success
     assert_output --partial "One"
     assert_output --partial "Two"
-    assert_output --partial "checking..."
+    assert_output --partial "up to date"
 }

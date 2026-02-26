@@ -434,55 +434,16 @@ engine::run_status() {
     printf '\e[?25l'
     trap "printf '\e[?25h'" INT TERM
     while true; do
-        local n_ok=0 n_issues=0 n_running=0
-        ui::frame_begin
-        for mod in $_mod_order; do
-            state="${_status_states[$mod]}"
-            elapsed=""
-            case "$state" in
-                running)
-                    elapsed=$(printf '%.1fs' $(( EPOCHREALTIME - _status_start[$mod] )))
-                    n_running=$(( n_running + 1 ))
-                    ;;
-                done)
-                    n_ok=$(( n_ok + 1 ))
-                    [[ -n "${_status_elapsed[$mod]}" ]] && elapsed="${_status_elapsed[$mod]}s"
-                    ;;
-                failed)
-                    n_issues=$(( n_issues + 1 ))
-                    [[ -n "${_status_elapsed[$mod]}" ]] && elapsed="${_status_elapsed[$mod]}s"
-                    ;;
-            esac
-            ui::frame_line "$(ui::module_line "$state" "${_mod_desc[$mod]}" "${_status_details[$mod]}" "$elapsed")"
-        done
-
-        ui::frame_line ""
-        local parts=()
-        (( n_ok > 0 )) && parts+=("${n_ok} healthy")
-        (( n_issues > 0 )) && parts+=("${n_issues} issues")
-        (( n_running > 0 )) && parts+=("${n_running} checking")
-        local summary="${(j: · :)parts}"
-        local footer_color="$C_CYAN"
-        (( n_issues > 0 )) && footer_color="$C_RED"
-        local pad=$(( BOX_W - 2 - ${#summary} ))
-        ui::frame_line "$(ui::hline "╭" "╮" "$footer_color")"
-        ui::frame_line "$(printf '  %s│%s %s%*s %s│%s' \
-            "$footer_color" "$C_RESET" "$summary" "$pad" "" "$footer_color" "$C_RESET")"
-        ui::frame_line "$(ui::hline "╰" "╯" "$footer_color")"
-        ui::frame_end
-
-        (( n_running == 0 )) && break
-
+        # Poll running checks first so each frame shows the latest states/results.
         for mod in $_mod_order; do
             [[ "${_status_states[$mod]}" != "running" ]] && continue
             pid="${_status_pids[$mod]}"
-            if ! kill -0 "$pid" 2>/dev/null; then
+            rcfile="${_rc_files[$mod]}"
+            if [[ -s "$rcfile" ]]; then
                 wait "$pid" 2>/dev/null || true
                 statusfile="${_status_files[$mod]}"
-                rcfile="${_rc_files[$mod]}"
 
-                rc=1
-                [[ -f "$rcfile" ]] && rc="$(cat "$rcfile")"
+                rc="$(cat "$rcfile")"
                 detail=""
                 [[ -f "$statusfile" ]] && detail="$(cat "$statusfile")"
 
@@ -512,10 +473,60 @@ engine::run_status() {
                 _status_elapsed[$mod]=$(printf '%.1f' $(( EPOCHREALTIME - _status_start[$mod] )))
 
                 rm -f "$statusfile" "$rcfile"
+            else
+                # Show any in-flight status text written by the module.
+                statusfile="${_status_files[$mod]}"
+                if [[ -f "$statusfile" ]]; then
+                    detail="$(cat "$statusfile")"
+                    [[ -n "$detail" ]] && _status_details[$mod]="$detail"
+                fi
             fi
         done
 
         SPIN_IDX=$(( (SPIN_IDX + 1) % ${#SPINNER[@]} ))
+
+        local n_ok=0 n_issues=0 n_running=0
+        ui::frame_begin
+        for mod in $_mod_order; do
+            state="${_status_states[$mod]}"
+            elapsed=""
+            case "$state" in
+                running)
+                    elapsed=$(printf '%.1fs' $(( EPOCHREALTIME - _status_start[$mod] )))
+                    n_running=$(( n_running + 1 ))
+                    ;;
+                done)
+                    n_ok=$(( n_ok + 1 ))
+                    [[ -n "${_status_elapsed[$mod]}" ]] && elapsed="${_status_elapsed[$mod]}s"
+                    ;;
+                failed)
+                    n_issues=$(( n_issues + 1 ))
+                    [[ -n "${_status_elapsed[$mod]}" ]] && elapsed="${_status_elapsed[$mod]}s"
+                    ;;
+            esac
+            ui::frame_line "$(ui::module_line "$state" "${_mod_desc[$mod]}" "${_status_details[$mod]}" "$elapsed")"
+        done
+
+        ui::frame_line ""
+        local parts=()
+        local issue_label="issues"
+        local checking_label="checking"
+        (( n_issues == 1 )) && issue_label="issue"
+        (( n_running == 1 )) && checking_label="checking"
+        (( n_ok > 0 )) && parts+=("${n_ok} healthy")
+        (( n_issues > 0 )) && parts+=("${n_issues} ${issue_label}")
+        (( n_running > 0 )) && parts+=("${n_running} ${checking_label}")
+        local summary="${(j: · :)parts}"
+        local footer_color="$C_CYAN"
+        (( n_issues > 0 )) && footer_color="$C_RED"
+        local pad=$(( BOX_W - 2 - ${#summary} ))
+        ui::frame_line "$(ui::hline "╭" "╮" "$footer_color")"
+        ui::frame_line "$(printf '  %s│%s %s%*s %s│%s' \
+            "$footer_color" "$C_RESET" "$summary" "$pad" "" "$footer_color" "$C_RESET")"
+        ui::frame_line "$(ui::hline "╰" "╯" "$footer_color")"
+        ui::frame_end
+
+        (( n_running == 0 )) && break
         sleep 0.08
     done
 
