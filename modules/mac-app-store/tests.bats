@@ -78,8 +78,17 @@ run_mac_app_store_with_conf() {
     assert_success
 }
 
-@test "mac-app-store: mod_status succeeds with mock mas" {
+@test "mac-app-store: mod_status succeeds when configured apps are installed" {
+    export MOCK_MAS_INSTALLED_IDS="123456789 987654321"
     run_mac_app_store_with_conf "mod_status"
+    assert_success
+}
+
+@test "mac-app-store: mod_status fails when apps are missing" {
+    export MOCK_MAS_INSTALLED_IDS="123456789"
+    run_mac_app_store_with_conf "mod_status"
+    assert_failure
+    run grep "1 missing" "$TEST_HOME/mod-status"
     assert_success
 }
 

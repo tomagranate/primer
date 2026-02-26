@@ -202,7 +202,29 @@ EOF
 
 # ── status ────────────────────────────────────────────────────────────────────
 
-@test "homebrew-apps: mod_status succeeds with mock brew" {
+@test "homebrew-apps: mod_status succeeds when configured casks are up to date" {
+    export MOCK_BREW_INSTALLED_CASKS="fake-app another-app"
     run_homebrew_apps_with_conf "mod_status"
+    assert_success
+}
+
+@test "homebrew-apps: mod_status fails when casks are missing or outdated" {
+    export MOCK_BREW_INSTALLED_CASKS="fake-app"
+    export MOCK_BREW_OUTDATED_CASKS="fake-app"
+    run_homebrew_apps_with_conf "mod_status"
+    assert_failure
+    run grep "1 missing" "$TEST_HOME/mod-status"
+    assert_success
+    run grep "1 outdated" "$TEST_HOME/mod-status"
+    assert_success
+}
+
+@test "homebrew-apps: mod_status reports warning for preinstalled non-cask app" {
+    export PRIMER_APPLICATIONS_DIR="$TEST_HOME/Applications"
+    mkdir -p "$PRIMER_APPLICATIONS_DIR/Fake App.app"
+    export MOCK_BREW_INSTALLED_CASKS="another-app"
+    run_homebrew_apps_with_conf "mod_status"
+    assert_success
+    run grep "1 warning" "$TEST_HOME/mod-status"
     assert_success
 }

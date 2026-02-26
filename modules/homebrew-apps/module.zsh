@@ -122,10 +122,59 @@ mod_update() {
 
 mod_status() {
     ensure_brew
-    if command -v brew &>/dev/null; then
-        primer::status_msg "ready"
+    if ! command -v brew &>/dev/null; then
+        primer::status_msg "not installed"
+        return 1
+    fi
+
+    local casks=($(mod_config casks))
+    local applications_dir="${PRIMER_APPLICATIONS_DIR:-/Applications}"
+    local installed_casks=( $(brew list --cask 2>/dev/null) )
+    local outdated_casks=( $(brew outdated --cask --quiet 2>/dev/null) )
+
+    local -A cask_app_path
+    local map_entry cask_key app_path
+    while IFS= read -r map_entry; do
+        [[ -z "$map_entry" ]] && continue
+        cask_key="${map_entry%%:*}"
+        app_path="${map_entry#*:}"
+        [[ -z "$cask_key" || -z "$app_path" ]] && continue
+        if [[ "$app_path" == /* ]]; then
+            cask_app_path[$cask_key]="$app_path"
+        else
+            cask_app_path[$cask_key]="${applications_dir}/${app_path}"
+        fi
+    done <<< "$(mod_config app_paths)"
+
+    local missing=0 outdated=0 warnings=0 item
+    for item in "${casks[@]}"; do
+        if (( ${installed_casks[(I)$item]} )); then
+            (( ${outdated_casks[(I)$item]} )) && outdated=$(( outdated + 1 ))
+            continue
+        fi
+
+        local guessed_bundle="$(_homebrew_apps::guess_app_bundle_name "$item")"
+        local resolved_app_path="${cask_app_path[$item]:-${applications_dir}/${guessed_bundle}}"
+        if [[ -d "$resolved_app_path" ]]; then
+            warnings=$(( warnings + 1 ))
+        else
+            missing=$(( missing + 1 ))
+        fi
+    done
+
+    if (( missing == 0 && outdated == 0 )); then
+        if (( warnings > 0 )); then
+            primer::status_msg "up to date · ${warnings} warning(s)"
+        else
+            primer::status_msg "up to date"
+        fi
         return 0
     fi
-    primer::status_msg "not installed"
+
+    local parts=()
+    (( missing > 0 )) && parts+=("${missing} missing")
+    (( outdated > 0 )) && parts+=("${outdated} outdated")
+    (( warnings > 0 )) && parts+=("${warnings} warning(s)")
+    primer::status_msg "${(j: · :)parts}"
     return 1
 }

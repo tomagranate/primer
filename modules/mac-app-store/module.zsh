@@ -40,10 +40,24 @@ mod_update() {
 
 mod_status() {
     ensure_brew
-    if command -v mas &>/dev/null; then
-        primer::status_msg "ready"
-        return 0
+    if ! command -v mas &>/dev/null; then
+        primer::status_msg "mas not installed"
+        return 1
     fi
-    primer::status_msg "mas not installed"
-    return 1
+
+    local items=($(mod_config mas))
+    local installed_ids=( $(mas list 2>/dev/null | awk '{print $1}') )
+    local missing=0 item id
+    for item in "${items[@]}"; do
+        id="${item#*:}"
+        (( ${installed_ids[(I)$id]} )) || missing=$(( missing + 1 ))
+    done
+
+    if (( missing > 0 )); then
+        primer::status_msg "${missing} missing"
+        return 1
+    fi
+
+    primer::status_msg "up to date"
+    return 0
 }

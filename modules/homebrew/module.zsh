@@ -106,12 +106,51 @@ mod_update() {
 
 mod_status() {
     ensure_brew
-    if command -v brew &>/dev/null; then
-        local version=$(brew --version 2>/dev/null | head -1 | sed 's/Homebrew /v/')
-        version="${version%%-*}"
-        primer::status_msg "$version"
+    if ! command -v brew &>/dev/null; then
+        primer::status_msg "not installed"
+        return 1
+    fi
+
+    local taps=($(mod_config taps))
+    local formulae=($(mod_config formulae))
+    local casks=($(mod_config casks))
+
+    local installed_taps=( $(brew tap 2>/dev/null) )
+    local installed_formulae=( $(brew list --formula 2>/dev/null) )
+    local outdated_formulae=( $(brew outdated --formula --quiet 2>/dev/null) )
+    local installed_casks=( $(brew list --cask 2>/dev/null) )
+    local outdated_casks=( $(brew outdated --cask --quiet 2>/dev/null) )
+
+    local missing=0 outdated=0 item
+    for item in "${taps[@]}"; do
+        (( ${installed_taps[(I)$item]} )) || missing=$(( missing + 1 ))
+    done
+    for item in "${formulae[@]}"; do
+        if ! (( ${installed_formulae[(I)$item]} )); then
+            missing=$(( missing + 1 ))
+        elif (( ${outdated_formulae[(I)$item]} )); then
+            outdated=$(( outdated + 1 ))
+        fi
+    done
+    for item in "${casks[@]}"; do
+        if ! (( ${installed_casks[(I)$item]} )); then
+            missing=$(( missing + 1 ))
+        elif (( ${outdated_casks[(I)$item]} )); then
+            outdated=$(( outdated + 1 ))
+        fi
+    done
+
+    local version=$(brew --version 2>/dev/null | head -1 | sed 's/Homebrew /v/')
+    version="${version%%-*}"
+
+    if (( missing == 0 && outdated == 0 )); then
+        primer::status_msg "${version} · up to date"
         return 0
     fi
-    primer::status_msg "not installed"
+
+    local parts=("$version")
+    (( missing > 0 )) && parts+=("${missing} missing")
+    (( outdated > 0 )) && parts+=("${outdated} outdated")
+    primer::status_msg "${(j: · :)parts}"
     return 1
 }

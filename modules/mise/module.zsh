@@ -53,16 +53,19 @@ mod_status() {
         return 1
     fi
 
-    # List installed runtime names (deduplicated, concise)
-    local runtimes=$(mise list --installed 2>/dev/null \
-        | awk '{print $1}' \
-        | sort -u \
-        | paste -sd', ' -)
+    local tools=($(mod_config tools))
+    local installed_names=( $(mise list --installed 2>/dev/null | awk '{print $1}' | sort -u) )
+    local missing=0 tool name
+    for tool in "${tools[@]}"; do
+        name="${tool%%:*}"
+        (( ${installed_names[(I)$name]} )) || missing=$(( missing + 1 ))
+    done
 
-    if [[ -n "$runtimes" ]]; then
-        primer::status_msg "$runtimes"
-    else
-        primer::status_msg "no runtimes"
+    if (( missing > 0 )); then
+        primer::status_msg "${missing} missing"
+        return 1
     fi
+
+    primer::status_msg "up to date"
     return 0
 }

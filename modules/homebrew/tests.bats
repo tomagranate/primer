@@ -185,7 +185,23 @@ run_homebrew_with_conf() {
 
 # ── status ────────────────────────────────────────────────────────────────────
 
-@test "homebrew: mod_status uses mock brew --version" {
+@test "homebrew: mod_status succeeds when configured packages are up to date" {
+    export MOCK_BREW_INSTALLED_TAPS="owner/tap"
+    export MOCK_BREW_INSTALLED_FORMULAE="alpha bravo"
     run_homebrew_with_conf "mod_status"
+    assert_success
+    run grep "up to date" "$TEST_HOME/mod-status"
+    assert_success
+}
+
+@test "homebrew: mod_status fails with counts when packages are missing or outdated" {
+    export MOCK_BREW_INSTALLED_TAPS="owner/tap"
+    export MOCK_BREW_INSTALLED_FORMULAE="alpha"
+    export MOCK_BREW_OUTDATED_FORMULAE="alpha"
+    run_homebrew_with_conf "mod_status"
+    assert_failure
+    run grep "1 missing" "$TEST_HOME/mod-status"
+    assert_success
+    run grep "1 outdated" "$TEST_HOME/mod-status"
     assert_success
 }

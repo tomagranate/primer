@@ -1,4 +1,12 @@
 #!/bin/sh
 # Mock mas -- logs invocations and exits 0
 echo "mas $*" >> "${MOCK_LOG:-/dev/null}"
+
+if [ "$1" = "list" ]; then
+    # Configurable via MOCK_MAS_INSTALLED_IDS (space-separated IDs)
+    for id in ${MOCK_MAS_INSTALLED_IDS:-}; do
+        echo "${id} MockApp (${id})"
+    done
+fi
+
 exit 0

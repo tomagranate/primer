@@ -4,7 +4,15 @@ echo "mise $*" >> "${MOCK_LOG:-/dev/null}"
 
 # Simulate list for mod_status checks
 case "$1" in
-    list) echo "node   lts    ~/.local/share/mise/installs/node/lts" ;;
+    list)
+        if [ -n "${MOCK_MISE_INSTALLED_NAMES:-}" ]; then
+            for name in $MOCK_MISE_INSTALLED_NAMES; do
+                echo "${name}   mock    ~/.local/share/mise/installs/${name}/mock"
+            done
+        else
+            echo "node   lts    ~/.local/share/mise/installs/node/lts"
+        fi
+        ;;
 esac
 
 exit 0

@@ -59,7 +59,32 @@ EOF
     assert_success
 }
 
-@test "mise: mod_status succeeds with mock mise" {
+@test "mise: mod_status succeeds when configured runtimes are installed" {
+    export MOCK_MISE_INSTALLED_NAMES="node python bun"
     zsh_run_module mise "mod_status"
     assert_success
+}
+
+@test "mise: mod_status fails when configured runtimes are missing" {
+    export MOCK_MISE_INSTALLED_NAMES="node"
+    local status_file
+    status_file="$(mktemp)"
+    run zsh -c "
+        export PRIMER_DIR='${PRIMER_DIR}'
+        export DRY_RUN='${DRY_RUN:-false}'
+        export MOD_DIR='${PRIMER_DIR}/modules/mise'
+        export MOD_NAME='mise'
+        export MOD_STATUS_FILE='${status_file}'
+        export HOME='${TEST_HOME}'
+        export PATH='${PATH}'
+        source \"\$PRIMER_DIR/lib/ui.zsh\"
+        source \"\$PRIMER_DIR/lib/engine.zsh\"
+        engine::load_config \"\$PRIMER_DIR/primer.conf\"
+        source \"\$MOD_DIR/module.zsh\"
+        mod_status
+    "
+    assert_failure
+    run grep "2 missing" "$status_file"
+    assert_success
+    rm -f "$status_file"
 }
