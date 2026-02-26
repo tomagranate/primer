@@ -13,6 +13,55 @@ _zshrc_end_marker() {
     print "# <<< PRIMER MANAGED END (modules/zsh/files/.zshrc.managed) <<<"
 }
 
+_zsh::managed_zshrc_needs_update() {
+    local zshrc="$HOME/.zshrc"
+    local block_file="$(_zshrc_managed_block_file)"
+    local start_marker="$(_zshrc_start_marker)"
+    local end_marker="$(_zshrc_end_marker)"
+    local extracted
+    extracted="$(mktemp)"
+
+    # Missing files definitely need an update.
+    if [[ ! -f "$zshrc" || ! -f "$block_file" ]]; then
+        rm -f "$extracted"
+        return 0
+    fi
+
+    awk \
+        -v start="$start_marker" \
+        -v end="$end_marker" '
+        BEGIN { in_block = 0; saw_start = 0; saw_end = 0 }
+        index($0, start) { in_block = 1; saw_start = 1 }
+        in_block { print }
+        index($0, end) { in_block = 0; saw_end = 1 }
+        END {
+            if (!(saw_start && saw_end)) exit 2
+        }
+    ' "$zshrc" > "$extracted" 2>/dev/null
+    local awk_rc=$?
+    if (( awk_rc != 0 )); then
+        rm -f "$extracted"
+        return 0
+    fi
+
+    if cmp -s "$block_file" "$extracted"; then
+        rm -f "$extracted"
+        return 1
+    fi
+    rm -f "$extracted"
+    return 0
+}
+
+_zsh::zim_modules_need_sync() {
+    local zim_home="$HOME/.zim"
+    [[ -f "$zim_home/zimfw.zsh" ]] || return 0
+    if ZDOTDIR="$HOME" ZIM_HOME="$zim_home" \
+        zsh -c "source \"$zim_home/zimfw.zsh\" && zimfw check" >/dev/null 2>&1; then
+        return 1
+    fi
+    return 0
+}
+
 _upsert_managed_zshrc_section() {
     local zshrc="$HOME/.zshrc"
     local block_file="$(_zshrc_managed_block_file)"
@@ -117,30 +166,56 @@ mod_update() {
 }
 
 mod_status() {
-    local missing=0
+    local missing=0 drifted=0 stale=0
     local zshrc="$HOME/.zshrc"
     local start_marker="$(_zshrc_start_marker)"
     local end_marker="$(_zshrc_end_marker)"
+    local zimrc="$HOME/.zimrc"
+    local zimrc_src="$MOD_DIR/files/.zimrc"
+    local block_file="$(_zshrc_managed_block_file)"
+    local hushlogin="$HOME/.hushlogin"
 
-    [[ -f "$HOME/.zimrc" ]] || missing=$(( missing + 1 ))
+    [[ -f "$zimrc" ]] || missing=$(( missing + 1 ))
     [[ -f "$zshrc" ]] || missing=$(( missing + 1 ))
+    [[ -f "$hushlogin" ]] || missing=$(( missing + 1 ))
     if [[ -f "$zshrc" ]]; then
         grep -Fq "$start_marker" "$zshrc" || missing=$(( missing + 1 ))
         grep -Fq "$end_marker" "$zshrc" || missing=$(( missing + 1 ))
     fi
+    if [[ -f "$zimrc" && -f "$zimrc_src" ]] && ! cmp -s "$zimrc_src" "$zimrc"; then
+        drifted=$(( drifted + 1 ))
+    fi
+    if [[ -f "$block_file" ]] && _zsh::managed_zshrc_needs_update; then
+        drifted=$(( drifted + 1 ))
+    fi
+    [[ -f "$HOME/.zshrc.zwc" ]] && stale=$(( stale + 1 ))
+    [[ -f "$HOME/.zimrc.zwc" ]] && stale=$(( stale + 1 ))
 
     # Check Zim
     local zim_home="$HOME/.zim"
     if [[ ! -d "$zim_home" ]] || [[ ! -f "$zim_home/zimfw.zsh" ]]; then
-        primer::status_msg "not installed"
+        local parts=()
+        (( missing > 0 )) && parts+=("${missing} missing")
+        (( drifted > 0 )) && parts+=("${drifted} drifted")
+        (( stale > 0 )) && parts+=("${stale} stale")
+        parts+=("zim missing")
+        primer::status_msg "${(j: · :)parts}"
         return 1
     fi
 
-    if (( missing > 0 )); then
-        primer::status_msg "$missing configs missing"
+    local zim_sync=0
+    _zsh::zim_modules_need_sync && zim_sync=1
+
+    if (( missing > 0 || drifted > 0 || stale > 0 || zim_sync > 0 )); then
+        local parts=()
+        (( missing > 0 )) && parts+=("${missing} missing")
+        (( drifted > 0 )) && parts+=("${drifted} drifted")
+        (( stale > 0 )) && parts+=("${stale} stale")
+        (( zim_sync > 0 )) && parts+=("zim sync")
+        primer::status_msg "${(j: · :)parts}"
         return 1
     fi
 
-    primer::status_msg "installed"
+    primer::status_msg "up to date"
     return 0
 }

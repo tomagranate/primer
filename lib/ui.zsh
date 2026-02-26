@@ -329,18 +329,26 @@ deploy_files() {
 # Usage: check_files <target_dir>
 check_files() {
     local target="$1"
-    local missing=0 total=0
-    local src rel
+    local missing=0 drifted=0 total=0
+    local src rel dst
     for src in "$MOD_DIR"/files/**/*(D.N); do
         rel="${src#$MOD_DIR/files/}"
+        dst="$target/$rel"
         total=$(( total + 1 ))
-        [[ -f "$target/$rel" ]] || missing=$(( missing + 1 ))
+        if [[ ! -f "$dst" ]]; then
+            missing=$(( missing + 1 ))
+        elif ! cmp -s "$src" "$dst"; then
+            drifted=$(( drifted + 1 ))
+        fi
     done
-    if (( missing == 0 )); then
+    if (( missing == 0 && drifted == 0 )); then
         primer::status_msg "synced ($total files)"
         return 0
     fi
-    primer::status_msg "$missing of $total missing"
+    local parts=()
+    (( missing > 0 )) && parts+=("${missing} missing")
+    (( drifted > 0 )) && parts+=("${drifted} drifted")
+    primer::status_msg "${(j: · :)parts}"
     return 1
 }
 

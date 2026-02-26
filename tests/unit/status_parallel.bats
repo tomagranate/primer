@@ -88,3 +88,50 @@ EOF
     assert_output --partial "up to date"
     refute_output --partial "ok"
 }
+
+@test "run_status: renders all modules immediately while checks run" {
+    run zsh -c "
+        export PRIMER_DIR='${PRIMER_DIR}'
+        source \"\$PRIMER_DIR/lib/ui.zsh\"
+        source \"\$PRIMER_DIR/lib/engine.zsh\"
+
+        local fake_root
+        fake_root=\"\$(mktemp -d)\"
+        mkdir -p \"\$fake_root/lib\" \"\$fake_root/modules/one\" \"\$fake_root/modules/two\"
+        cp \"${PRIMER_DIR}/lib/ui.zsh\" \"\$fake_root/lib/ui.zsh\"
+
+        cat > \"\$fake_root/primer.conf\" <<'EOF'
+[one]
+label = One
+
+[two]
+label = Two
+EOF
+
+        cat > \"\$fake_root/modules/one/module.zsh\" <<'EOF'
+mod_status() {
+    sleep 0.25
+    primer::status_msg \"up to date\"
+    return 0
+}
+EOF
+
+        cat > \"\$fake_root/modules/two/module.zsh\" <<'EOF'
+mod_status() {
+    sleep 0.25
+    primer::status_msg \"up to date\"
+    return 0
+}
+EOF
+
+        PRIMER_DIR=\"\$fake_root\"
+        source \"\$fake_root/lib/ui.zsh\"
+        source \"\$PRIMER_DIR/lib/engine.zsh\"
+        engine::load_config \"\$fake_root/primer.conf\"
+        engine::run_status
+    "
+    assert_success
+    assert_output --partial "One"
+    assert_output --partial "Two"
+    assert_output --partial "checking..."
+}

@@ -7,11 +7,17 @@ mod_update() {
 }
 
 mod_status() {
-    local total=0 installed=0
-    local src
+    local total=0 missing=0 drifted=0 nonexec=0
+    local src dst
     for src in "$MOD_DIR"/bin/*(N); do
         total=$(( total + 1 ))
-        [[ -x "$BIN_DIR/${src:t}" ]] && installed=$(( installed + 1 ))
+        dst="$BIN_DIR/${src:t}"
+        if [[ ! -f "$dst" ]]; then
+            missing=$(( missing + 1 ))
+            continue
+        fi
+        [[ -x "$dst" ]] || nonexec=$(( nonexec + 1 ))
+        cmp -s "$src" "$dst" || drifted=$(( drifted + 1 ))
     done
 
     if (( total == 0 )); then
@@ -19,10 +25,15 @@ mod_status() {
         return 0
     fi
 
-    if (( installed == total )); then
+    if (( missing == 0 && drifted == 0 && nonexec == 0 )); then
         primer::status_msg "$total scripts"
         return 0
     fi
-    primer::status_msg "$installed/$total installed"
+
+    local parts=()
+    (( missing > 0 )) && parts+=("${missing} missing")
+    (( drifted > 0 )) && parts+=("${drifted} drifted")
+    (( nonexec > 0 )) && parts+=("${nonexec} perms")
+    primer::status_msg "${(j: · :)parts}"
     return 1
 }

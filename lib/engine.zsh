@@ -392,11 +392,15 @@ engine::run_status() {
     ui::box "primer status" "$C_CYAN"
     print ""
 
-    local n_ok=0 n_issues=0
-    local mod rc detail state statusfile rcfile mod_dir
+    local mod rc detail state statusfile rcfile mod_dir pid
+    local elapsed
     local -A _status_files=()
     local -A _rc_files=()
     local -A _status_pids=()
+    local -A _status_states=()
+    local -A _status_details=()
+    local -A _status_start=()
+    local -A _status_elapsed=()
 
     # Launch all mod_status checks in parallel.
     for mod in $_mod_order; do
@@ -405,6 +409,9 @@ engine::run_status() {
         mod_dir="${PRIMER_DIR}/modules/${mod}"
         _status_files[$mod]="$statusfile"
         _rc_files[$mod]="$rcfile"
+        _status_states[$mod]="running"
+        _status_details[$mod]="checking..."
+        _status_start[$mod]=$EPOCHREALTIME
 
         (
             local local_rc=0
@@ -423,65 +430,104 @@ engine::run_status() {
         _status_pids[$mod]=$!
     done
 
-    for mod in $_mod_order; do
-        statusfile="${_status_files[$mod]}"
-        rcfile="${_rc_files[$mod]}"
-        wait "${_status_pids[$mod]}" 2>/dev/null || true
+    # Render live status rows while checks run.
+    printf '\e[?25l'
+    trap "printf '\e[?25h'" INT TERM
+    while true; do
+        local n_ok=0 n_issues=0 n_running=0
+        ui::frame_begin
+        for mod in $_mod_order; do
+            state="${_status_states[$mod]}"
+            elapsed=""
+            case "$state" in
+                running)
+                    elapsed=$(printf '%.1fs' $(( EPOCHREALTIME - _status_start[$mod] )))
+                    n_running=$(( n_running + 1 ))
+                    ;;
+                done)
+                    n_ok=$(( n_ok + 1 ))
+                    [[ -n "${_status_elapsed[$mod]}" ]] && elapsed="${_status_elapsed[$mod]}s"
+                    ;;
+                failed)
+                    n_issues=$(( n_issues + 1 ))
+                    [[ -n "${_status_elapsed[$mod]}" ]] && elapsed="${_status_elapsed[$mod]}s"
+                    ;;
+            esac
+            ui::frame_line "$(ui::module_line "$state" "${_mod_desc[$mod]}" "${_status_details[$mod]}" "$elapsed")"
+        done
 
-        rc=1
-        [[ -f "$rcfile" ]] && rc="$(cat "$rcfile")"
+        ui::frame_line ""
+        local parts=()
+        (( n_ok > 0 )) && parts+=("${n_ok} healthy")
+        (( n_issues > 0 )) && parts+=("${n_issues} issues")
+        (( n_running > 0 )) && parts+=("${n_running} checking")
+        local summary="${(j: · :)parts}"
+        local footer_color="$C_CYAN"
+        (( n_issues > 0 )) && footer_color="$C_RED"
+        local pad=$(( BOX_W - 2 - ${#summary} ))
+        ui::frame_line "$(ui::hline "╭" "╮" "$footer_color")"
+        ui::frame_line "$(printf '  %s│%s %s%*s %s│%s' \
+            "$footer_color" "$C_RESET" "$summary" "$pad" "" "$footer_color" "$C_RESET")"
+        ui::frame_line "$(ui::hline "╰" "╯" "$footer_color")"
+        ui::frame_end
 
-        detail=""
-        [[ -f "$statusfile" ]] && detail="$(cat "$statusfile")"
+        (( n_running == 0 )) && break
 
-        # Rarely, a parallel status check can finish with rc=0 but write no detail.
-        # Retry once synchronously so we prefer module-provided actionable detail
-        # (e.g. "2 missing · 1 outdated") over generic fallback text.
-        if (( rc == 0 )) && [[ -z "$detail" ]]; then
-            local retry_status
-            retry_status=$(mktemp)
-            local retry_rc=0
-            (
-                export MOD_STATUS_FILE="$retry_status"
-                export MOD_DIR="${PRIMER_DIR}/modules/${mod}"
-                export MOD_NAME="$mod"
-                source "${PRIMER_DIR}/lib/ui.zsh"
-                source "${PRIMER_DIR}/modules/${mod}/module.zsh" 2>/dev/null || exit 1
-                mod_status
-            ) &>/dev/null || retry_rc=$?
-            if (( retry_rc == 0 )) && [[ -f "$retry_status" ]]; then
-                detail="$(cat "$retry_status")"
+        for mod in $_mod_order; do
+            [[ "${_status_states[$mod]}" != "running" ]] && continue
+            pid="${_status_pids[$mod]}"
+            if ! kill -0 "$pid" 2>/dev/null; then
+                wait "$pid" 2>/dev/null || true
+                statusfile="${_status_files[$mod]}"
+                rcfile="${_rc_files[$mod]}"
+
+                rc=1
+                [[ -f "$rcfile" ]] && rc="$(cat "$rcfile")"
+                detail=""
+                [[ -f "$statusfile" ]] && detail="$(cat "$statusfile")"
+
+                # Rarely, a parallel status check can finish with rc=0 but write no detail.
+                # Retry once synchronously so we prefer module-provided actionable detail.
+                if (( rc == 0 )) && [[ -z "$detail" ]]; then
+                    local retry_status
+                    retry_status=$(mktemp)
+                    local retry_rc=0
+                    (
+                        export MOD_STATUS_FILE="$retry_status"
+                        export MOD_DIR="${PRIMER_DIR}/modules/${mod}"
+                        export MOD_NAME="$mod"
+                        source "${PRIMER_DIR}/lib/ui.zsh"
+                        source "${PRIMER_DIR}/modules/${mod}/module.zsh" 2>/dev/null || exit 1
+                        mod_status
+                    ) &>/dev/null || retry_rc=$?
+                    if (( retry_rc == 0 )) && [[ -f "$retry_status" ]]; then
+                        detail="$(cat "$retry_status")"
+                    fi
+                    rm -f "$retry_status"
+                fi
+
+                [[ -z "$detail" ]] && detail=$( (( rc == 0 )) && echo "up to date" || echo "not found" )
+                _status_details[$mod]="$detail"
+                _status_states[$mod]=$( (( rc == 0 )) && echo "done" || echo "failed" )
+                _status_elapsed[$mod]=$(printf '%.1f' $(( EPOCHREALTIME - _status_start[$mod] )))
+
+                rm -f "$statusfile" "$rcfile"
             fi
-            rm -f "$retry_status"
-        fi
+        done
 
-        [[ -z "$detail" ]] && detail=$( (( rc == 0 )) && echo "up to date" || echo "not found" )
-        rm -f "$statusfile"
-        rm -f "$rcfile"
-
-        if (( rc == 0 )); then
-            state="done"
-            n_ok=$(( n_ok + 1 ))
-        else
-            state="failed"
-            n_issues=$(( n_issues + 1 ))
-        fi
-
-        print "$(ui::module_line "$state" "${_mod_desc[$mod]}" "$detail" "")"
+        SPIN_IDX=$(( (SPIN_IDX + 1) % ${#SPINNER[@]} ))
+        sleep 0.08
     done
 
-    # Footer
-    print ""
-    local parts=()
-    (( n_ok     > 0 )) && parts+=("${n_ok} healthy")
-    (( n_issues > 0 )) && parts+=("${n_issues} issues")
-    local summary="${(j: · :)parts}"
-
-    local color="$C_CYAN"
-    (( n_issues > 0 )) && color="$C_RED"
-    ui::box "$summary" "$color"
+    printf '\e[?25h'
+    trap - INT TERM
     print ""
 
+    local n_ok=0 n_issues=0
+    for mod in $_mod_order; do
+        [[ "${_status_states[$mod]}" == "done" ]] && n_ok=$(( n_ok + 1 ))
+        [[ "${_status_states[$mod]}" == "failed" ]] && n_issues=$(( n_issues + 1 ))
+    done
     (( n_issues > 0 )) && return 1
     return 0
 }

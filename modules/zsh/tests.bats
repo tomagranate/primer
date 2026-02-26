@@ -86,6 +86,50 @@ EOF
     assert_failure
 }
 
+@test "zsh: mod_status fails when managed zshrc section is drifted" {
+    mkdir -p "$TEST_HOME/.zim"
+    touch "$TEST_HOME/.zim/zimfw.zsh"
+    zsh_run_module zsh "mod_update"
+    assert_success
+
+    awk '
+        /PRIMER MANAGED START/ && !inserted {
+            print
+            print "# drifted line"
+            inserted=1
+            next
+        }
+        { print }
+    ' "$TEST_HOME/.zshrc" > "$TEST_HOME/.zshrc.tmp"
+    mv "$TEST_HOME/.zshrc.tmp" "$TEST_HOME/.zshrc"
+
+    zsh_run_module zsh "mod_status"
+    assert_failure
+}
+
+@test "zsh: mod_status fails when zim modules need sync" {
+    mkdir -p "$TEST_HOME/.zim"
+    cat > "$TEST_HOME/.zim/zimfw.zsh" <<'EOF'
+zimfw() { return 0; }
+EOF
+
+    local fakebin
+    fakebin="$(mktemp -d)"
+    cat > "${fakebin}/zsh" <<'EOF'
+#!/bin/sh
+if [ "$1" = "-c" ] && printf '%s' "$2" | grep -q "zimfw check"; then
+  exit 1
+fi
+exec /bin/zsh "$@"
+EOF
+    chmod +x "${fakebin}/zsh"
+    export PATH="${fakebin}:$PATH"
+
+    zsh_run_module zsh "mod_status"
+    assert_failure
+    rm -rf "$fakebin"
+}
+
 @test "zsh: managed files include primer-managed markers" {
     mkdir -p "$TEST_HOME/.zim"
     touch "$TEST_HOME/.zim/zimfw.zsh"

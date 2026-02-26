@@ -51,6 +51,15 @@ teardown() {
     assert_failure
 }
 
+@test "check_files: returns 1 when files drifted" {
+    zsh_run_module starship "mod_update"
+    assert_success
+    printf '\n# drift\n' >> "$TEST_CONFIG_DIR/starship.toml"
+
+    zsh_run_module starship "mod_status"
+    assert_failure
+}
+
 # ── deploy_scripts ───────────────────────────────────────────────────────────
 # Uses a self-contained fake module rather than relying on any real module.
 
