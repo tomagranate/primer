@@ -393,27 +393,49 @@ engine::run_status() {
     print ""
 
     local n_ok=0 n_issues=0
-    local mod rc detail state statusfile
+    local mod rc detail state statusfile rcfile mod_dir
+    local -A _status_files=()
+    local -A _rc_files=()
+    local -A _status_pids=()
 
+    # Launch all mod_status checks in parallel.
     for mod in $_mod_order; do
         statusfile=$(mktemp)
-        local mod_dir="${PRIMER_DIR}/modules/${mod}"
+        rcfile=$(mktemp)
+        mod_dir="${PRIMER_DIR}/modules/${mod}"
+        _status_files[$mod]="$statusfile"
+        _rc_files[$mod]="$rcfile"
 
-        # Run mod_status in a subshell (sequential, no parallelism needed)
-        rc=0
         (
+            local local_rc=0
             export MOD_STATUS_FILE="$statusfile"
             export MOD_DIR="$mod_dir"
             export MOD_NAME="$mod"
             source "${PRIMER_DIR}/lib/ui.zsh"
-            source "${mod_dir}/module.zsh" 2>/dev/null || exit 1
-            mod_status
-        ) &>/dev/null || rc=$?
+            source "${mod_dir}/module.zsh" 2>/dev/null || local_rc=1
+            if (( local_rc == 0 )); then
+                mod_status || local_rc=$?
+            fi
+            print -n "$local_rc" > "$rcfile"
+            exit "$local_rc"
+        ) &>/dev/null &
+
+        _status_pids[$mod]=$!
+    done
+
+    for mod in $_mod_order; do
+        statusfile="${_status_files[$mod]}"
+        rcfile="${_rc_files[$mod]}"
+        wait "${_status_pids[$mod]}" 2>/dev/null || true
+
+        rc=1
+        [[ -f "$rcfile" ]] && rc="$(cat "$rcfile")"
 
         detail=""
         [[ -f "$statusfile" ]] && detail="$(cat "$statusfile")"
         [[ -z "$detail" ]] && detail=$( (( rc == 0 )) && echo "ok" || echo "not found" )
         rm -f "$statusfile"
+        rm -f "$rcfile"
 
         if (( rc == 0 )); then
             state="done"
