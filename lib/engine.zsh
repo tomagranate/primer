@@ -433,7 +433,29 @@ engine::run_status() {
 
         detail=""
         [[ -f "$statusfile" ]] && detail="$(cat "$statusfile")"
-        [[ -z "$detail" ]] && detail=$( (( rc == 0 )) && echo "ok" || echo "not found" )
+
+        # Rarely, a parallel status check can finish with rc=0 but write no detail.
+        # Retry once synchronously so we prefer module-provided actionable detail
+        # (e.g. "2 missing · 1 outdated") over generic fallback text.
+        if (( rc == 0 )) && [[ -z "$detail" ]]; then
+            local retry_status
+            retry_status=$(mktemp)
+            local retry_rc=0
+            (
+                export MOD_STATUS_FILE="$retry_status"
+                export MOD_DIR="${PRIMER_DIR}/modules/${mod}"
+                export MOD_NAME="$mod"
+                source "${PRIMER_DIR}/lib/ui.zsh"
+                source "${PRIMER_DIR}/modules/${mod}/module.zsh" 2>/dev/null || exit 1
+                mod_status
+            ) &>/dev/null || retry_rc=$?
+            if (( retry_rc == 0 )) && [[ -f "$retry_status" ]]; then
+                detail="$(cat "$retry_status")"
+            fi
+            rm -f "$retry_status"
+        fi
+
+        [[ -z "$detail" ]] && detail=$( (( rc == 0 )) && echo "up to date" || echo "not found" )
         rm -f "$statusfile"
         rm -f "$rcfile"
 
