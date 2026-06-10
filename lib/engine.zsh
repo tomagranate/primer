@@ -161,7 +161,11 @@ EOF
         export NONINTERACTIVE=1
 
         if command -v script >/dev/null 2>&1; then
-            script -q "$logfile" zsh "$runner" </dev/null >/dev/null 2>&1
+            if script --version >/dev/null 2>&1; then
+                script -q -e -c "zsh ${(q)runner}" "$logfile" </dev/null >/dev/null 2>&1
+            else
+                script -q "$logfile" zsh "$runner" </dev/null >/dev/null 2>&1
+            fi
         else
             zsh "$runner" </dev/null >"$logfile" 2>&1
         fi
