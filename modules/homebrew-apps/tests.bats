@@ -68,10 +68,30 @@ run_homebrew_apps_with_conf() {
 @test "homebrew-apps: wet run calls brew install --cask for each app" {
     run_homebrew_apps_with_conf "mod_update"
     assert_success
-    run grep "brew install --cask fake-app" "$MOCK_LOG"
+    run grep "brew install --quiet --cask fake-app" "$MOCK_LOG"
     assert_success
-    run grep "brew install --cask another-app" "$MOCK_LOG"
+    run grep "brew install --quiet --cask another-app" "$MOCK_LOG"
     assert_success
+}
+
+@test "homebrew-apps: installs casks in parallel" {
+    cat > "$TEST_CONF" <<'EOF'
+[homebrew-apps]
+casks =
+    fake-app
+    another-app
+    third-app
+EOF
+    export PRIMER_MAC_APPS_JOBS=2
+    export MOCK_BREW_CONCURRENCY_FILE="$TEST_HOME/brew-apps-concurrency"
+    export MOCK_BREW_SLEEP=0.15
+    run_homebrew_apps_with_conf "mod_update"
+    assert_success
+    run cat "${MOCK_BREW_CONCURRENCY_FILE}.max"
+    assert_success
+    [[ "$output" -ge 2 ]] || {
+        echo "Expected concurrent brew cask installs, max concurrency was $output"; false
+    }
 }
 
 @test "homebrew-apps: items file contains all casks as done after wet run" {
@@ -90,7 +110,7 @@ run_homebrew_apps_with_conf() {
     export MOCK_BREW_OUTDATED_CASKS="fake-app"
     run_homebrew_apps_with_conf "mod_update"
     assert_success
-    run grep "brew upgrade --cask fake-app" "$MOCK_LOG"
+    run grep "brew upgrade --quiet --cask fake-app" "$MOCK_LOG"
     assert_success
 }
 
@@ -99,7 +119,7 @@ run_homebrew_apps_with_conf() {
     export MOCK_BREW_OUTDATED_CASKS="fake-app"
     run_homebrew_apps_with_conf "mod_update"
     assert_success
-    run grep "brew install --cask fake-app" "$MOCK_LOG"
+    run grep "brew install .* fake-app" "$MOCK_LOG"
     assert_failure
 }
 
@@ -152,7 +172,7 @@ run_homebrew_apps_with_conf() {
     assert_success
     run grep "skipped:fake-app" "$MOD_ITEMS_FILE"
     assert_success
-    run grep "brew install --cask fake-app" "$MOCK_LOG"
+    run grep "brew install .* fake-app" "$MOCK_LOG"
     assert_failure
 }
 
@@ -170,7 +190,7 @@ EOF
     assert_success
     run grep "skipped:fake-app" "$MOD_ITEMS_FILE"
     assert_success
-    run grep "brew install --cask fake-app" "$MOCK_LOG"
+    run grep "brew install .* fake-app" "$MOCK_LOG"
     assert_failure
 }
 

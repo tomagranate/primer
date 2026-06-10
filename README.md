@@ -54,10 +54,12 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | Module | Depends On | What It Does |
 | --- | --- | --- |
 | **xcode** | -- | Installs Xcode Command Line Tools |
-| **homebrew** | xcode | Installs Homebrew + all formulae, casks, and MAS apps |
+| **homebrew** | xcode | Installs Homebrew and configured formulae |
+| **macos** | homebrew-apps | Applies macOS defaults and configures the Dock |
 | **zsh** | homebrew | Updates managed section in ~/.zshrc, manages ~/.zimrc, installs Zim |
 | **starship** | homebrew | Deploys starship.toml to ~/.config/ |
 | **mise** | homebrew | Installs language runtimes (Node, Python, Bun) |
+| **ssh** | xcode | Creates an SSH key and configures macOS keychain-backed agent support |
 | **touchid** | -- | Enables Touch ID for sudo |
 | **scripts** | -- | Installs custom scripts to ~/bin/ |
 
@@ -159,6 +161,8 @@ tools =
 | Zsh config | `~/.zshrc` (Primer-managed section) |
 | Zim modules | `~/.zimrc` |
 | Starship prompt | `~/.config/starship.toml` |
+| SSH config | `~/.ssh/config` (Primer-managed section) |
+| SSH key | `~/.ssh/id_ed25519` |
 | Custom scripts | `~/bin/` |
 
 ## Development

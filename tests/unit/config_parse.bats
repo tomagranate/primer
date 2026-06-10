@@ -195,12 +195,16 @@ EOF
         engine::load_config "$PRIMER_DIR/primer.conf"
         [[ ${_mod_order[(Ie)homebrew]} -gt 0 ]] || { echo "missing:homebrew"; exit 1; }
         [[ ${_mod_order[(Ie)homebrew-apps]} -gt 0 ]] || { echo "missing:homebrew-apps"; exit 1; }
-        [[ ${_mod_order[(Ie)mac-app-store]} -gt 0 ]] || { echo "missing:mac-app-store"; exit 1; }
+        [[ ${_mod_order[(Ie)macos]} -gt 0 ]] || { echo "missing:macos"; exit 1; }
+        [[ ${_mod_order[(Ie)ssh]} -gt 0 ]] || { echo "missing:ssh"; exit 1; }
         [[ ${_mod_order[(Ie)mise]} -gt 0 ]] || { echo "missing:mise"; exit 1; }
         [[ -n "${_mod_config[homebrew.formulae]}" ]] || { echo "missing:homebrew.formulae"; exit 1; }
         [[ -n "${_mod_config[homebrew-apps.casks]}" ]] || { echo "missing:homebrew-apps.casks"; exit 1; }
-        [[ -n "${_mod_config[mac-app-store.mas]}" ]] || { echo "missing:mac-app-store.mas"; exit 1; }
+        [[ -n "${_mod_config[macos.defaults]}" ]] || { echo "missing:macos.defaults"; exit 1; }
+        [[ -n "${_mod_config[macos.dock_apps]}" ]] || { echo "missing:macos.dock_apps"; exit 1; }
+        [[ -n "${_mod_config[ssh.key_path]}" ]] || { echo "missing:ssh.key_path"; exit 1; }
         [[ -n "${_mod_config[mise.tools]}" ]] || { echo "missing:mise.tools"; exit 1; }
+        [[ "${_mod_config[homebrew.taps]}" == *"buildkite/buildkite"* ]] || { echo "missing:buildkite/buildkite"; exit 1; }
         echo "ok"
     '
     assert_success

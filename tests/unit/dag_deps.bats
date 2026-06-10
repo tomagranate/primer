@@ -169,18 +169,18 @@ load '../helpers/common'
 
 @test "apply_filters: PRIMER_SKIP marks named module as skipped" {
     zsh_run '
-        PRIMER_SKIP="mac-app-store"
+        PRIMER_SKIP="macos"
         engine::load_config "$PRIMER_DIR/primer.conf"
         local m; for m in $_mod_order; do _state[$m]=pending; done
         engine::_apply_filters
-        echo "${_state[mac-app-store]}"
+        echo "${_state[macos]}"
     '
     assert_output "skipped"
 }
 
 @test "apply_filters: PRIMER_SKIP leaves other modules pending" {
     zsh_run '
-        PRIMER_SKIP="mac-app-store"
+        PRIMER_SKIP="macos"
         engine::load_config "$PRIMER_DIR/primer.conf"
         local m; for m in $_mod_order; do _state[$m]=pending; done
         engine::_apply_filters
@@ -191,11 +191,11 @@ load '../helpers/common'
 
 @test "apply_filters: PRIMER_SKIP accepts multiple space-separated modules" {
     zsh_run '
-        PRIMER_SKIP="mac-app-store homebrew-apps"
+        PRIMER_SKIP="macos homebrew-apps"
         engine::load_config "$PRIMER_DIR/primer.conf"
         local m; for m in $_mod_order; do _state[$m]=pending; done
         engine::_apply_filters
-        echo "${_state[mac-app-store]} ${_state[homebrew-apps]}"
+        echo "${_state[macos]} ${_state[homebrew-apps]}"
     '
     assert_output "skipped skipped"
 }
@@ -206,7 +206,7 @@ load '../helpers/common'
         engine::load_config "$PRIMER_DIR/primer.conf"
         local m; for m in $_mod_order; do _state[$m]=pending; done
         engine::_apply_filters
-        echo "${_state[homebrew]} ${_state[mac-app-store]}"
+        echo "${_state[homebrew]} ${_state[macos]}"
     '
     assert_output "pending skipped"
 }
@@ -217,7 +217,7 @@ load '../helpers/common'
         engine::load_config "$PRIMER_DIR/primer.conf"
         local m; for m in $_mod_order; do _state[$m]=pending; done
         engine::_apply_filters
-        echo "${_state[homebrew]} ${_state[homebrew-apps]} ${_state[mac-app-store]}"
+        echo "${_state[homebrew]} ${_state[homebrew-apps]} ${_state[macos]}"
     '
     assert_output "pending pending skipped"
 }

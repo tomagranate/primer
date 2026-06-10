@@ -71,6 +71,13 @@ run_homebrew_with_conf() {
     assert_output --partial 'brew tap owner/tap'
 }
 
+@test "homebrew: dry-run trusts taps before packages install" {
+    export DRY_RUN=true
+    run_homebrew_with_conf "mod_update"
+    assert_success
+    assert_output --partial 'brew trust owner/tap'
+}
+
 @test "homebrew: dry-run does not use brew bundle" {
     export DRY_RUN=true
     run_homebrew_with_conf "mod_update"
@@ -89,10 +96,47 @@ run_homebrew_with_conf() {
     assert_success
 }
 
+@test "homebrew: installs formulae with default parallelism capped at 3" {
+    cat > "$TEST_CONF" <<'EOF'
+[homebrew]
+formulae =
+    alpha
+    bravo
+    charlie
+    delta
+EOF
+    export MOCK_BREW_CONCURRENCY_FILE="$TEST_HOME/brew-concurrency"
+    export MOCK_BREW_SLEEP=0.15
+    run_homebrew_with_conf "mod_update"
+    assert_success
+    run cat "${MOCK_BREW_CONCURRENCY_FILE}.max"
+    assert_success
+    [[ "$output" -eq 3 ]] || {
+        echo "Expected default brew formula concurrency of 3, max concurrency was $output"; false
+    }
+}
+
+@test "homebrew: retries transient formula cellar lock errors" {
+    export MOCK_BREW_LOCK_ONCE_PACKAGES="alpha"
+    export MOCK_BREW_LOCK_STATE_DIR="$TEST_HOME/locks"
+    export PRIMER_HOMEBREW_LOCK_RETRY_DELAY=0.01
+    run_homebrew_with_conf "mod_update"
+    assert_success
+    run grep "done:alpha" "$MOD_ITEMS_FILE"
+    assert_success
+}
+
 @test "homebrew: wet run calls brew tap for each tap" {
     run_homebrew_with_conf "mod_update"
     assert_success
     run grep "brew tap owner/tap" "$MOCK_LOG"
+    assert_success
+}
+
+@test "homebrew: wet run trusts each tap" {
+    run_homebrew_with_conf "mod_update"
+    assert_success
+    run grep "brew trust owner/tap" "$MOCK_LOG"
     assert_success
 }
 
@@ -155,6 +199,14 @@ run_homebrew_with_conf() {
     assert_success
     run grep "brew tap owner/tap" "$MOCK_LOG"
     assert_failure
+}
+
+@test "homebrew: wet run still trusts tap when already tapped" {
+    export MOCK_BREW_INSTALLED_TAPS="owner/tap"
+    run_homebrew_with_conf "mod_update"
+    assert_success
+    run grep "brew trust owner/tap" "$MOCK_LOG"
+    assert_success
 }
 
 # ── failure propagation ───────────────────────────────────────────────────────

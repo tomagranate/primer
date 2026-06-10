@@ -27,6 +27,76 @@ _homebrew_apps::first_line() {
     print "$first"
 }
 
+_homebrew_apps::is_lock_error() {
+    local output="$1"
+    [[ "$output" == *"has already locked"* || "$output" == *"Another active Homebrew process"* ]]
+}
+
+_homebrew_apps::run_with_lock_retry() {
+    local output_var="$1"
+    shift
+    local max_retries="${PRIMER_HOMEBREW_LOCK_RETRIES:-20}"
+    local delay="${PRIMER_HOMEBREW_LOCK_RETRY_DELAY:-2}"
+    local attempt=0 output=""
+
+    while true; do
+        output="$("$@" 2>&1)"
+        local rc=$?
+        if (( rc == 0 )); then
+            typeset -g "$output_var=$output"
+            return 0
+        fi
+
+        if _homebrew_apps::is_lock_error "$output" && (( attempt < max_retries )); then
+            attempt=$(( attempt + 1 ))
+            sleep "$delay"
+            continue
+        fi
+
+        typeset -g "$output_var=$output"
+        return "$rc"
+    done
+}
+
+_homebrew_apps::install_cask_item() {
+    local item="$1"
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "[dry-run] brew install --cask $item"
+        primer::parallel_item_result "done"
+    elif ! (( ${installed_casks[(I)$item]} )); then
+        local guessed_bundle="$(_homebrew_apps::guess_app_bundle_name "$item")"
+        local resolved_app_path="${cask_app_path[$item]:-${applications_dir}/${guessed_bundle}}"
+        if [[ -d "$resolved_app_path" ]]; then
+            primer::parallel_item_result "skipped" "already installed outside brew cask"
+            return 0
+        fi
+
+        local install_output=""
+        if HOMEBREW_NO_COLOR=1 _homebrew_apps::run_with_lock_retry install_output brew install --quiet --cask "$item"; then
+            primer::parallel_item_result "done"
+        else
+            print -r -- "$install_output"
+            if [[ "$install_output" == *"It seems there is already an App at"* ]]; then
+                primer::parallel_item_result "skipped" "already installed outside brew cask"
+            else
+                primer::parallel_item_result "failed" "$(_homebrew_apps::first_line "$install_output")"
+                return 1
+            fi
+        fi
+    elif (( ${outdated_casks[(I)$item]} )); then
+        local upgrade_output=""
+        if HOMEBREW_NO_COLOR=1 _homebrew_apps::run_with_lock_retry upgrade_output brew upgrade --quiet --cask "$item"; then
+            primer::parallel_item_result "done"
+        else
+            print -r -- "$upgrade_output"
+            primer::parallel_item_result "failed" "$(_homebrew_apps::first_line "$upgrade_output")"
+            return 1
+        fi
+    else
+        primer::parallel_item_result "done"
+    fi
+}
+
 mod_update() {
     ensure_brew
 
@@ -59,55 +129,12 @@ mod_update() {
     local any_failed=false
     local any_warnings=false
     local warning_count=0
-    local item
-    for item in "${casks[@]}"; do
-        primer::item_update "$item" "running"
-        if [[ "$DRY_RUN" == true ]]; then
-            primer::status_msg "installing $item..."
-            echo "[dry-run] brew install --cask $item"
-            primer::item_update "$item" "done"
-        elif ! (( ${installed_casks[(I)$item]} )); then
-            local guessed_bundle="$(_homebrew_apps::guess_app_bundle_name "$item")"
-            local resolved_app_path="${cask_app_path[$item]:-${applications_dir}/${guessed_bundle}}"
-            if [[ -d "$resolved_app_path" ]]; then
-                primer::status_msg "warning: $item already installed outside brew cask"
-                primer::item_update "$item" "skipped" "already installed outside brew cask"
-                any_warnings=true
-                warning_count=$(( warning_count + 1 ))
-                continue
-            fi
+    local cask_jobs="${PRIMER_MAC_APPS_JOBS:-2}"
+    primer::parallel_items "$cask_jobs" "installing apps" _homebrew_apps::install_cask_item "${casks[@]}" \
+        || any_failed=true
 
-            primer::status_msg "installing $item..."
-            local install_output=""
-            if install_output="$(brew install --cask "$item" 2>&1)"; then
-                primer::item_update "$item" "done"
-            else
-                print -r -- "$install_output"
-                if [[ "$install_output" == *"It seems there is already an App at"* ]]; then
-                    primer::status_msg "warning: $item already installed outside brew cask"
-                    primer::item_update "$item" "skipped" "already installed outside brew cask"
-                    any_warnings=true
-                    warning_count=$(( warning_count + 1 ))
-                else
-                    primer::item_update "$item" "failed" "$(_homebrew_apps::first_line "$install_output")"
-                    any_failed=true
-                fi
-            fi
-        elif (( ${outdated_casks[(I)$item]} )); then
-            primer::status_msg "updating $item..."
-            local upgrade_output=""
-            if upgrade_output="$(brew upgrade --cask "$item" 2>&1)"; then
-                primer::item_update "$item" "done"
-            else
-                print -r -- "$upgrade_output"
-                primer::item_update "$item" "failed" "$(_homebrew_apps::first_line "$upgrade_output")"
-                any_failed=true
-            fi
-        else
-            primer::status_msg "$item up to date"
-            primer::item_update "$item" "done"
-        fi
-    done
+    warning_count=$(grep -c '^skipped:' "$MOD_ITEMS_FILE" 2>/dev/null || true)
+    (( warning_count > 0 )) && any_warnings=true
 
     if $any_failed; then
         primer::status_msg "completed with errors"

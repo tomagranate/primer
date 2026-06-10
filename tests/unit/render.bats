@@ -33,25 +33,25 @@ _render_with_items() {
     "
 }
 
-@test "render: pending sub-items are not shown in frame" {
+@test "render: active modules show pending sub-items" {
     _render_with_items $'pending:waiting-pkg\nrunning:active-pkg\n'
     assert_success
     [[ "$output" == *"active-pkg"* ]] || {
         echo "Expected active-pkg in output: $output"; false
     }
-    [[ "$output" != *"waiting-pkg"* ]] || {
-        echo "Did not expect waiting-pkg in output: $output"; false
+    [[ "$output" == *"waiting-pkg"* ]] || {
+        echo "Expected waiting-pkg in output: $output"; false
     }
 }
 
-@test "render: done sub-items are not shown in frame" {
+@test "render: active modules show done sub-items" {
     _render_with_items $'done:finished-pkg\nrunning:active-pkg\n'
     assert_success
     [[ "$output" == *"active-pkg"* ]] || {
         echo "Expected active-pkg in output: $output"; false
     }
-    [[ "$output" != *"finished-pkg"* ]] || {
-        echo "Did not expect finished-pkg in output: $output"; false
+    [[ "$output" == *"finished-pkg"* ]] || {
+        echo "Expected finished-pkg in output: $output"; false
     }
 }
 
@@ -66,7 +66,7 @@ _render_with_items() {
     }
 }
 
-@test "render: done modules show resolved sub-items" {
+@test "render: done modules hide sub-items before final render" {
     printf 'done:some-pkg\npending:waiting-pkg\nskipped:warn-pkg:already installed outside brew cask\n' > "${TEST_ITEMS_DIR}/fake-mod.items"
 
     run zsh -c "
@@ -82,17 +82,166 @@ _render_with_items() {
         engine::_render
     "
     assert_success
-    [[ "$output" == *"some-pkg"* ]] || {
-        echo "Expected some-pkg in output when module is done: $output"; false
+    [[ "$output" != *"some-pkg"* ]] || {
+        echo "Did not expect some-pkg before final render: $output"; false
     }
-    [[ "$output" == *"warn-pkg"* ]] || {
-        echo "Expected warn-pkg in output when module is done: $output"; false
-    }
-    [[ "$output" == *"already installed"* ]] || {
-        echo "Expected warning detail in output when module is done: $output"; false
+    [[ "$output" != *"warn-pkg"* ]] || {
+        echo "Did not expect warn-pkg before final render: $output"; false
     }
     [[ "$output" != *"waiting-pkg"* ]] || {
-        echo "Did not expect waiting-pkg in output when module is done: $output"; false
+        echo "Did not expect waiting-pkg before final render: $output"; false
+    }
+}
+
+@test "render: live active sub-items are clipped to viewport" {
+    {
+        printf 'running:item-01\n'
+        printf 'pending:item-02\n'
+        printf 'pending:item-03\n'
+        printf 'pending:item-04\n'
+        printf 'pending:item-05\n'
+    } > "${TEST_ITEMS_DIR}/fake-mod.items"
+
+    run zsh -c "
+        export PRIMER_DIR='${PRIMER_DIR}'
+        export COLUMNS=80
+        export LINES=11
+        export PRIMER_TEST_TTY=true
+        source \"\$PRIMER_DIR/lib/ui.zsh\"
+        source \"\$PRIMER_DIR/lib/engine.zsh\"
+        PRIMER_TMPDIR='${TEST_ITEMS_DIR}'
+        _mod_order=(fake-mod)
+        _mod_desc[fake-mod]='Fake Module'
+        _state[fake-mod]=running
+        _start[fake-mod]=\$EPOCHREALTIME
+        engine::_render
+    "
+    assert_success
+    [[ "$output" != *"item-01"* ]] || {
+        echo "Did not expect items when viewport has no item budget: $output"; false
+    }
+
+    run zsh -c "
+        export PRIMER_DIR='${PRIMER_DIR}'
+        export COLUMNS=80
+        export LINES=14
+        export PRIMER_TEST_TTY=true
+        source \"\$PRIMER_DIR/lib/ui.zsh\"
+        source \"\$PRIMER_DIR/lib/engine.zsh\"
+        PRIMER_TMPDIR='${TEST_ITEMS_DIR}'
+        _mod_order=(fake-mod)
+        _mod_desc[fake-mod]='Fake Module'
+        _state[fake-mod]=running
+        _start[fake-mod]=\$EPOCHREALTIME
+        engine::_render
+    "
+    assert_success
+    [[ "$output" == *"item-01"* ]] || {
+        echo "Expected first item with viewport budget: $output"; false
+    }
+    [[ "$output" == *"more"* ]] || {
+        echo "Expected clipped more line: $output"; false
+    }
+    [[ "$output" != *"item-05"* ]] || {
+        echo "Did not expect final clipped item: $output"; false
+    }
+}
+
+@test "render: clipped live sub-items prioritize running items" {
+    {
+        printf 'pending:item-01\n'
+        printf 'pending:item-02\n'
+        printf 'done:item-03\n'
+        printf 'running:item-04\n'
+        printf 'pending:item-05\n'
+    } > "${TEST_ITEMS_DIR}/fake-mod.items"
+
+    run zsh -c "
+        export PRIMER_DIR='${PRIMER_DIR}'
+        export COLUMNS=80
+        export LINES=13
+        export PRIMER_TEST_TTY=true
+        source \"\$PRIMER_DIR/lib/ui.zsh\"
+        source \"\$PRIMER_DIR/lib/engine.zsh\"
+        PRIMER_TMPDIR='${TEST_ITEMS_DIR}'
+        _mod_order=(fake-mod)
+        _mod_desc[fake-mod]='Fake Module'
+        _state[fake-mod]=running
+        _start[fake-mod]=\$EPOCHREALTIME
+        engine::_render
+    "
+    assert_success
+    [[ "$output" == *"item-04"* ]] || {
+        echo "Expected running item to be visible when clipped: $output"; false
+    }
+    [[ "$output" != *"item-01"* ]] || {
+        echo "Did not expect earlier pending item to displace running item: $output"; false
+    }
+    [[ "$output" == *"more"* ]] || {
+        echo "Expected clipped more line: $output"; false
+    }
+}
+
+@test "render: final render shows resolved sub-items for completed modules" {
+    printf 'done:some-pkg\npending:waiting-pkg\nskipped:warn-pkg:already installed outside brew cask\n' > "${TEST_ITEMS_DIR}/fake-mod.items"
+
+    run zsh -c "
+        export PRIMER_DIR='${PRIMER_DIR}'
+        export COLUMNS=80
+        source \"\$PRIMER_DIR/lib/ui.zsh\"
+        source \"\$PRIMER_DIR/lib/engine.zsh\"
+        PRIMER_TMPDIR='${TEST_ITEMS_DIR}'
+        ENGINE_RENDER_FINAL=true
+        _mod_order=(fake-mod)
+        _mod_desc[fake-mod]='Fake Module'
+        _state[fake-mod]=done
+        _elapsed[fake-mod]=1.2
+        engine::_render
+    "
+    assert_success
+    [[ "$output" == *"some-pkg"* ]] || {
+        echo "Expected some-pkg in final output: $output"; false
+    }
+    [[ "$output" == *"warn-pkg"* ]] || {
+        echo "Expected warn-pkg in final output: $output"; false
+    }
+    [[ "$output" == *"already installed"* ]] || {
+        echo "Expected warning detail in final output: $output"; false
+    }
+    [[ "$output" != *"waiting-pkg"* ]] || {
+        echo "Did not expect pending waiting-pkg in final output: $output"; false
+    }
+}
+
+@test "render: dynamic inline sub-items grow and shrink without stale lines" {
+    run zsh -c "
+        export PRIMER_DIR='${PRIMER_DIR}'
+        export COLUMNS=80
+        source \"\$PRIMER_DIR/lib/ui.zsh\"
+        source \"\$PRIMER_DIR/lib/engine.zsh\"
+        PRIMER_TMPDIR='${TEST_ITEMS_DIR}'
+        _mod_order=(fake-mod)
+        _mod_desc[fake-mod]='Fake Module'
+        _start[fake-mod]=\$EPOCHREALTIME
+
+        _state[fake-mod]=running
+        printf 'running:one\npending:two\npending:three\n' > '${TEST_ITEMS_DIR}/fake-mod.items'
+        engine::_render
+
+        _state[fake-mod]=done
+        _elapsed[fake-mod]=1.0
+        engine::_render
+        printf 'SENTINEL'
+    "
+    assert_success
+    [[ "$output" == *"one"* ]] || {
+        echo "Expected active sub-item during first render: $output"; false
+    }
+    [[ "$output" == *$'\e[2K\n\e[2K\n\e[2K'* ]] || {
+        echo "Expected cleared lines after frame shrink: $output"; false
+    }
+    [[ "$output" == *"SENTINEL"* ]] || {
+        echo "Expected sentinel after second render: $output"; false
     }
 }
 

@@ -56,7 +56,7 @@ _zsh::zim_modules_need_sync() {
     local zim_home="$HOME/.zim"
     [[ -f "$zim_home/zimfw.zsh" ]] || return 0
     if ZDOTDIR="$HOME" ZIM_HOME="$zim_home" \
-        zsh -c "source \"$zim_home/zimfw.zsh\" && zimfw check" >/dev/null 2>&1; then
+        zsh "$zim_home/zimfw.zsh" check >/dev/null 2>&1; then
         return 1
     fi
     return 0
@@ -144,10 +144,10 @@ mod_update() {
         primer::status_msg "updating modules..."
         if [[ "$DRY_RUN" != true ]]; then
             ZDOTDIR="$HOME" ZIM_HOME="$zim_home" \
-                zsh -c "source \"$zim_home/zimfw.zsh\" && zimfw install && zimfw compile" \
+                zsh "$zim_home/zimfw.zsh" install \
                 2>/dev/null || true
         else
-            echo "[dry-run] zimfw install && zimfw compile"
+            echo "[dry-run] zimfw install"
         fi
         primer::status_msg "modules updated"
     else
@@ -159,7 +159,7 @@ mod_update() {
             curl -fsSL --create-dirs -o "$zim_home/zimfw.zsh" \
                 https://github.com/zimfw/zimfw/releases/latest/download/zimfw.zsh
             ZDOTDIR="$HOME" ZIM_HOME="$zim_home" \
-                zsh -c "source \"$zim_home/zimfw.zsh\" && zimfw init -q && zimfw install && zimfw compile"
+                zsh "$zim_home/zimfw.zsh" install
         fi
         primer::status_msg "installed"
     fi

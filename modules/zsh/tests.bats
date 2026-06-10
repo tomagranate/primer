@@ -120,6 +120,9 @@ EOF
 if [ "$1" = "-c" ] && printf '%s' "$2" | grep -q "zimfw check"; then
   exit 1
 fi
+case "$*" in
+  *"zimfw.zsh check"*) exit 1 ;;
+esac
 exec /bin/zsh "$@"
 EOF
     chmod +x "${fakebin}/zsh"
@@ -179,14 +182,14 @@ EOF
     assert_success
 }
 
-@test "zsh: managed zshrc sources zimfw with init action" {
+@test "zsh: managed zshrc runs zimfw install action" {
     mkdir -p "$TEST_HOME/.zim"
     touch "$TEST_HOME/.zim/zimfw.zsh"
 
     zsh_run_module zsh "mod_update"
     assert_success
 
-    run grep -qE "source .*zimfw\\.zsh init -q" "$TEST_HOME/.zshrc"
+    run grep -qE "zsh .*zimfw\\.zsh install" "$TEST_HOME/.zshrc"
     assert_success
 
     run grep -qE "^  source .*zimfw\\.zsh$" "$TEST_HOME/.zshrc"
