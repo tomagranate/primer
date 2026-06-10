@@ -1,6 +1,93 @@
 #!/bin/zsh
 # modules/homebrew -- Homebrew package manager + formulae from config
 
+_homebrew::is_lock_error() {
+    local output="$1"
+    [[ "$output" == *"has already locked"* || "$output" == *"Another active Homebrew process"* ]]
+}
+
+_homebrew::run_with_lock_retry() {
+    local output_var="$1"
+    shift
+    local max_retries="${PRIMER_HOMEBREW_LOCK_RETRIES:-20}"
+    local delay="${PRIMER_HOMEBREW_LOCK_RETRY_DELAY:-2}"
+    local attempt=0 output=""
+
+    while true; do
+        output="$("$@" 2>&1)"
+        local rc=$?
+        if (( rc == 0 )); then
+            typeset -g "$output_var=$output"
+            return 0
+        fi
+
+        if _homebrew::is_lock_error "$output" && (( attempt < max_retries )); then
+            attempt=$(( attempt + 1 ))
+            sleep "$delay"
+            continue
+        fi
+
+        typeset -g "$output_var=$output"
+        return "$rc"
+    done
+}
+
+_homebrew::install_formula_item() {
+    local item="$1"
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "[dry-run] brew install $item"
+        primer::parallel_item_result "done"
+    elif ! (( ${installed_formulae[(I)$item]} )); then
+        local output=""
+        if _homebrew::run_with_lock_retry output brew install "$item"; then
+            primer::parallel_item_result "done"
+        else
+            print -r -- "$output"
+            primer::parallel_item_result "failed" "$(primer::first_line "$output")"
+            return 1
+        fi
+    elif (( ${outdated_formulae[(I)$item]} )); then
+        local output=""
+        if _homebrew::run_with_lock_retry output brew upgrade "$item"; then
+            primer::parallel_item_result "done"
+        else
+            print -r -- "$output"
+            primer::parallel_item_result "failed" "$(primer::first_line "$output")"
+            return 1
+        fi
+    else
+        primer::parallel_item_result "done"
+    fi
+}
+
+_homebrew::install_cask_item() {
+    local item="$1"
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "[dry-run] brew install --cask $item"
+        primer::parallel_item_result "done"
+    elif ! (( ${installed_casks[(I)$item]} )); then
+        local output=""
+        if _homebrew::run_with_lock_retry output brew install --cask "$item"; then
+            primer::parallel_item_result "done"
+        else
+            print -r -- "$output"
+            primer::parallel_item_result "failed" "$(primer::first_line "$output")"
+            return 1
+        fi
+    elif (( ${outdated_casks[(I)$item]} )); then
+        local output=""
+        if _homebrew::run_with_lock_retry output brew upgrade --cask "$item"; then
+            primer::parallel_item_result "done"
+        else
+            print -r -- "$output"
+            primer::parallel_item_result "failed" "$(primer::first_line "$output")"
+            return 1
+        fi
+    else
+        primer::parallel_item_result "done"
+    fi
+}
+
 mod_update() {
     # Install Homebrew if missing
     if ! command -v brew &>/dev/null && [[ ! -x /opt/homebrew/bin/brew ]]; then
@@ -46,56 +133,32 @@ mod_update() {
         if [[ "$DRY_RUN" == true ]]; then
             primer::status_msg "tapping $item..."
             echo "[dry-run] brew tap $item"
+            echo "[dry-run] brew trust $item"
             primer::item_update "$item" "done"
         elif (( ${installed_taps[(I)$item]} )); then
-            primer::status_msg "$item up to date"
-            primer::item_update "$item" "done"
+            primer::status_msg "trusting $item..."
+            brew trust "$item" && primer::item_update "$item" "done" \
+                               || { primer::item_update "$item" "failed"; any_failed=true; }
         else
             primer::status_msg "tapping $item..."
-            brew tap "$item" && primer::item_update "$item" "done" \
-                             || { primer::item_update "$item" "failed"; any_failed=true; }
+            if brew tap "$item"; then
+                primer::status_msg "trusting $item..."
+                brew trust "$item" && primer::item_update "$item" "done" \
+                                   || { primer::item_update "$item" "failed"; any_failed=true; }
+            else
+                primer::item_update "$item" "failed"
+                any_failed=true
+            fi
         fi
     done
 
-    for item in "${formulae[@]}"; do
-        primer::item_update "$item" "running"
-        if [[ "$DRY_RUN" == true ]]; then
-            primer::status_msg "installing $item..."
-            echo "[dry-run] brew install $item"
-            primer::item_update "$item" "done"
-        elif ! (( ${installed_formulae[(I)$item]} )); then
-            primer::status_msg "installing $item..."
-            brew install "$item" && primer::item_update "$item" "done" \
-                                 || { primer::item_update "$item" "failed"; any_failed=true; }
-        elif (( ${outdated_formulae[(I)$item]} )); then
-            primer::status_msg "updating $item..."
-            brew upgrade "$item" && primer::item_update "$item" "done" \
-                                 || { primer::item_update "$item" "failed"; any_failed=true; }
-        else
-            primer::status_msg "$item up to date"
-            primer::item_update "$item" "done"
-        fi
-    done
+    local formula_jobs="${PRIMER_HOMEBREW_JOBS:-3}"
+    primer::parallel_items "$formula_jobs" "installing formulae" _homebrew::install_formula_item "${formulae[@]}" \
+        || any_failed=true
 
-    for item in "${casks[@]}"; do
-        primer::item_update "$item" "running"
-        if [[ "$DRY_RUN" == true ]]; then
-            primer::status_msg "installing $item..."
-            echo "[dry-run] brew install --cask $item"
-            primer::item_update "$item" "done"
-        elif ! (( ${installed_casks[(I)$item]} )); then
-            primer::status_msg "installing $item..."
-            brew install --cask "$item" && primer::item_update "$item" "done" \
-                                        || { primer::item_update "$item" "failed"; any_failed=true; }
-        elif (( ${outdated_casks[(I)$item]} )); then
-            primer::status_msg "updating $item..."
-            brew upgrade --cask "$item" && primer::item_update "$item" "done" \
-                                        || { primer::item_update "$item" "failed"; any_failed=true; }
-        else
-            primer::status_msg "$item up to date"
-            primer::item_update "$item" "done"
-        fi
-    done
+    local cask_jobs="${PRIMER_HOMEBREW_CASK_JOBS:-2}"
+    primer::parallel_items "$cask_jobs" "installing casks" _homebrew::install_cask_item "${casks[@]}" \
+        || any_failed=true
 
     if $any_failed; then
         primer::status_msg "completed with errors"

@@ -114,7 +114,7 @@ _run_deploy_scripts() {
         mod_config tools
     '
     assert_output --partial "node:lts"
-    assert_output --partial "python:3.12"
+    assert_output --partial "python:latest"
     assert_output --partial "bun:latest"
 }
 

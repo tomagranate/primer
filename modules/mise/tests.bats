@@ -20,7 +20,7 @@ teardown() {
     zsh_run_module mise "mod_update"
     assert_success
     assert_output --partial "mise use --global node@lts"
-    assert_output --partial "mise use --global python@3.12"
+    assert_output --partial "mise use --global python@latest"
     assert_output --partial "mise use --global bun@latest"
 }
 
@@ -55,12 +55,12 @@ EOF
     assert_success
     run grep "done:node@lts" "$MOD_ITEMS_FILE"
     assert_success
-    run grep "done:python@3.12" "$MOD_ITEMS_FILE"
+    run grep "done:python@latest" "$MOD_ITEMS_FILE"
     assert_success
 }
 
 @test "mise: mod_status succeeds when configured runtimes are installed" {
-    export MOCK_MISE_INSTALLED_NAMES="node python bun"
+    export MOCK_MISE_INSTALLED_NAMES="node python bun rust"
     zsh_run_module mise "mod_status"
     assert_success
 }
@@ -84,7 +84,7 @@ EOF
         mod_status
     "
     assert_failure
-    run grep "2 missing" "$status_file"
+    run grep "3 missing" "$status_file"
     assert_success
     rm -f "$status_file"
 }

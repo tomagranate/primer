@@ -17,6 +17,9 @@ typeset -gA _pids=()            # module -> background PID
 typeset -gA _start=()           # module -> start EPOCHREALTIME
 typeset -gA _elapsed=()         # module -> "N.Ns" (set when finished)
 typeset -g  PRIMER_TMPDIR=""
+typeset -g  ENGINE_RENDER_FINAL=false
+typeset -g  PRIMER_RENDER_TTY=false
+typeset -gi ENGINE_RENDERED_ITEM_LINES=0
 
 # ── Config Parsing (INI format) ──────────────────────────────────────────────
 
@@ -118,23 +121,51 @@ engine::_start_module() {
     local mod="$1" action="$2"
     local logfile="${PRIMER_TMPDIR}/${mod}.log"
     local statusfile="${PRIMER_TMPDIR}/${mod}.status"
+    local runner="${PRIMER_TMPDIR}/${mod}.runner.zsh"
+    local configfile="${PRIMER_TMPDIR}/${mod}.config.zsh"
     local mod_dir="${PRIMER_DIR}/modules/${mod}"
+
+    {
+        print -r -- "typeset -gA _mod_config=()"
+        local key
+        for key in ${(k)_mod_config}; do
+            [[ "$key" == "${mod}."* ]] || continue
+            print -r -- "_mod_config[$key]=${(qqq)_mod_config[$key]}"
+        done
+    } > "$configfile"
+
+    cat > "$runner" <<'EOF'
+#!/bin/zsh
+source "${PRIMER_DIR}/lib/ui.zsh"
+source "${MOD_CONFIG_FILE}"
+source "${MOD_DIR}/module.zsh" || {
+    echo "Failed to load module: ${MOD_NAME}"
+    exit 1
+}
+"mod_${MOD_ACTION}"
+EOF
+    chmod +x "$runner"
 
     (
         export MOD_STATUS_FILE="$statusfile"
         export MOD_ITEMS_FILE="${PRIMER_TMPDIR}/${mod}.items"
+        export MOD_CONFIG_FILE="$configfile"
         export MOD_DIR="$mod_dir"
         export MOD_NAME="$mod"
-        # Source helpers (run, deploy_files, check_files, primer::status_msg, ensure_brew)
-        source "${PRIMER_DIR}/lib/ui.zsh"
-        # Source the module
-        source "${mod_dir}/module.zsh" || {
-            echo "Failed to load module: ${mod}"
-            exit 1
-        }
-        # Call the action function
-        "mod_${action}"
-    ) &>"$logfile" &
+        export MOD_ACTION="$action"
+        export PRIMER_DIR
+        export DRY_RUN
+        export HOMEBREW_NO_COLOR=1
+        export HOMEBREW_NO_EMOJI=1
+        export HOMEBREW_NO_ENV_HINTS=1
+        export NONINTERACTIVE=1
+
+        if command -v script >/dev/null 2>&1; then
+            script -q "$logfile" zsh "$runner" </dev/null >/dev/null 2>&1
+        else
+            zsh "$runner" </dev/null >"$logfile" 2>&1
+        fi
+    ) &
 
     local pid=$!
     _pids[$mod]=$pid
@@ -246,6 +277,10 @@ engine::_summary() {
 engine::_render() {
     ui::frame_begin
 
+    local active_item_budget
+    active_item_budget="$(engine::_active_item_budget)"
+    local remaining_item_budget="$active_item_budget"
+
     local mod
     for mod in $_mod_order; do
         ui::frame_line "$(ui::module_line \
@@ -254,24 +289,21 @@ engine::_render() {
             "$(engine::_get_detail "$mod")" \
             "$(engine::_get_elapsed "$mod")")"
 
-        # Show sub-items beneath the module line.
-        # While running: hide pending/done to keep the frame compact.
-        # After completion: show all resolved subtasks (done/skipped/failed),
-        # so users can review what happened, including warnings (skipped).
-        local mod_state="${_state[$mod]}"
-        if [[ "$mod_state" == "running" || "$mod_state" == "done" || "$mod_state" == "failed" ]]; then
+        # Running modules show their active checklist inline. Completed modules
+        # collapse during the live run, then the final render expands all
+        # resolved sub-items for review.
+        if [[ "${_state[$mod]}" == "running" || "$ENGINE_RENDER_FINAL" == true ]]; then
             local items_file="${PRIMER_TMPDIR}/${mod}.items"
             if [[ -f "$items_file" ]]; then
-                local item_state="" item_name="" item_detail=""
-                while IFS=: read -r item_state item_name item_detail; do
-                    [[ -z "$item_name" ]] && continue
-                    if [[ "$mod_state" == "running" ]]; then
-                        [[ "$item_state" == "pending" || "$item_state" == "done" ]] && continue
-                    else
-                        [[ "$item_state" == "pending" ]] && continue
-                    fi
-                    ui::frame_line "$(ui::sub_item_line "$item_state" "$item_name" "$item_detail")"
-                done < "$items_file"
+                local item_budget="$active_item_budget"
+                if [[ "$ENGINE_RENDER_FINAL" != true && $UI_LIVE_FRAME == true ]]; then
+                    item_budget="$remaining_item_budget"
+                fi
+                engine::_render_module_items "$items_file" "${_state[$mod]}" "$item_budget"
+                if [[ "$ENGINE_RENDER_FINAL" != true && $UI_LIVE_FRAME == true ]]; then
+                    remaining_item_budget=$(( remaining_item_budget - ENGINE_RENDERED_ITEM_LINES ))
+                    (( remaining_item_budget < 0 )) && remaining_item_budget=0
+                fi
             fi
         fi
     done
@@ -295,6 +327,74 @@ engine::_render() {
     ui::frame_line "$(ui::hline "╰" "╯" "$footer_color")"
 
     ui::frame_end
+}
+
+engine::_active_item_budget() {
+    if [[ "$ENGINE_RENDER_FINAL" == true ]]; then
+        print 9999
+        return 0
+    fi
+    if [[ "$UI_LIVE_FRAME" != true ]]; then
+        print 9999
+        return 0
+    fi
+    if [[ "$PRIMER_RENDER_TTY" != true && "${PRIMER_TEST_TTY:-}" != true ]]; then
+        print 9999
+        return 0
+    fi
+
+    local terminal_rows="${LINES:-}"
+    if [[ -z "$terminal_rows" || "$terminal_rows" != <-> ]]; then
+        terminal_rows="$(tput lines 2>/dev/null)"
+    fi
+    [[ -z "$terminal_rows" || "$terminal_rows" != <-> ]] && terminal_rows=40
+
+    # Header above the frame is 5 lines. Frame fixed cost is all module rows
+    # plus blank line and 3 footer rows. Leave one spare line to avoid scrolling.
+    local fixed_rows=$(( 5 + ${#_mod_order[@]} + 1 + 3 + 1 ))
+    local budget=$(( terminal_rows - fixed_rows ))
+    (( budget < 0 )) && budget=0
+    print "$budget"
+}
+
+engine::_render_module_items() {
+    local items_file="$1" mod_state="$2" budget="$3"
+    local -a running_lines=() failed_lines=() skipped_lines=() pending_lines=() done_lines=() other_lines=() lines=()
+    local item_state item_name item_detail rendered_line
+    ENGINE_RENDERED_ITEM_LINES=0
+
+    while IFS=: read -r item_state item_name item_detail; do
+        [[ -z "$item_name" ]] && continue
+        if [[ "$mod_state" != "running" ]]; then
+            [[ "$item_state" == "pending" ]] && continue
+        fi
+        rendered_line="$(ui::sub_item_line "$item_state" "$item_name" "$item_detail")"
+        case "$item_state" in
+            running) running_lines+=("$rendered_line") ;;
+            failed)  failed_lines+=("$rendered_line") ;;
+            skipped) skipped_lines+=("$rendered_line") ;;
+            pending) pending_lines+=("$rendered_line") ;;
+            done)    done_lines+=("$rendered_line") ;;
+            *)       other_lines+=("$rendered_line") ;;
+        esac
+    done < "$items_file"
+    lines=("${running_lines[@]}" "${failed_lines[@]}" "${skipped_lines[@]}" "${pending_lines[@]}" "${done_lines[@]}" "${other_lines[@]}")
+
+    (( ${#lines[@]} == 0 || budget == 0 )) && return 0
+
+    local visible_rows=$budget
+    (( visible_rows > ${#lines[@]} )) && visible_rows=${#lines[@]}
+
+    local i
+    for (( i = 1; i <= visible_rows; i++ )); do
+        if (( i == visible_rows && ${#lines[@]} > visible_rows )); then
+            local remaining=$(( ${#lines[@]} - visible_rows + 1 ))
+            ui::frame_line "$(printf '   %s... %d more%s' "$C_DIM" "$remaining" "$C_RESET")"
+        else
+            ui::frame_line "${lines[$i]}"
+        fi
+        ENGINE_RENDERED_ITEM_LINES=$(( ENGINE_RENDERED_ITEM_LINES + 1 ))
+    done
 }
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -343,12 +443,22 @@ engine::run_update() {
     ui::box "$title" "$header_color"
     print ""
 
-    # Hide cursor for clean animation
-    printf '\e[?25l'
-    trap "printf '\e[?25h'; rm -rf '$PRIMER_TMPDIR'" EXIT INT TERM
+    local live_ui=false
+    [[ -t 1 ]] && live_ui=true
+    UI_LIVE_FRAME="$live_ui"
+    PRIMER_RENDER_TTY="$live_ui"
+    UI_REPAINT_MODE="cursor"
+    ENGINE_RENDER_FINAL=false
 
-    # Initial render
-    engine::_render
+    if $live_ui; then
+        # Hide cursor for clean animation. The renderer is the only writer to
+        # stdout; module output is captured in per-module logs.
+        printf '\e[?25l'
+        trap "printf '\e[?25h'; rm -rf '$PRIMER_TMPDIR'" EXIT INT TERM
+
+        # Initial render
+        engine::_render
+    fi
 
     # ── Ready-queue DAG loop ──────────────────────────────────────────────────
     while engine::_has_active; do
@@ -358,13 +468,25 @@ engine::run_update() {
         # Advance spinner
         SPIN_IDX=$(( (SPIN_IDX + 1) % ${#SPINNER[@]} ))
 
-        engine::_render
+        $live_ui && engine::_render
         sleep 0.08
     done
 
-    # Final render with cursor restored
+    # Final render back in the normal terminal history.
+    if $live_ui; then
+        printf '\e[?25h'
+        if $_frame_active && (( _frame_lines > 0 )); then
+            printf '\e[%dA\e[J' $_frame_lines
+        fi
+        _frame_active=false
+        _frame_lines=0
+        _prev_frame_lines=0
+    fi
+    UI_LIVE_FRAME=false
+    PRIMER_RENDER_TTY=false
+    UI_REPAINT_MODE="cursor"
+    ENGINE_RENDER_FINAL=true
     engine::_render
-    printf '\e[?25h'
     # Clear the trap so cursor-show doesn't fire twice
     trap "rm -rf '$PRIMER_TMPDIR'" EXIT
 
@@ -430,9 +552,14 @@ engine::run_status() {
         _status_pids[$mod]=$!
     done
 
-    # Render live status rows while checks run.
-    printf '\e[?25l'
-    trap "printf '\e[?25h'" INT TERM
+    # Render live status rows while checks run when attached to a terminal.
+    local live_ui=false
+    [[ -t 1 ]] && live_ui=true
+    UI_LIVE_FRAME="$live_ui"
+    if $live_ui; then
+        printf '\e[?25l'
+        trap "printf '\e[?25h'" INT TERM
+    fi
     while true; do
         # Poll running checks first so each frame shows the latest states/results.
         for mod in $_mod_order; do
@@ -483,54 +610,58 @@ engine::run_status() {
             fi
         done
 
-        SPIN_IDX=$(( (SPIN_IDX + 1) % ${#SPINNER[@]} ))
-
         local n_ok=0 n_issues=0 n_running=0
-        ui::frame_begin
         for mod in $_mod_order; do
-            state="${_status_states[$mod]}"
-            elapsed=""
-            case "$state" in
-                running)
-                    elapsed=$(printf '%.1fs' $(( EPOCHREALTIME - _status_start[$mod] )))
-                    n_running=$(( n_running + 1 ))
-                    ;;
-                done)
-                    n_ok=$(( n_ok + 1 ))
-                    [[ -n "${_status_elapsed[$mod]}" ]] && elapsed="${_status_elapsed[$mod]}s"
-                    ;;
-                failed)
-                    n_issues=$(( n_issues + 1 ))
-                    [[ -n "${_status_elapsed[$mod]}" ]] && elapsed="${_status_elapsed[$mod]}s"
-                    ;;
+            case "${_status_states[$mod]}" in
+                running) n_running=$(( n_running + 1 )) ;;
+                done)    n_ok=$(( n_ok + 1 )) ;;
+                failed)  n_issues=$(( n_issues + 1 )) ;;
             esac
-            ui::frame_line "$(ui::module_line "$state" "${_mod_desc[$mod]}" "${_status_details[$mod]}" "$elapsed")"
         done
 
-        ui::frame_line ""
-        local parts=()
-        local issue_label="issues"
-        local checking_label="checking"
-        (( n_issues == 1 )) && issue_label="issue"
-        (( n_running == 1 )) && checking_label="checking"
-        (( n_ok > 0 )) && parts+=("${n_ok} healthy")
-        (( n_issues > 0 )) && parts+=("${n_issues} ${issue_label}")
-        (( n_running > 0 )) && parts+=("${n_running} ${checking_label}")
-        local summary="${(j: · :)parts}"
-        local footer_color="$C_CYAN"
-        (( n_issues > 0 )) && footer_color="$C_RED"
-        local pad=$(( BOX_W - 2 - ${#summary} ))
-        ui::frame_line "$(ui::hline "╭" "╮" "$footer_color")"
-        ui::frame_line "$(printf '  %s│%s %s%*s %s│%s' \
-            "$footer_color" "$C_RESET" "$summary" "$pad" "" "$footer_color" "$C_RESET")"
-        ui::frame_line "$(ui::hline "╰" "╯" "$footer_color")"
-        ui::frame_end
+        if $live_ui || (( n_running == 0 )); then
+            SPIN_IDX=$(( (SPIN_IDX + 1) % ${#SPINNER[@]} ))
+
+            ui::frame_begin
+            for mod in $_mod_order; do
+                state="${_status_states[$mod]}"
+                elapsed=""
+                case "$state" in
+                    running)
+                        elapsed=$(printf '%.1fs' $(( EPOCHREALTIME - _status_start[$mod] )))
+                        ;;
+                    done|failed)
+                        [[ -n "${_status_elapsed[$mod]}" ]] && elapsed="${_status_elapsed[$mod]}s"
+                        ;;
+                esac
+                ui::frame_line "$(ui::module_line "$state" "${_mod_desc[$mod]}" "${_status_details[$mod]}" "$elapsed")"
+            done
+
+            ui::frame_line ""
+            local parts=()
+            local issue_label="issues"
+            local checking_label="checking"
+            (( n_issues == 1 )) && issue_label="issue"
+            (( n_running == 1 )) && checking_label="checking"
+            (( n_ok > 0 )) && parts+=("${n_ok} healthy")
+            (( n_issues > 0 )) && parts+=("${n_issues} ${issue_label}")
+            (( n_running > 0 )) && parts+=("${n_running} ${checking_label}")
+            local summary="${(j: · :)parts}"
+            local footer_color="$C_CYAN"
+            (( n_issues > 0 )) && footer_color="$C_RED"
+            local pad=$(( BOX_W - 2 - ${#summary} ))
+            ui::frame_line "$(ui::hline "╭" "╮" "$footer_color")"
+            ui::frame_line "$(printf '  %s│%s %s%*s %s│%s' \
+                "$footer_color" "$C_RESET" "$summary" "$pad" "" "$footer_color" "$C_RESET")"
+            ui::frame_line "$(ui::hline "╰" "╯" "$footer_color")"
+            ui::frame_end
+        fi
 
         (( n_running == 0 )) && break
         sleep 0.08
     done
 
-    printf '\e[?25h'
+    $live_ui && printf '\e[?25h'
     trap - INT TERM
     print ""
 

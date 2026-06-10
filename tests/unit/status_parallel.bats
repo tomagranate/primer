@@ -138,3 +138,40 @@ EOF
     assert_output --partial "Two"
     assert_output --partial "up to date"
 }
+
+@test "run_status: captured output does not emit live redraw escapes" {
+    run zsh -c "
+        export PRIMER_DIR='${PRIMER_DIR}'
+        source \"\$PRIMER_DIR/lib/ui.zsh\"
+        source \"\$PRIMER_DIR/lib/engine.zsh\"
+
+        local fake_root
+        fake_root=\"\$(mktemp -d)\"
+        mkdir -p \"\$fake_root/lib\" \"\$fake_root/modules/one\"
+        cp \"${PRIMER_DIR}/lib/ui.zsh\" \"\$fake_root/lib/ui.zsh\"
+        cp \"${PRIMER_DIR}/lib/engine.zsh\" \"\$fake_root/lib/engine.zsh\"
+
+        cat > \"\$fake_root/primer.conf\" <<'EOF'
+[one]
+label = One
+EOF
+
+        cat > \"\$fake_root/modules/one/module.zsh\" <<'EOF'
+mod_status() {
+    sleep 0.10
+    primer::status_msg \"ok\"
+    return 0
+}
+EOF
+
+        PRIMER_DIR=\"\$fake_root\"
+        source \"\$fake_root/lib/ui.zsh\"
+        source \"\$fake_root/lib/engine.zsh\"
+        engine::load_config \"\$fake_root/primer.conf\"
+        engine::run_status
+    "
+    assert_success
+    refute_output --partial $'\e[2K'
+    refute_output --partial $'\e[?25l'
+    refute_output --partial $'\e[?25h'
+}

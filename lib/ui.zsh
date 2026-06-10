@@ -110,9 +110,13 @@ ui::box() {
 typeset -gi _frame_lines=0
 typeset -gi _prev_frame_lines=0
 typeset -g  _frame_active=false
+typeset -g  UI_LIVE_FRAME="${UI_LIVE_FRAME:-true}"
+typeset -g  UI_REPAINT_MODE="${UI_REPAINT_MODE:-cursor}"
 
 ui::frame_begin() {
-    if $_frame_active && (( _frame_lines > 0 )); then
+    if $UI_LIVE_FRAME && [[ "$UI_REPAINT_MODE" == "full" ]]; then
+        printf '\e[H\e[J'
+    elif $UI_LIVE_FRAME && $_frame_active && (( _frame_lines > 0 )); then
         printf '\e[%dA' $_frame_lines
     fi
     _frame_active=true
@@ -121,7 +125,11 @@ ui::frame_begin() {
 }
 
 ui::frame_line() {
-    printf '\e[2K%s\n' "$1"
+    if $UI_LIVE_FRAME; then
+        printf '\e[2K%s\n' "$1"
+    else
+        printf '%s\n' "$1"
+    fi
     _frame_lines=$(( _frame_lines + 1 ))
 }
 
@@ -131,6 +139,14 @@ ui::frame_line() {
 #   2. Any content written to the terminal by external processes (brew, sudo)
 #      below the current frame position.
 ui::frame_end() {
+    if ! $UI_LIVE_FRAME; then
+        return 0
+    fi
+    if [[ "$UI_REPAINT_MODE" == "full" ]]; then
+        printf '\e[J'
+        return 0
+    fi
+
     local extra=$(( _prev_frame_lines - _frame_lines ))
     local i
     for (( i = 0; i < extra; i++ )); do
@@ -289,6 +305,115 @@ primer::item_update() {
         fi
     done < "$MOD_ITEMS_FILE" > "$tmp"
     mv "$tmp" "$MOD_ITEMS_FILE"
+}
+
+primer::parallel_item_result() {
+    [[ -z "${PRIMER_ITEM_RESULT_FILE:-}" ]] && return 1
+    local state="$1" detail="${2:-}"
+    detail="${detail//$'\r'/}"
+    detail="${detail//:/ -}"
+    if [[ -n "$detail" ]]; then
+        printf '%s:%s\n' "$state" "$detail" > "$PRIMER_ITEM_RESULT_FILE"
+    else
+        printf '%s\n' "$state" > "$PRIMER_ITEM_RESULT_FILE"
+    fi
+}
+
+primer::first_line() {
+    local text="$1"
+    local first="${text%%$'\n'*}"
+    first="${first//$'\r'/}"
+    print "$first"
+}
+
+primer::parallel_items() {
+    local jobs="$1" label="$2" worker="$3"
+    shift 3
+    local -a items=("$@")
+    local total=${#items[@]}
+    (( total == 0 )) && return 0
+    [[ "$jobs" == <-> ]] || jobs=1
+    (( jobs < 1 )) && jobs=1
+    (( jobs > total )) && jobs=$total
+
+    local workdir
+    workdir="$(mktemp -d "${TMPDIR:-/tmp}/primer-items.XXXXXX")" || return 1
+
+    local -A pid_item=() pid_result=() pid_log=()
+    local next=1 completed=0 any_failed=false
+    local pid item slot result log rc state detail output first progressed
+
+    primer::status_msg "${label} 0/${total}..."
+    while (( completed < total )); do
+        while (( ${#pid_item} < jobs && next <= total )); do
+            item="${items[$next]}"
+            slot="$next"
+            result="${workdir}/${slot}.result"
+            log="${workdir}/${slot}.log"
+            primer::item_update "$item" "running"
+            (
+                export PRIMER_ITEM_RESULT_FILE="$result"
+                "$worker" "$item"
+                rc=$?
+                if [[ ! -s "$result" ]]; then
+                    if (( rc == 0 )); then
+                        primer::parallel_item_result "done"
+                    else
+                        first=""
+                        [[ -s "$log" ]] && first="$(primer::first_line "$(cat "$log")")"
+                        [[ -z "$first" ]] && first="${worker} failed"
+                        primer::parallel_item_result "failed" "$first"
+                    fi
+                fi
+                return "$rc"
+            ) > "$log" 2>&1 &
+            pid=$!
+            pid_item[$pid]="$item"
+            pid_result[$pid]="$result"
+            pid_log[$pid]="$log"
+            next=$(( next + 1 ))
+        done
+
+        progressed=false
+        for pid in ${(k)pid_item}; do
+            kill -0 "$pid" 2>/dev/null && continue
+
+            rc=0
+            wait "$pid" 2>/dev/null || rc=$?
+            item="${pid_item[$pid]}"
+            result="${pid_result[$pid]}"
+            log="${pid_log[$pid]}"
+            state=""
+            detail=""
+            if [[ -s "$result" ]]; then
+                IFS=: read -r state detail < "$result"
+            fi
+            if [[ -z "$state" ]]; then
+                state="failed"
+                detail="missing item result"
+                rc=1
+            fi
+
+            primer::item_update "$item" "$state" "$detail"
+            if [[ "$state" == "failed" || "$rc" != 0 ]]; then
+                any_failed=true
+            fi
+            if [[ -s "$log" && ( "$DRY_RUN" == true || "$state" == "failed" ) ]]; then
+                cat "$log"
+            fi
+
+            unset "pid_item[$pid]" "pid_result[$pid]" "pid_log[$pid]"
+            completed=$(( completed + 1 ))
+            primer::status_msg "${label} ${completed}/${total}..."
+            progressed=true
+        done
+
+        $progressed || sleep 0.05
+    done
+
+    rm -rf "$workdir"
+    $any_failed && return 1
+    return 0
 }
 
 # Ensure Homebrew is on PATH (for modules that depend on brew packages)
