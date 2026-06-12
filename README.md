@@ -53,7 +53,7 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 
 | Module | Depends On | What It Does |
 | --- | --- | --- |
-| **xcode** | -- | Installs Xcode Command Line Tools |
+| **xcode** | -- | Installs Xcode Command Line Tools, completes Xcode first launch, and downloads configured simulator platforms |
 | **homebrew** | xcode | Installs Homebrew and configured formulae |
 | **macos** | homebrew-apps | Applies macOS defaults and configures the Dock |
 | **zsh** | homebrew | Updates managed section in ~/.zshrc, manages ~/.zimrc, installs Zim |
