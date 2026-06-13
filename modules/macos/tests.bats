@@ -36,6 +36,7 @@ if [ "$1" = "read" ]; then
         com.apple.dock:show-recents) echo 0 ;;
         com.apple.dock:mru-spaces) echo 0 ;;
         com.apple.Spotlight:MenuItemHidden) echo 1 ;;
+        com.apple.screencapture:location) echo "$HOME/Desktop/Screenshots" ;;
     esac
 fi
 exit 0
@@ -101,6 +102,8 @@ teardown() {
     assert_output --partial "defaults write NSGlobalDomain:AppleShowAllExtensions:bool:true"
     assert_output --partial "defaults write com.apple.dock:tilesize:int:41"
     assert_output --partial "defaults write com.apple.dock:mru-spaces:bool:false"
+    assert_output --partial "mkdir -p ${TEST_HOME}/Desktop/Screenshots"
+    assert_output --partial "defaults write com.apple.screencapture location -string ${TEST_HOME}/Desktop/Screenshots"
     assert_output --partial "dockutil --remove Safari --no-restart"
     assert_output --partial "dockutil --add ${PRIMER_TEST_APPLICATIONS}/Codex.app --no-restart"
     assert_output --partial "skip missing Dock app ${PRIMER_TEST_APPLICATIONS}/Missing.app"
@@ -122,6 +125,10 @@ teardown() {
     run grep "defaults write com.apple.dock tilesize -int 41" "$MOCK_LOG"
     assert_success
     run grep "defaults write com.apple.dock mru-spaces -bool false" "$MOCK_LOG"
+    assert_success
+    run test -d "${TEST_HOME}/Desktop/Screenshots"
+    assert_success
+    run grep "defaults write com.apple.screencapture location -string ${TEST_HOME}/Desktop/Screenshots" "$MOCK_LOG"
     assert_success
     run grep "dockutil --remove Safari --no-restart" "$MOCK_LOG"
     assert_success
@@ -150,12 +157,15 @@ teardown() {
 @test "macos: mod_status checks configured defaults and dock apps" {
     zsh_run_module macos "
         _mod_config[macos.dock_apps]=\$'${PRIMER_TEST_APPLICATIONS}/Codex.app\n${PRIMER_TEST_APPLICATIONS}/Missing.app'
+        mkdir -p '${TEST_HOME}/Desktop/Screenshots'
         mod_status
     "
     assert_success
     run grep "defaults read NSGlobalDomain AppleShowAllExtensions" "$MOCK_LOG"
     assert_success
     run grep "defaults read com.apple.dock mru-spaces" "$MOCK_LOG"
+    assert_success
+    run grep "defaults read com.apple.screencapture location" "$MOCK_LOG"
     assert_success
     run grep "dockutil --find Codex" "$MOCK_LOG"
     assert_success

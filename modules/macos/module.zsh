@@ -25,6 +25,28 @@ _macos::read_default() {
     defaults read "$domain" "$key" 2>/dev/null
 }
 
+_macos::expand_path() {
+    local path="$1"
+    if [[ "$path" == \~/* ]]; then
+        print "$HOME/${path#\~/}"
+    else
+        print "$path"
+    fi
+}
+
+_macos::screenshot_location() {
+    local configured="$(mod_config screenshot_location | head -1)"
+    [[ -z "$configured" ]] && return 0
+    _macos::expand_path "$configured"
+}
+
+_macos::configure_screenshots() {
+    local location="$(_macos::screenshot_location)"
+    [[ -z "$location" ]] && return 0
+    mkdir -p "$location" || return 1
+    defaults write com.apple.screencapture location -string "$location"
+}
+
 _macos::normalise_default_value() {
     local type="$1" value="$2"
     case "$type:$value" in
@@ -156,11 +178,16 @@ mod_update() {
     primer::status_msg "configuring settings..."
 
     if [[ "$DRY_RUN" == true ]]; then
-        local entry app service servers browser
+        local entry app service servers browser screenshot_location
         while IFS= read -r entry; do
             [[ -z "$entry" ]] && continue
             echo "[dry-run] defaults write ${entry}"
         done <<< "$(mod_config defaults)"
+        screenshot_location="$(_macos::screenshot_location)"
+        if [[ -n "$screenshot_location" ]]; then
+            echo "[dry-run] mkdir -p $screenshot_location"
+            echo "[dry-run] defaults write com.apple.screencapture location -string $screenshot_location"
+        fi
         if [[ -n "$(mod_config dock_apps)" ]]; then
             while IFS= read -r app; do
                 [[ -z "$app" ]] && continue
@@ -188,6 +215,7 @@ mod_update() {
     fi
 
     _macos::apply_defaults || return 1
+    _macos::configure_screenshots || return 1
 
     if [[ -n "$(mod_config dock_apps)" ]]; then
         primer::status_msg "configuring Dock..."
@@ -211,7 +239,7 @@ mod_update() {
 }
 
 mod_status() {
-    local missing=0 drifted=0 entry domain key type expected actual app service
+    local missing=0 drifted=0 entry domain key type expected actual app service screenshot_location
 
     while IFS= read -r entry; do
         [[ -z "$entry" ]] && continue
@@ -224,6 +252,13 @@ mod_status() {
         actual="$(_macos::normalise_default_value "$type" "$(_macos::read_default "$domain" "$key")")"
         [[ "$actual" == "$expected" ]] || drifted=$(( drifted + 1 ))
     done <<< "$(mod_config defaults)"
+
+    screenshot_location="$(_macos::screenshot_location)"
+    if [[ -n "$screenshot_location" ]]; then
+        [[ -d "$screenshot_location" ]] || missing=$(( missing + 1 ))
+        actual="$(_macos::read_default com.apple.screencapture location)"
+        [[ "$actual" == "$screenshot_location" ]] || drifted=$(( drifted + 1 ))
+    fi
 
     if [[ -n "$(mod_config dock_apps)" ]]; then
         if ! command -v dockutil >/dev/null 2>&1; then
