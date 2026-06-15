@@ -54,7 +54,9 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | Module | Depends On | What It Does |
 | --- | --- | --- |
 | **xcode** | -- | Installs Xcode Command Line Tools, completes Xcode first launch, and downloads configured simulator platforms |
+| **shell-installers** | xcode | Installs configured tools from remote shell installers |
 | **homebrew** | xcode | Installs Homebrew and configured formulae |
+| **homebrew-apps** | homebrew | Installs configured Homebrew cask apps |
 | **macos** | homebrew-apps | Applies macOS defaults and configures the Dock |
 | **zsh** | homebrew | Updates managed section in ~/.zshrc, manages ~/.zimrc, installs Zim |
 | **starship** | homebrew | Deploys starship.toml to ~/.config/ |
