@@ -193,6 +193,7 @@ EOF
 @test "load_config: real primer.conf is parseable and has required keys" {
     zsh_run '
         engine::load_config "$PRIMER_DIR/primer.conf"
+        [[ ${_mod_order[(Ie)logins]} -eq 0 ]] || { echo "logins should not be a module"; exit 1; }
         [[ ${_mod_order[(Ie)homebrew]} -gt 0 ]] || { echo "missing:homebrew"; exit 1; }
         [[ ${_mod_order[(Ie)homebrew-apps]} -gt 0 ]] || { echo "missing:homebrew-apps"; exit 1; }
         [[ ${_mod_order[(Ie)macos]} -gt 0 ]] || { echo "missing:macos"; exit 1; }
@@ -204,11 +205,44 @@ EOF
         [[ -n "${_mod_config[macos.dock_apps]}" ]] || { echo "missing:macos.dock_apps"; exit 1; }
         [[ -n "${_mod_config[ssh.key_path]}" ]] || { echo "missing:ssh.key_path"; exit 1; }
         [[ -n "${_mod_config[mise.tools]}" ]] || { echo "missing:mise.tools"; exit 1; }
+        [[ "${_login_order[*]}" == "github" ]] || { echo "missing login:github"; exit 1; }
+        [[ "${_mod_config[logins.github_default]}" == "yes" ]] || { echo "missing login default"; exit 1; }
+        [[ "${_mod_config[logins.github_command]}" == "gh auth login" ]] || { echo "missing login command"; exit 1; }
         [[ "${_mod_config[homebrew.taps]}" == *"buildkite/buildkite"* ]] || { echo "missing:buildkite/buildkite"; exit 1; }
         echo "ok"
     '
     assert_success
     assert_output "ok"
+}
+
+@test "load_config: parses logins without adding them to module order" {
+    cat > "$TEST_CONF" <<'EOF'
+[logins]
+order =
+    github
+    npm
+github_label = GitHub CLI
+github_default = yes
+github_command = gh auth login
+npm_label = npm
+npm_default = no
+npm_command = npm login
+
+[homebrew]
+label = Homebrew
+EOF
+    zsh_run "
+        engine::load_config '$TEST_CONF'
+        echo \"modules=\${_mod_order[*]}\"
+        echo \"logins=\${_login_order[*]}\"
+        echo \"github=\${_mod_config[logins.github_command]}\"
+        echo \"npm=\${_mod_config[logins.npm_default]}\"
+    "
+    assert_success
+    assert_line "modules=homebrew"
+    assert_line "logins=github npm"
+    assert_line "github=gh auth login"
+    assert_line "npm=no"
 }
 
 @test "load_config: section names with hyphens are parsed correctly" {

@@ -204,24 +204,31 @@ bats tests/dry_run.bats
 
 ### Wet-run testing (macOS VM)
 
-For full end-to-end validation on a clean macOS, use [Tart](https://github.com/cirruslabs/tart):
+For full end-to-end validation on a clean macOS, use [Tart](https://github.com/cirruslabs/tart).
+To test the current checkout before pushing, run Tart from this repo root and
+mount the working tree into the VM:
 
 ```sh
 brew install cirruslabs/cli/tart
 tart clone ghcr.io/cirruslabs/macos-sequoia-base:latest primer-test
-tart run primer-test
+tart run --dir="primer:$PWD" primer-test
 ```
 
 Inside the VM:
 
 ```sh
-# Test the bootstrap flow
-curl -fsSL https://raw.githubusercontent.com/tomagranate/primer/main/setup.sh | sh
+# The host checkout is mounted here by tart run --dir.
+cd "/Volumes/My Shared Files/primer"
 
-# Or test from a local checkout
-git clone https://github.com/tomagranate/primer.git && cd primer
-PRIMER_LOCAL=$PWD ./bin/primer update
-./bin/primer status
+# Run against the mounted local checkout, including uncommitted host changes.
+PRIMER_LOCAL=$PWD zsh ./bin/primer update
+PRIMER_LOCAL=$PWD zsh ./bin/primer status
+```
+
+To test the published bootstrap flow instead of your local changes:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/tomagranate/primer/main/setup.sh | sh
 ```
 
 Reset to a clean slate with `tart delete primer-test` and re-clone.
