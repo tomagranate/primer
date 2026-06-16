@@ -212,6 +212,7 @@ EOF
         [[ "${_mod_deps[xcode]}" == "xcode-cli-tools" ]] || { echo "wrong xcode dep"; exit 1; }
         [[ "${_login_order[*]}" == "github" ]] || { echo "missing login:github"; exit 1; }
         [[ "${_mod_config[logins.github_default]}" == "yes" ]] || { echo "missing login default"; exit 1; }
+        [[ "${_mod_config[logins.github_depends_on]}" == "ssh, homebrew" ]] || { echo "missing login module deps"; exit 1; }
         [[ "${_mod_config[logins.github_command]}" == "gh auth login" ]] || { echo "missing login command"; exit 1; }
         [[ "${_mod_config[homebrew.taps]}" == *"buildkite/buildkite"* ]] || { echo "missing:buildkite/buildkite"; exit 1; }
         echo "ok"

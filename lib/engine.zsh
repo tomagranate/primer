@@ -193,11 +193,32 @@ engine::_missing_login_requirements() {
     (( ${#missing[@]} == 0 ))
 }
 
+engine::_missing_login_module_deps() {
+    local deps="$1"
+    local dep_words dep
+    local -a missing=()
+
+    dep_words="${deps//,/ }"
+    for dep in ${(z)dep_words}; do
+        [[ -z "$dep" ]] && continue
+        [[ "${_state[$dep]:-}" == "done" ]] || missing+=("$dep")
+    done
+
+    print "${(j:, :)missing}"
+    (( ${#missing[@]} == 0 ))
+}
+
+engine::_login_already_done() {
+    local status_cmd="$1"
+    [[ -z "$status_cmd" ]] && return 1
+    ${(z)status_cmd} >/dev/null 2>&1
+}
+
 engine::_render_login_picker() {
     local cursor="$1"
     local name label marker pointer color i
 
-    print "  ${C_DIM}Use Up/Down to move, Space to toggle, Enter to continue.${C_RESET}"
+    print "  ${C_DIM}Use Up/Down to move. Space toggles a login. Enter starts selected logins.${C_RESET}"
     print ""
 
     for (( i = 1; i <= ${#_login_order[@]}; i++ )); do
@@ -213,6 +234,58 @@ engine::_render_login_picker() {
         fi
         printf '  %s%s%s  %s%s%s  %s\n' "$color" "$pointer" "$C_RESET" "$color" "$marker" "$C_RESET" "$label"
     done
+}
+
+engine::_prime_login_selection() {
+    local name label default default_bool depends_on missing_deps requires missing_reqs status_cmd
+    local -a eligible=()
+
+    _login_selected=()
+
+    print ""
+    ui::box "login setup" "$C_CYAN"
+    print ""
+    print "  ${C_DIM}Installation is complete. Choose the accounts to authenticate now.${C_RESET}"
+    print "  ${C_DIM}Primer skips anything already logged in or missing installed prerequisites.${C_RESET}"
+    print ""
+
+    for name in $_login_order; do
+        label="${_mod_config[logins.${name}_label]:-$name}"
+        depends_on="${_mod_config[logins.${name}_depends_on]:-}"
+        requires="${_mod_config[logins.${name}_requires]:-}"
+        status_cmd="${_mod_config[logins.${name}_status]:-}"
+
+        missing_deps=""
+        if [[ -n "$depends_on" ]]; then
+            missing_deps="$(engine::_missing_login_module_deps "$depends_on")"
+        fi
+        if [[ -n "$missing_deps" ]]; then
+            print "  ${C_YELLOW}${GLYPH_SKIP}${C_RESET}  $label unavailable (waiting on: $missing_deps)"
+            continue
+        fi
+
+        missing_reqs=""
+        if [[ -n "$requires" ]]; then
+            missing_reqs="$(engine::_missing_login_requirements "$requires")"
+        fi
+        if [[ -n "$missing_reqs" ]]; then
+            print "  ${C_YELLOW}${GLYPH_SKIP}${C_RESET}  $label unavailable (missing: $missing_reqs)"
+            continue
+        fi
+
+        if engine::_login_already_done "$status_cmd"; then
+            print "  ${C_GREEN}${GLYPH_OK}${C_RESET}  $label already logged in"
+            continue
+        fi
+
+        default="${_mod_config[logins.${name}_default]:-yes}"
+        default_bool="$(engine::_bool_default "$default")"
+        _login_selected[$name]="$default_bool"
+        eligible+=("$name")
+    done
+
+    _login_order=("${eligible[@]}")
+    (( ${#_login_order[@]} > 0 ))
 }
 
 engine::_draw_login_picker() {
@@ -232,26 +305,20 @@ engine::_select_interactive_logins() {
     (( ${#_login_order[@]} == 0 )) && return 0
     [[ "$DRY_RUN" == true ]] && return 0
 
-    _login_selected=()
+    if ! engine::_prime_login_selection; then
+        return 0
+    fi
+
+    print ""
 
     if ! engine::_has_prompt_tty; then
         local name
         for name in $_login_order; do
             _login_selected[$name]="false"
         done
+        print "  ${C_DIM}No interactive terminal available; skipping login prompts.${C_RESET}"
         return 0
     fi
-
-    print ""
-    ui::box "primer login setup" "$C_CYAN"
-    print ""
-
-    local name default default_bool
-    for name in $_login_order; do
-        default="${_mod_config[logins.${name}_default]:-yes}"
-        default_bool="$(engine::_bool_default "$default")"
-        _login_selected[$name]="$default_bool"
-    done
 
     local input="/dev/stdin" output="/dev/stdout"
     if [[ ! -t 0 ]]; then
@@ -329,6 +396,16 @@ engine::_run_interactive_logins() {
         command_line="${_mod_config[logins.${name}_command]:-}"
 
         missing=""
+        if [[ -n "${_mod_config[logins.${name}_depends_on]:-}" ]]; then
+            missing="$(engine::_missing_login_module_deps "${_mod_config[logins.${name}_depends_on]}")"
+        fi
+        if [[ -n "$missing" ]]; then
+            print "  ${C_YELLOW}${GLYPH_SKIP}${C_RESET}  $label skipped (waiting on: $missing)"
+            any_failed=true
+            continue
+        fi
+
+        missing=""
         if [[ -n "$requires" ]]; then
             missing="$(engine::_missing_login_requirements "$requires")"
         fi
@@ -339,7 +416,7 @@ engine::_run_interactive_logins() {
         fi
 
         if [[ -n "$status_cmd" ]]; then
-            if ${(z)status_cmd} >/dev/null 2>&1; then
+            if engine::_login_already_done "$status_cmd"; then
                 print "  ${C_GREEN}${GLYPH_OK}${C_RESET}  $label already logged in"
                 continue
             fi
@@ -689,9 +766,6 @@ engine::run_update() {
     # Apply --skip / --only filters
     engine::_apply_filters
 
-    # Decide all post-install interactive logins before installation begins.
-    engine::_select_interactive_logins || return $?
-
     # Header
     local title="primer update"
     local header_color="$C_BLUE"
@@ -779,6 +853,7 @@ engine::run_update() {
     done
 
     local login_failed=false
+    engine::_select_interactive_logins || return $?
     engine::_run_interactive_logins || login_failed=true
 
     print ""

@@ -157,6 +157,23 @@ tools =
     bun:latest
 ```
 
+Interactive logins are configured in `[logins]` and run after installation
+finishes. `*_depends_on` names Primer modules that must complete first,
+`*_requires` names commands that must exist, `*_status` detects whether the
+account is already logged in, and `*_command` starts the login flow.
+
+```ini
+[logins]
+order =
+    github
+github_label = GitHub CLI
+github_default = yes
+github_depends_on = ssh, homebrew
+github_requires = gh
+github_status = gh auth status
+github_command = gh auth login
+```
+
 ## Config Locations (on your Mac)
 
 | What | Where |

@@ -34,7 +34,7 @@ load '../helpers/common'
     assert_failure
 }
 
-@test "login selection: non-tty update skips configured logins" {
+@test "login selection: non-tty after install skips configured logins" {
     zsh_run '
         DRY_RUN=false
         _login_order=(github)
@@ -43,7 +43,7 @@ load '../helpers/common'
         echo "${_login_selected[github]}"
     '
     assert_success
-    assert_output "false"
+    assert_output --partial "false"
 }
 
 @test "login picker: renders instructions and selected circles" {
@@ -56,11 +56,52 @@ load '../helpers/common'
         engine::_render_login_picker 2
     '
     assert_success
-    assert_output --partial "Use Up/Down to move, Space to toggle, Enter to continue."
+    assert_output --partial "Use Up/Down to move. Space toggles a login. Enter starts selected logins."
     assert_output --partial "●"
     assert_output --partial "○"
     assert_output --partial "GitHub CLI"
     assert_output --partial "npm"
+}
+
+@test "login selection: filters already logged-in targets" {
+    local fakebin
+    fakebin="$(mktemp -d)"
+    cat > "$fakebin/gh" <<'EOF'
+#!/usr/bin/env bash
+[[ "$1 $2" == "auth status" ]]
+EOF
+    chmod +x "$fakebin/gh"
+
+    PATH="$fakebin:$PATH" zsh_run '
+        DRY_RUN=false
+        _login_order=(github)
+        _mod_config[logins.github_label]="GitHub CLI"
+        _mod_config[logins.github_requires]=gh
+        _mod_config[logins.github_status]="gh auth status"
+        engine::_select_interactive_logins
+        echo "remaining=${#_login_order[@]}"
+    '
+    rm -rf "$fakebin"
+
+    assert_success
+    assert_output --partial "GitHub CLI already logged in"
+    assert_output --partial "remaining=0"
+}
+
+@test "login selection: filters targets whose module dependencies did not finish" {
+    zsh_run '
+        DRY_RUN=false
+        _login_order=(github)
+        _state[ssh]=done
+        _state[homebrew]=failed
+        _mod_config[logins.github_label]="GitHub CLI"
+        _mod_config[logins.github_depends_on]="ssh, homebrew"
+        engine::_select_interactive_logins
+        echo "remaining=${#_login_order[@]}"
+    '
+    assert_success
+    assert_output --partial "GitHub CLI unavailable (waiting on: homebrew)"
+    assert_output --partial "remaining=0"
 }
 
 @test "login picker: toggle flips selected state" {
@@ -113,4 +154,20 @@ EOF
     '
     assert_failure
     assert_output --partial "GitHub CLI skipped (missing: definitely-missing-gh)"
+}
+
+@test "login runner: reports incomplete module dependencies" {
+    zsh_run '
+        DRY_RUN=false
+        _login_order=(github)
+        _login_selected[github]=true
+        _state[ssh]=done
+        _state[homebrew]=skipped
+        _mod_config[logins.github_label]="GitHub CLI"
+        _mod_config[logins.github_depends_on]="ssh homebrew"
+        _mod_config[logins.github_command]="gh auth login"
+        engine::_run_interactive_logins
+    '
+    assert_failure
+    assert_output --partial "GitHub CLI skipped (waiting on: homebrew)"
 }
