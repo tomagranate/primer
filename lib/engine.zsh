@@ -178,9 +178,24 @@ engine::_has_prompt_tty() {
     ( : </dev/tty >/dev/tty ) 2>/dev/null
 }
 
+engine::_missing_login_requirements() {
+    local requires="$1"
+    local req_words requirement
+    local -a missing=()
+
+    req_words="${requires//,/ }"
+    for requirement in ${(z)req_words}; do
+        [[ -z "$requirement" ]] && continue
+        command -v "$requirement" >/dev/null 2>&1 || missing+=("$requirement")
+    done
+
+    print "${(j:, :)missing}"
+    (( ${#missing[@]} == 0 ))
+}
+
 engine::_render_login_picker() {
     local cursor="$1"
-    local name label marker pointer color i
+    local name label requires marker pointer color i
 
     print "  ${C_DIM}Use Up/Down to move, Space to toggle, Enter to continue.${C_RESET}"
     print ""
@@ -188,6 +203,8 @@ engine::_render_login_picker() {
     for (( i = 1; i <= ${#_login_order[@]}; i++ )); do
         name="${_login_order[$i]}"
         label="${_mod_config[logins.${name}_label]:-$name}"
+        requires="${_mod_config[logins.${name}_requires]:-}"
+        [[ -n "$requires" ]] && label="${label} ${C_DIM}(requires: ${requires})${C_RESET}"
         marker=$([[ "${_login_selected[$name]:-false}" == true ]] && print "●" || print "○")
         if (( i == cursor )); then
             pointer="›"
@@ -304,7 +321,7 @@ engine::_run_interactive_logins() {
     ui::box "interactive logins" "$C_CYAN"
     print ""
 
-    local label requires status_cmd command_line rc any_failed=false
+    local label requires missing status_cmd command_line rc any_failed=false
     for name in $_login_order; do
         [[ "${_login_selected[$name]:-false}" == true ]] || continue
 
@@ -313,8 +330,12 @@ engine::_run_interactive_logins() {
         status_cmd="${_mod_config[logins.${name}_status]:-}"
         command_line="${_mod_config[logins.${name}_command]:-}"
 
-        if [[ -n "$requires" ]] && ! command -v "$requires" >/dev/null 2>&1; then
-            print "  ${C_YELLOW}${GLYPH_SKIP}${C_RESET}  $label skipped (${requires} not found)"
+        missing=""
+        if [[ -n "$requires" ]]; then
+            missing="$(engine::_missing_login_requirements "$requires")"
+        fi
+        if [[ -n "$missing" ]]; then
+            print "  ${C_YELLOW}${GLYPH_SKIP}${C_RESET}  $label skipped (missing: $missing)"
             any_failed=true
             continue
         fi

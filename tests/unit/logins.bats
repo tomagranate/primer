@@ -52,6 +52,7 @@ load '../helpers/common'
         _login_selected[github]=true
         _login_selected[npm]=false
         _mod_config[logins.github_label]="GitHub CLI"
+        _mod_config[logins.github_requires]=gh
         _mod_config[logins.npm_label]="npm"
         engine::_render_login_picker 2
     '
@@ -60,6 +61,7 @@ load '../helpers/common'
     assert_output --partial "●"
     assert_output --partial "○"
     assert_output --partial "GitHub CLI"
+    assert_output --partial "requires: gh"
     assert_output --partial "npm"
 }
 
@@ -99,4 +101,18 @@ EOF
 
     assert_success
     assert_output --partial "GitHub CLI already logged in"
+}
+
+@test "login runner: reports missing requirements" {
+    zsh_run '
+        DRY_RUN=false
+        _login_order=(github)
+        _login_selected[github]=true
+        _mod_config[logins.github_label]="GitHub CLI"
+        _mod_config[logins.github_requires]=definitely-missing-gh
+        _mod_config[logins.github_command]="gh auth login"
+        engine::_run_interactive_logins
+    '
+    assert_failure
+    assert_output --partial "GitHub CLI skipped (missing: definitely-missing-gh)"
 }
