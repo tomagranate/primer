@@ -6,12 +6,26 @@ _homebrew::is_lock_error() {
     [[ "$output" == *"has already locked"* || "$output" == *"Another active Homebrew process"* ]]
 }
 
+_homebrew::is_untrusted_tap_error() {
+    local output="$1"
+    [[ "$output" == *"not trusted"* ]]
+}
+
+_homebrew::trust_configured_taps() {
+    local tap
+    for tap in $(mod_config taps); do
+        [[ -z "$tap" ]] && continue
+        brew trust "$tap" || return 1
+    done
+}
+
 _homebrew::run_with_lock_retry() {
     local output_var="$1"
     shift
     local max_retries="${PRIMER_HOMEBREW_LOCK_RETRIES:-20}"
     local delay="${PRIMER_HOMEBREW_LOCK_RETRY_DELAY:-2}"
     local attempt=0 output=""
+    local trust_retried=false
 
     while true; do
         output="$("$@" 2>&1)"
@@ -24,6 +38,12 @@ _homebrew::run_with_lock_retry() {
         if _homebrew::is_lock_error "$output" && (( attempt < max_retries )); then
             attempt=$(( attempt + 1 ))
             sleep "$delay"
+            continue
+        fi
+
+        if ! $trust_retried && _homebrew::is_untrusted_tap_error "$output"; then
+            trust_retried=true
+            _homebrew::trust_configured_taps || true
             continue
         fi
 
