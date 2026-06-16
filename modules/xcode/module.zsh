@@ -1,8 +1,50 @@
 #!/bin/zsh
-# modules/xcode -- Xcode Command Line Tools and Xcode first-launch setup
+# modules/xcode -- Full Xcode.app first-launch setup and simulator platforms
 
-_xcode::installed() {
-    xcode-select -p &>/dev/null
+_xcode::app_path() {
+    local configured
+    configured="$(mod_config app_path | head -1)"
+    [[ -n "$configured" ]] && print "$configured" || print "/Applications/Xcode.app"
+}
+
+_xcode::developer_dir() {
+    print "$(_xcode::app_path)/Contents/Developer"
+}
+
+_xcode::app_installed() {
+    [[ -d "$(_xcode::app_path)" && -d "$(_xcode::developer_dir)" ]]
+}
+
+_xcode::selected() {
+    local active
+    active="$(xcode-select -p 2>/dev/null)" || return 1
+    [[ "$active" == "$(_xcode::developer_dir)" ]]
+}
+
+_xcode::select_app() {
+    local developer_dir
+    developer_dir="$(_xcode::developer_dir)"
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "[dry-run] sudo xcode-select --switch $developer_dir"
+        return 0
+    fi
+
+    sudo xcode-select --switch "$developer_dir"
+}
+
+_xcode::ensure_app() {
+    if _xcode::app_installed; then
+        return 0
+    fi
+
+    primer::status_msg "install Xcode.app"
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "[dry-run] install Xcode.app from the App Store"
+    else
+        echo "Xcode.app is required for xcodebuild simulator setup."
+        echo "Install Xcode from the App Store, then run primer update again."
+    fi
+    return 1
 }
 
 _xcode::platforms() {
@@ -52,18 +94,11 @@ _xcode::download_platforms() {
 }
 
 mod_update() {
-    if ! _xcode::installed; then
-        primer::status_msg "installing..."
-        run xcode-select --install
+    _xcode::ensure_app || return 1
 
-        if [[ "$DRY_RUN" != true ]]; then
-            echo "Waiting for Xcode CLT installation..."
-            until _xcode::installed; do
-                sleep 5
-            done
-        fi
-
-        primer::status_msg "installed"
+    if ! _xcode::selected; then
+        primer::status_msg "selecting Xcode..."
+        _xcode::select_app || return 1
     fi
 
     if ! _xcode::first_launch_complete; then
@@ -81,12 +116,19 @@ mod_update() {
 mod_status() {
     local missing=0 drifted=0 platform
 
-    _xcode::installed || missing=$(( missing + 1 ))
-    _xcode::first_launch_complete || drifted=$(( drifted + 1 ))
+    _xcode::app_installed || missing=$(( missing + 1 ))
+    _xcode::selected || drifted=$(( drifted + 1 ))
+    if _xcode::app_installed && _xcode::selected; then
+        _xcode::first_launch_complete || drifted=$(( drifted + 1 ))
+    fi
 
     while IFS= read -r platform; do
         [[ -z "$platform" ]] && continue
-        _xcode::platform_runtime_installed "$platform" || drifted=$(( drifted + 1 ))
+        if _xcode::app_installed && _xcode::selected; then
+            _xcode::platform_runtime_installed "$platform" || drifted=$(( drifted + 1 ))
+        else
+            drifted=$(( drifted + 1 ))
+        fi
     done <<< "$(_xcode::platforms)"
 
     if (( missing == 0 && drifted == 0 )); then

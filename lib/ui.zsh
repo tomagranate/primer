@@ -175,6 +175,7 @@ ui::module_line() {
         running) glyph="${SPINNER[SPIN_IDX + 1]}";         color="$C_BLUE"      ;;
         pending) glyph="$GLYPH_WAIT";                     color="$C_DIM"       ;;
         skipped) glyph="$GLYPH_SKIP";                     color="$C_YELLOW"    ;;
+        interrupted) glyph="$GLYPH_FAIL";                 color="$C_YELLOW"    ;;
         *)       glyph="?";                               color="$C_DIM"       ;;
     esac
 

@@ -24,6 +24,7 @@ import struct
 import sys
 import termios
 import tempfile
+import time
 from pathlib import Path
 
 
@@ -119,6 +120,7 @@ class TerminalProbe:
         elif cmd == "J":
             if self.in_live:
                 self._finish_live_frame()
+                self.live_frame_lines = 0
             pass
         elif cmd == "K":
             pass
@@ -286,6 +288,33 @@ mod_status() { primer::status_msg "ok"; }
     return tmp
 
 
+def build_interrupt_repo(repo: Path) -> tempfile.TemporaryDirectory[str]:
+    tmp = tempfile.TemporaryDirectory(prefix="primer-terminal-interrupt-")
+    root = Path(tmp.name)
+    shutil.copytree(repo / "bin", root / "bin")
+    shutil.copytree(repo / "lib", root / "lib")
+    (root / "modules" / "slow").mkdir(parents=True)
+    (root / "primer.conf").write_text(
+        """
+[slow]
+label = Slow Module
+""".lstrip(),
+        encoding="utf-8",
+    )
+    (root / "modules" / "slow" / "module.zsh").write_text(
+        r'''
+mod_update() {
+    primer::status_msg "sleeping..."
+    sleep 5
+    primer::status_msg "done"
+}
+mod_status() { primer::status_msg "ok"; }
+'''.lstrip(),
+        encoding="utf-8",
+    )
+    return tmp
+
+
 def run_in_pty(repo: Path, command: list[str] | None = None) -> tuple[int, bytes]:
     if command is None:
         command = ["zsh", "bin/primer", "update", "--dry-run"]
@@ -326,6 +355,52 @@ def run_in_pty(repo: Path, command: list[str] | None = None) -> tuple[int, bytes
     return rc, b"".join(chunks)
 
 
+def run_in_pty_and_interrupt(repo: Path) -> tuple[int, bytes]:
+    pid, fd = pty.fork()
+    if pid == 0:
+        env = os.environ.copy()
+        env.update(
+            {
+                "PRIMER_LOCAL": str(repo),
+                "TERM": "xterm-256color",
+                "COLUMNS": str(COLS),
+                "LINES": str(ROWS),
+            }
+        )
+        os.chdir(repo)
+        os.execvpe("zsh", ["zsh", "bin/primer", "update", "--dry-run"], env)
+
+    set_winsize(fd, ROWS, COLS)
+    chunks: list[bytes] = []
+    sent_interrupt = False
+    started = time.time()
+    while True:
+        ready, _, _ = select.select([fd], [], [], 0.1)
+        if ready:
+            try:
+                chunk = os.read(fd, 65536)
+            except OSError as exc:
+                if exc.errno == errno.EIO:
+                    break
+                raise
+            if not chunk:
+                break
+            chunks.append(chunk)
+
+        stream = b"".join(chunks)
+        if not sent_interrupt and b"Slow Module" in stream and time.time() - started > 0.3:
+            os.write(fd, b"\x03")
+            sent_interrupt = True
+        if time.time() - started > 8:
+            os.kill(pid, signal.SIGTERM)
+            raise TimeoutError("primer interrupt probe timed out")
+
+    _, status = os.waitpid(pid, 0)
+    rc = os.waitstatus_to_exitcode(status)
+    os.close(fd)
+    return rc, b"".join(chunks)
+
+
 def strip_ansi(data: bytes) -> str:
     return CSI_RE.sub(b"", data).decode("utf-8", "replace")
 
@@ -334,6 +409,7 @@ def check_stream(name: str, repo: Path, stream: bytes, rc: int, *, expect_hostil
     probe = TerminalProbe(ROWS, COLS)
     probe.feed(stream)
     plain = strip_ansi(stream)
+    raw = stream.decode("latin1", "ignore")
 
     failures: list[str] = []
     if rc != 0:
@@ -346,10 +422,17 @@ def check_stream(name: str, repo: Path, stream: bytes, rc: int, *, expect_hostil
         failures.append(
             f"{name}: live renderer drew {probe.oversized_live_frames} oversized frame(s), max {probe.max_live_frame_lines} rows"
         )
-    if "\x1b[?1049h" in stream.decode("latin1", "ignore"):
-        failures.append(f"{name}: live renderer used alternate screen")
-    if expect_hostile and "HOSTILE-TTY-LINE" in plain:
-        failures.append(f"{name}: module output reached /dev/tty during live render")
+    if raw.count("\x1b[?1049h") != 1:
+        failures.append(f"{name}: live renderer did not enter alternate screen exactly once")
+    if raw.count("\x1b[?1049l") != 1:
+        failures.append(f"{name}: live renderer did not leave alternate screen exactly once")
+    if raw.find("\x1b[?1049l") < raw.find("\x1b[?1049h"):
+        failures.append(f"{name}: live renderer left alternate screen before entering it")
+    if expect_hostile:
+        leave_idx = raw.find("\x1b[?1049l")
+        after_leave = strip_ansi(stream[leave_idx:]) if leave_idx != -1 else plain
+        if "HOSTILE-TTY-LINE" in after_leave:
+            failures.append(f"{name}: module output leaked into normal scrollback")
     return failures
 
 
@@ -360,6 +443,10 @@ def main() -> int:
     rc, stream = run_in_pty(repo)
     plain = strip_ansi(stream)
     failures.extend(check_stream("primer-dry-run", repo, stream, rc))
+    raw = stream.decode("latin1", "ignore")
+    leave_idx = raw.find("\x1b[?1049l")
+    if leave_idx == -1 or "primer update (dry run)" not in strip_ansi(stream[leave_idx:]):
+        failures.append("primer-dry-run: final report did not appear after leaving alternate screen")
     if "tomagranate/tap" not in plain:
         failures.append("primer-dry-run: final report did not include Homebrew substeps")
     if "helium-browser" not in plain:
@@ -387,6 +474,26 @@ def main() -> int:
     finally:
         parallel_tmp.cleanup()
 
+    interrupt_tmp = build_interrupt_repo(repo)
+    try:
+        interrupt_repo = Path(interrupt_tmp.name)
+        interrupt_rc, interrupt_stream = run_in_pty_and_interrupt(interrupt_repo)
+        interrupt_raw = interrupt_stream.decode("latin1", "ignore")
+        interrupt_plain = strip_ansi(interrupt_stream)
+        if interrupt_rc != 130:
+            failures.append(f"interrupt: primer exited {interrupt_rc}, expected 130")
+        if interrupt_raw.count("\x1b[?1049h") != 1 or interrupt_raw.count("\x1b[?1049l") != 1:
+            failures.append("interrupt: alternate screen was not restored exactly once")
+        if "\x1b[?25h" not in interrupt_raw:
+            failures.append("interrupt: cursor was not restored")
+        leave_idx = interrupt_raw.find("\x1b[?1049l")
+        if leave_idx == -1 or "interrupted" not in strip_ansi(interrupt_stream[leave_idx:]):
+            failures.append("interrupt: interrupted summary did not appear after leaving alternate screen")
+        if "Slow Module" not in interrupt_plain:
+            failures.append("interrupt: final report did not include interrupted module")
+    finally:
+        interrupt_tmp.cleanup()
+
     if failures:
         artifact = repo / "tests" / "terminal" / "no_live_scroll.out"
         artifact.write_bytes(stream)
@@ -396,6 +503,9 @@ def main() -> int:
         parallel_artifact = repo / "tests" / "terminal" / "no_live_scroll_parallel.out"
         if "parallel_stream" in locals():
             parallel_artifact.write_bytes(parallel_stream)
+        interrupt_artifact = repo / "tests" / "terminal" / "no_live_scroll_interrupt.out"
+        if "interrupt_stream" in locals():
+            interrupt_artifact.write_bytes(interrupt_stream)
         print("terminal live-render regression failed:", file=sys.stderr)
         for failure in failures:
             print(f"  - {failure}", file=sys.stderr)
@@ -404,9 +514,14 @@ def main() -> int:
             print(f"stress stream saved to {stress_artifact}", file=sys.stderr)
         if "parallel_stream" in locals():
             print(f"parallel stress stream saved to {parallel_artifact}", file=sys.stderr)
+        if "interrupt_stream" in locals():
+            print(f"interrupt stream saved to {interrupt_artifact}", file=sys.stderr)
         return 1
 
-    print(f"ok: dry-run bytes={len(stream)}, stress bytes={len(stress_stream)}, parallel bytes={len(parallel_stream)}")
+    print(
+        f"ok: dry-run bytes={len(stream)}, stress bytes={len(stress_stream)}, "
+        f"parallel bytes={len(parallel_stream)}, interrupt bytes={len(interrupt_stream)}"
+    )
     return 0
 
 

@@ -19,7 +19,16 @@ typeset -gA _elapsed=()         # module -> "N.Ns" (set when finished)
 typeset -g  PRIMER_TMPDIR=""
 typeset -g  ENGINE_RENDER_FINAL=false
 typeset -g  PRIMER_RENDER_TTY=false
+typeset -g  PRIMER_UI_MODE="${PRIMER_UI_MODE:-}"
+typeset -g  PRIMER_UPDATE_MODE=""
+typeset -g  PRIMER_ALT_SCREEN_ACTIVE=false
+typeset -g  ENGINE_INTERRUPTED=false
+typeset -g  ENGINE_REPORTED=false
+typeset -g  ENGINE_UPDATE_STARTED=false
+typeset -g  ENGINE_REPORT_TITLE=""
+typeset -g  ENGINE_REPORT_COLOR="$C_BLUE"
 typeset -gi ENGINE_RENDERED_ITEM_LINES=0
+typeset -gA _log_offsets=()
 
 # ── Config Parsing (INI format) ──────────────────────────────────────────────
 
@@ -83,7 +92,7 @@ engine::_deps_failed() {
 
     local dep
     for dep in ${(s:,:)deps}; do
-        [[ "${_state[$dep]}" == "failed" || "${_state[$dep]}" == "skipped" ]] && return 0
+        [[ "${_state[$dep]}" == "failed" || "${_state[$dep]}" == "skipped" || "${_state[$dep]}" == "interrupted" ]] && return 0
     done
     return 1
 }
@@ -175,6 +184,11 @@ EOF
     _pids[$mod]=$pid
     _state[$mod]="running"
     _start[$mod]=$EPOCHREALTIME
+    _log_offsets[$mod]=0
+
+    if [[ "$PRIMER_UPDATE_MODE" == "log" ]]; then
+        print -- "==> ${_mod_desc[$mod]}"
+    fi
 }
 
 # Check running modules for completion
@@ -194,6 +208,10 @@ engine::_poll_running() {
             else
                 _state[$mod]="failed"
             fi
+            if [[ "$PRIMER_UPDATE_MODE" == "log" ]]; then
+                engine::_stream_log_delta "$mod"
+                print -- "--> ${_mod_desc[$mod]}: ${_state[$mod]} (${_elapsed[$mod]}s)"
+            fi
         fi
     done
 }
@@ -207,6 +225,9 @@ engine::_start_ready() {
 
         if engine::_deps_failed "$mod"; then
             _state[$mod]="skipped"
+            if [[ "$PRIMER_UPDATE_MODE" == "log" ]]; then
+                print -- "--> ${_mod_desc[$mod]}: skipped (dependency failed)"
+            fi
         elif engine::_deps_met "$mod"; then
             engine::_start_module "$mod" "$action"
         fi
@@ -236,6 +257,7 @@ engine::_get_detail() {
                 [[ "${_state[$mod]}" == "done" ]] && print "done" || print "failed"
             fi
             ;;
+        interrupted) print "interrupted" ;;
         skipped)  print "dep failed" ;;
     esac
 }
@@ -247,7 +269,7 @@ engine::_get_elapsed() {
         running)
             printf '%.1fs' $(( EPOCHREALTIME - _start[$mod] ))
             ;;
-        done|failed)
+        done|failed|interrupted)
             [[ -n "${_elapsed[$mod]}" ]] && print "${_elapsed[$mod]}s"
             ;;
     esac
@@ -255,7 +277,7 @@ engine::_get_elapsed() {
 
 # Build summary counts string
 engine::_summary() {
-    local n_done=0 n_running=0 n_pending=0 n_failed=0 n_skipped=0
+    local n_done=0 n_running=0 n_pending=0 n_failed=0 n_skipped=0 n_interrupted=0
     local mod
     for mod in $_mod_order; do
         case "${_state[$mod]}" in
@@ -264,6 +286,7 @@ engine::_summary() {
             pending) n_pending=$(( n_pending + 1 )) ;;
             failed)  n_failed=$(( n_failed + 1 ))   ;;
             skipped) n_skipped=$(( n_skipped + 1 )) ;;
+            interrupted) n_interrupted=$(( n_interrupted + 1 )) ;;
         esac
     done
 
@@ -272,6 +295,7 @@ engine::_summary() {
     (( n_running > 0 )) && parts+=("${n_running} running")
     (( n_pending > 0 )) && parts+=("${n_pending} waiting")
     (( n_failed  > 0 )) && parts+=("${n_failed} failed")
+    (( n_interrupted > 0 )) && parts+=("${n_interrupted} interrupted")
     (( n_skipped > 0 )) && parts+=("${n_skipped} skipped")
 
     print "${(j: · :)parts}"
@@ -321,7 +345,7 @@ engine::_render() {
     # Turn red if anything failed
     local mod_check
     for mod_check in $_mod_order; do
-        [[ "${_state[$mod_check]}" == "failed" ]] && footer_color="$C_RED" && break
+        [[ "${_state[$mod_check]}" == "failed" || "${_state[$mod_check]}" == "interrupted" ]] && footer_color="$C_RED" && break
     done
 
     local pad=$(( BOX_W - 2 - ${#summary} ))
@@ -401,17 +425,170 @@ engine::_render_module_items() {
     done
 }
 
+engine::_select_update_mode() {
+    case "${PRIMER_UI_MODE:-}" in
+        alternate)
+            if [[ -t 1 ]]; then
+                PRIMER_UPDATE_MODE="alternate"
+            else
+                print -- "--tui requires stdout to be a terminal." >&2
+                return 1
+            fi
+            ;;
+        log)
+            PRIMER_UPDATE_MODE="log"
+            ;;
+        ""|auto)
+            if [[ -t 1 ]]; then
+                PRIMER_UPDATE_MODE="alternate"
+            else
+                PRIMER_UPDATE_MODE="log"
+            fi
+            ;;
+        *)
+            print -- "Unknown UI mode: ${PRIMER_UI_MODE}" >&2
+            return 1
+            ;;
+    esac
+}
+
+engine::_begin_alternate_ui() {
+    PRIMER_ALT_SCREEN_ACTIVE=true
+    UI_LIVE_FRAME=true
+    PRIMER_RENDER_TTY=true
+    UI_REPAINT_MODE="full"
+    ENGINE_RENDER_FINAL=false
+    printf '%b' '\033[?1049h\033[?25l'
+    engine::_render
+}
+
+engine::_finish_terminal_ui() {
+    if [[ "$PRIMER_ALT_SCREEN_ACTIVE" == true ]]; then
+        printf '%b' '\033[?25h\033[?1049l'
+        PRIMER_ALT_SCREEN_ACTIVE=false
+    elif [[ "$UI_LIVE_FRAME" == true ]]; then
+        printf '%b' '\033[?25h'
+    fi
+    UI_LIVE_FRAME=false
+    PRIMER_RENDER_TTY=false
+    UI_REPAINT_MODE="cursor"
+    _frame_active=false
+    _frame_lines=0
+    _prev_frame_lines=0
+}
+
+engine::_stream_log_delta() {
+    local mod="$1"
+    local logfile="${PRIMER_TMPDIR}/${mod}.log"
+    [[ -f "$logfile" ]] || return 0
+
+    local size offset delta
+    size="$(wc -c < "$logfile" | tr -d ' ')"
+    [[ "$size" == <-> ]] || return 0
+    offset="${_log_offsets[$mod]:-0}"
+    [[ "$offset" == <-> ]] || offset=0
+    (( size <= offset )) && return 0
+
+    delta=$(( size - offset ))
+    dd if="$logfile" bs=1 skip="$offset" count="$delta" 2>/dev/null
+    _log_offsets[$mod]="$size"
+}
+
+engine::_stream_all_log_deltas() {
+    local mod
+    for mod in $_mod_order; do
+        [[ "${_state[$mod]}" == "running" || "${_state[$mod]}" == "done" || "${_state[$mod]}" == "failed" || "${_state[$mod]}" == "interrupted" ]] || continue
+        engine::_stream_log_delta "$mod"
+    done
+}
+
+engine::_mark_interrupted() {
+    ENGINE_INTERRUPTED=true
+    local mod pid
+    for mod in $_mod_order; do
+        case "${_state[$mod]}" in
+            running)
+                pid="${_pids[$mod]}"
+                [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true
+                _elapsed[$mod]=$(printf '%.1f' $(( EPOCHREALTIME - _start[$mod] )))
+                _state[$mod]="interrupted"
+                ;;
+            pending)
+                _state[$mod]="skipped"
+                ;;
+        esac
+    done
+}
+
+engine::_handle_interrupt() {
+    engine::_mark_interrupted
+    engine::_print_update_report
+    [[ -n "$PRIMER_TMPDIR" ]] && rm -rf "$PRIMER_TMPDIR"
+    exit 130
+}
+
+engine::_print_update_report() {
+    [[ "$ENGINE_REPORTED" == true ]] && return 0
+    ENGINE_REPORTED=true
+
+    engine::_finish_terminal_ui
+    ENGINE_RENDER_FINAL=true
+    UI_LIVE_FRAME=false
+    PRIMER_RENDER_TTY=false
+    if [[ -n "$ENGINE_REPORT_TITLE" ]]; then
+        print ""
+        ui::box "$ENGINE_REPORT_TITLE" "$ENGINE_REPORT_COLOR"
+        print ""
+    fi
+    engine::_render
+
+    local mod
+    for mod in $_mod_order; do
+        if [[ "${_state[$mod]}" == "failed" ]]; then
+            local logfile="${PRIMER_TMPDIR}/${mod}.log"
+            if [[ -f "$logfile" && -s "$logfile" ]]; then
+                ui::error_box "${_mod_desc[$mod]}" "$logfile"
+            fi
+        fi
+    done
+
+    print ""
+}
+
+engine::_cleanup_update() {
+    local rc=$?
+    if [[ "$ENGINE_UPDATE_STARTED" != true ]]; then
+        :
+    elif [[ "$ENGINE_REPORTED" != true && -n "$PRIMER_TMPDIR" && -d "$PRIMER_TMPDIR" ]]; then
+        if (( rc != 0 )) || [[ "$ENGINE_INTERRUPTED" == true ]]; then
+            engine::_print_update_report
+        else
+            engine::_finish_terminal_ui
+        fi
+    else
+        engine::_finish_terminal_ui
+    fi
+    [[ -n "$PRIMER_TMPDIR" ]] && rm -rf "$PRIMER_TMPDIR"
+    return "$rc"
+}
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 engine::run_update() {
     PRIMER_TMPDIR=$(mktemp -d)
-    trap "rm -rf '$PRIMER_TMPDIR'" EXIT
+    trap 'engine::_cleanup_update' EXIT
+    trap 'engine::_handle_interrupt' INT TERM
 
     # Reset state
     _state=()
     _pids=()
     _start=()
     _elapsed=()
+    _log_offsets=()
+    ENGINE_INTERRUPTED=false
+    ENGINE_REPORTED=false
+    ENGINE_UPDATE_STARTED=false
+    PRIMER_ALT_SCREEN_ACTIVE=false
     local mod
     for mod in $_mod_order; do
         _state[$mod]="pending"
@@ -427,6 +604,8 @@ engine::run_update() {
         title="primer update (dry run)"
         header_color="$C_CYAN"
     fi
+    ENGINE_REPORT_TITLE="$title"
+    ENGINE_REPORT_COLOR="$header_color"
 
     # Pre-authenticate sudo (needed by touchid module, skip in dry-run)
     if [[ "$DRY_RUN" != true ]]; then
@@ -443,71 +622,51 @@ engine::run_update() {
         fi
     fi
 
-    print ""
-    ui::box "$title" "$header_color"
-    print ""
-
-    local live_ui=false
-    [[ -t 1 ]] && live_ui=true
-    UI_LIVE_FRAME="$live_ui"
-    PRIMER_RENDER_TTY="$live_ui"
-    UI_REPAINT_MODE="cursor"
-    ENGINE_RENDER_FINAL=false
-
-    if $live_ui; then
-        # Hide cursor for clean animation. The renderer is the only writer to
-        # stdout; module output is captured in per-module logs.
-        printf '\e[?25l'
-        trap "printf '\e[?25h'; rm -rf '$PRIMER_TMPDIR'" EXIT INT TERM
-
-        # Initial render
-        engine::_render
+    engine::_select_update_mode || return 1
+    ENGINE_UPDATE_STARTED=true
+    if [[ "$PRIMER_UPDATE_MODE" == "alternate" ]]; then
+        engine::_begin_alternate_ui
+    else
+        UI_LIVE_FRAME=false
+        PRIMER_RENDER_TTY=false
+        UI_REPAINT_MODE="cursor"
+        print ""
+        ui::box "$title" "$header_color"
+        print ""
+        print -- "Streaming setup logs..."
     fi
 
     # ── Ready-queue DAG loop ──────────────────────────────────────────────────
     while engine::_has_active; do
         engine::_poll_running
+        if [[ "$PRIMER_UPDATE_MODE" == "log" ]]; then
+            engine::_stream_all_log_deltas
+        fi
         engine::_start_ready "update"
 
         # Advance spinner
         SPIN_IDX=$(( (SPIN_IDX + 1) % ${#SPINNER[@]} ))
 
-        $live_ui && engine::_render
+        [[ "$PRIMER_UPDATE_MODE" == "alternate" ]] && engine::_render
+        [[ "$ENGINE_INTERRUPTED" == true ]] && break
         sleep 0.08
     done
 
-    # Final render back in the normal terminal history.
-    if $live_ui; then
-        printf '\e[?25h'
-        if $_frame_active && (( _frame_lines > 0 )); then
-            printf '\e[%dA\e[J' $_frame_lines
-        fi
-        _frame_active=false
-        _frame_lines=0
-        _prev_frame_lines=0
+    if [[ "$PRIMER_UPDATE_MODE" == "log" ]]; then
+        engine::_stream_all_log_deltas
     fi
-    UI_LIVE_FRAME=false
-    PRIMER_RENDER_TTY=false
-    UI_REPAINT_MODE="cursor"
-    ENGINE_RENDER_FINAL=true
-    engine::_render
-    # Clear the trap so cursor-show doesn't fire twice
-    trap "rm -rf '$PRIMER_TMPDIR'" EXIT
 
-    # Show error details for any failed modules
+    engine::_print_update_report
+
     local any_failed=false
+    local any_interrupted=false
     for mod in $_mod_order; do
-        if [[ "${_state[$mod]}" == "failed" ]]; then
-            any_failed=true
-            local logfile="${PRIMER_TMPDIR}/${mod}.log"
-            if [[ -f "$logfile" && -s "$logfile" ]]; then
-                ui::error_box "${_mod_desc[$mod]}" "$logfile"
-            fi
-        fi
+        [[ "${_state[$mod]}" == "failed" ]] && any_failed=true
+        [[ "${_state[$mod]}" == "interrupted" ]] && any_interrupted=true
     done
-
-    print ""
-
+    trap - INT TERM
+    trap 'rm -rf "$PRIMER_TMPDIR"' EXIT
+    $any_interrupted && return 130
     $any_failed && return 1
     return 0
 }
@@ -561,8 +720,8 @@ engine::run_status() {
     [[ -t 1 ]] && live_ui=true
     UI_LIVE_FRAME="$live_ui"
     if $live_ui; then
-        printf '\e[?25l'
-        trap "printf '\e[?25h'" INT TERM
+        printf '%b' '\033[?25l'
+        trap "printf '%b' '\033[?25h'" INT TERM
     fi
     while true; do
         # Poll running checks first so each frame shows the latest states/results.
@@ -665,7 +824,7 @@ engine::run_status() {
         sleep 0.08
     done
 
-    $live_ui && printf '\e[?25h'
+    $live_ui && printf '%b' '\033[?25h'
     trap - INT TERM
     print ""
 

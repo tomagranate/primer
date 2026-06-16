@@ -9,6 +9,28 @@ load 'helpers/common'
     assert_success
 }
 
+@test "primer update --log streams plain output without TUI escapes" {
+    export PRIMER_LOCAL="$PRIMER_DIR"
+    run zsh "$PRIMER_DIR/bin/primer" update --dry-run --log --only ghostty
+    assert_success
+    assert_output --partial "Streaming setup logs"
+    assert_output --partial "==> Ghostty terminal"
+    assert_output --partial "primer update (dry run)"
+    refute_output --partial $'\e[?1049h'
+    refute_output --partial $'\e[?1049l'
+    refute_output --partial $'\e[?25l'
+    refute_output --partial $'\e[?25h'
+}
+
+@test "primer update --tui fails clearly when stdout is not a TTY" {
+    export PRIMER_LOCAL="$PRIMER_DIR"
+    run zsh "$PRIMER_DIR/bin/primer" update --dry-run --tui
+    assert_failure
+    assert_output --partial "--tui requires stdout to be a terminal."
+    refute_output --partial "waiting"
+    refute_output --partial $'\e[?25h'
+}
+
 @test "primer update supports GNU script during dry-run" {
     local fakebin
     fakebin="$(mktemp -d)"

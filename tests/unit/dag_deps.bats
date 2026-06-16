@@ -8,7 +8,7 @@ load '../helpers/common'
 @test "deps_met: true when all deps are done" {
     zsh_run '
         engine::load_config "$PRIMER_DIR/primer.conf"
-        _state[xcode]=done
+        _state[xcode-clt]=done
         engine::_deps_met homebrew && echo YES || echo NO
     '
     assert_output "YES"
@@ -17,7 +17,7 @@ load '../helpers/common'
 @test "deps_met: false when a dep is still running" {
     zsh_run '
         engine::load_config "$PRIMER_DIR/primer.conf"
-        _state[xcode]=running
+        _state[xcode-clt]=running
         engine::_deps_met homebrew && echo YES || echo NO
     '
     assert_output "NO"
@@ -26,7 +26,7 @@ load '../helpers/common'
 @test "deps_met: false when a dep is pending" {
     zsh_run '
         engine::load_config "$PRIMER_DIR/primer.conf"
-        _state[xcode]=pending
+        _state[xcode-clt]=pending
         engine::_deps_met homebrew && echo YES || echo NO
     '
     assert_output "NO"
@@ -35,7 +35,7 @@ load '../helpers/common'
 @test "deps_met: false when a dep is failed" {
     zsh_run '
         engine::load_config "$PRIMER_DIR/primer.conf"
-        _state[xcode]=failed
+        _state[xcode-clt]=failed
         engine::_deps_met homebrew && echo YES || echo NO
     '
     assert_output "NO"
@@ -49,10 +49,10 @@ load '../helpers/common'
     assert_output "YES"
 }
 
-@test "deps_met: true when module has no deps (xcode)" {
+@test "deps_met: true when module has no deps (xcode-clt)" {
     zsh_run '
         engine::load_config "$PRIMER_DIR/primer.conf"
-        engine::_deps_met xcode && echo YES || echo NO
+        engine::_deps_met xcode-clt && echo YES || echo NO
     '
     assert_output "YES"
 }
@@ -62,7 +62,7 @@ load '../helpers/common'
 @test "deps_failed: true when a dep is failed" {
     zsh_run '
         engine::load_config "$PRIMER_DIR/primer.conf"
-        _state[xcode]=failed
+        _state[xcode-clt]=failed
         engine::_deps_failed homebrew && echo YES || echo NO
     '
     assert_output "YES"
@@ -71,7 +71,7 @@ load '../helpers/common'
 @test "deps_failed: true when a dep is skipped" {
     zsh_run '
         engine::load_config "$PRIMER_DIR/primer.conf"
-        _state[xcode]=skipped
+        _state[xcode-clt]=skipped
         engine::_deps_failed homebrew && echo YES || echo NO
     '
     assert_output "YES"
@@ -80,7 +80,7 @@ load '../helpers/common'
 @test "deps_failed: false when deps are all done" {
     zsh_run '
         engine::load_config "$PRIMER_DIR/primer.conf"
-        _state[xcode]=done
+        _state[xcode-clt]=done
         engine::_deps_failed homebrew && echo YES || echo NO
     '
     assert_output "NO"
@@ -89,7 +89,7 @@ load '../helpers/common'
 @test "deps_failed: false when deps are running" {
     zsh_run '
         engine::load_config "$PRIMER_DIR/primer.conf"
-        _state[xcode]=running
+        _state[xcode-clt]=running
         engine::_deps_failed homebrew && echo YES || echo NO
     '
     assert_output "NO"

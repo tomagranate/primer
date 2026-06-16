@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Primer Alternate Screen Setup Plan</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f7f4;
+      --ink: #202124;
+      --muted: #656b73;
+      --line: #d7d9d2;
+      --panel: #ffffff;
+      --panel-2: #eff5f2;
+      --blue: #245b9e;
+      --green: #26734d;
+      --red: #a43f35;
+      --yellow: #8a641b;
+      --shadow: 0 10px 30px rgba(32, 33, 36, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      width: min(1120px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 48px 0 64px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: 1.35fr 0.65fr;
+      gap: 28px;
+      align-items: end;
+      padding-bottom: 28px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      line-height: 1.12;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      max-width: 780px;
+      font-size: clamp(2.25rem, 6vw, 4.7rem);
+      font-weight: 760;
+    }
+
+    h2 {
+      margin-bottom: 14px;
+      font-size: 1.28rem;
+    }
+
+    h3 {
+      font-size: 1rem;
+    }
+
+    p {
+      margin: 0;
+    }
+
+    .lede {
+      color: var(--muted);
+      font-size: 1.08rem;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin: 28px 0;
+    }
+
+    .summary article,
+    .phase,
+    .panel,
+    .task {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+
+    .summary article {
+      padding: 18px;
+    }
+
+    .summary strong {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--blue);
+      font-size: 0.78rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+
+    nav {
+      position: sticky;
+      top: 20px;
+      padding: 16px;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    nav a {
+      display: block;
+      padding: 8px 0;
+      color: var(--blue);
+      text-decoration: none;
+    }
+
+    section + section {
+      margin-top: 24px;
+    }
+
+    .phase {
+      padding: 22px;
+    }
+
+    .phase > p {
+      max-width: 760px;
+      color: var(--muted);
+    }
+
+    .tasks {
+      display: grid;
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .task {
+      padding: 18px;
+      box-shadow: none;
+    }
+
+    .task header {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0;
+      border: 0;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      padding: 3px 9px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 0.78rem;
+      white-space: nowrap;
+    }
+
+    ul {
+      margin: 12px 0 0;
+      padding-left: 20px;
+    }
+
+    li + li {
+      margin-top: 6px;
+    }
+
+    code {
+      padding: 0.12em 0.35em;
+      border: 1px solid #d8d6cc;
+      border-radius: 5px;
+      background: #fbfaf5;
+      color: #243447;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.92em;
+    }
+
+    .panel {
+      margin-top: 24px;
+      padding: 22px;
+    }
+
+    .terminal {
+      margin-top: 14px;
+      padding: 18px;
+      overflow-x: auto;
+      border-radius: 8px;
+      background: #161b22;
+      color: #e6edf3;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.9rem;
+      line-height: 1.45;
+    }
+
+    .terminal .dim {
+      color: #8b949e;
+    }
+
+    .terminal .ok {
+      color: #7ee787;
+    }
+
+    .terminal .warn {
+      color: #d29922;
+    }
+
+    .terminal .fail {
+      color: #ff7b72;
+    }
+
+    .risk {
+      border-left: 4px solid var(--yellow);
+    }
+
+    .exit {
+      border-left: 4px solid var(--green);
+    }
+
+    .error {
+      border-left: 4px solid var(--red);
+    }
+
+    @media (max-width: 820px) {
+      main {
+        width: min(100% - 24px, 720px);
+        padding-top: 28px;
+      }
+
+      header,
+      .summary,
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      nav {
+        position: static;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Alternate screen setup plan</h1>
+      </div>
+      <p class="lede">
+        Move Primer's live setup from cursor-owned scrollback into an app-like alternate screen,
+        while always returning the terminal to normal mode and printing a durable summary.
+      </p>
+    </header>
+
+    <div class="summary" aria-label="Plan summary">
+      <article>
+        <strong>Mode change</strong>
+        <p>Interactive TUI during live setup; normal scrollback summary after exit.</p>
+      </article>
+      <article>
+        <strong>Safety rule</strong>
+        <p>Cleanup must restore cursor, leave alternate screen, and preserve temp data long enough for reporting.</p>
+      </article>
+      <article>
+        <strong>Default path</strong>
+        <p>TTY runs use alternate screen by default; non-TTY runs stream plain logs. CLI flags can force either mode.</p>
+      </article>
+    </div>
+
+    <div class="layout">
+      <nav aria-label="Sections">
+        <a href="#phase-1">1. Terminal lifecycle</a>
+        <a href="#phase-2">2. Interactive setup UI</a>
+        <a href="#phase-3">3. Summary and exits</a>
+        <a href="#phase-4">4. Tests and rollout</a>
+      </nav>
+
+      <div>
+        <section class="phase" id="phase-1">
+          <h2>1. Terminal lifecycle</h2>
+          <p>
+            Introduce a single terminal session API so alternate screen entry, repainting, signal cleanup,
+            and final reporting are controlled from one place.
+          </p>
+          <div class="tasks">
+            <article class="task">
+              <header>
+                <h3>Create explicit UI modes</h3>
+                <span class="badge">Foundation</span>
+              </header>
+              <ul>
+                <li>Add a mode variable such as <code>PRIMER_UI_MODE=alternate|log</code>.</li>
+                <li>Default to <code>alternate</code> when stdout is a TTY.</li>
+                <li>Default to <code>log</code> when stdout is not a TTY, with simple progress and module log lines printed as work happens.</li>
+                <li>Add CLI flags such as <code>--tui</code> and <code>--log</code> to force either mode.</li>
+              </ul>
+            </article>
+
+            <article class="task">
+              <header>
+                <h3>Add alternate screen enter and leave helpers</h3>
+                <span class="badge">Terminal</span>
+              </header>
+              <ul>
+                <li>Use <code>\e[?1049h</code> to enter alternate screen and <code>\e[?1049l</code> to leave it.</li>
+                <li>Hide the cursor on enter and show it on every exit path with <code>\e[?25l</code> and <code>\e[?25h</code>.</li>
+                <li>Use the existing <code>UI_REPAINT_MODE=full</code> behavior for full-screen redraws instead of cursor-up frame ownership.</li>
+              </ul>
+            </article>
+
+            <article class="task risk">
+              <header>
+                <h3>Centralize cleanup</h3>
+                <span class="badge">High risk</span>
+              </header>
+              <ul>
+                <li>Replace scattered live-render cleanup with one <code>engine::_finish_terminal_ui</code> style function.</li>
+                <li>Make cleanup idempotent so traps and normal completion can both call it safely.</li>
+                <li>Do not remove <code>PRIMER_TMPDIR</code> until final summary and error boxes have been printed.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="phase" id="phase-2">
+          <h2>2. Interactive setup UI</h2>
+          <p>
+            Convert the current live frame into a richer viewport layout while preserving the existing DAG executor
+            and module status file contract.
+          </p>
+          <div class="tasks">
+            <article class="task">
+              <header>
+                <h3>Split render output into regions</h3>
+                <span class="badge">UI</span>
+              </header>
+              <ul>
+                <li>Render a persistent header with command name, dry-run state, elapsed time, and total progress.</li>
+                <li>Render the module list as the primary center pane using the existing <code>ui::module_line</code> formatting at first.</li>
+                <li>Render active sub-items and recent module detail in a lower pane, clipped to terminal height.</li>
+              </ul>
+            </article>
+
+            <article class="task">
+              <header>
+                <h3>Keep input minimal in v1</h3>
+                <span class="badge">Interaction</span>
+              </header>
+              <ul>
+                <li>Do not require raw keyboard mode for the first pass; keep <code>Ctrl-C</code> handled by shell traps.</li>
+                <li>Reserve future keys for expanding modules, switching panes, or viewing logs after the alternate screen lifecycle is stable.</li>
+                <li>Allow setup work to continue exactly as it does now; this change should be a presentation layer first.</li>
+              </ul>
+            </article>
+
+            <article class="task">
+              <header>
+                <h3>Handle terminal size deliberately</h3>
+                <span class="badge">Viewport</span>
+              </header>
+              <ul>
+                <li>Read <code>LINES</code>, <code>COLUMNS</code>, and <code>tput</code> values per render, matching the current layout refresh pattern.</li>
+                <li>Clip module and item lists to fit within the alternate screen instead of relying on scrollback.</li>
+                <li>Show compact overflow lines like <code>... 12 more</code> when lists exceed the viewport.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="phase" id="phase-3">
+          <h2>3. Summary and exits</h2>
+          <p>
+            The key product behavior: alternate screen is temporary, but the final result is permanent in normal terminal history.
+          </p>
+          <div class="tasks">
+            <article class="task exit">
+              <header>
+                <h3>Print a normal completion report</h3>
+                <span class="badge">Required</span>
+              </header>
+              <ul>
+                <li>On success, leave alternate screen, restore cursor, then call the existing final expanded render in normal scrollback.</li>
+                <li>Keep failed module error boxes in normal scrollback so users can copy details after the process exits.</li>
+                <li>Include elapsed time and the same done, failed, skipped, and waiting counts already produced by <code>engine::_summary</code>.</li>
+              </ul>
+            </article>
+
+            <article class="task exit">
+              <header>
+                <h3>Print an interrupted report on Ctrl-C</h3>
+                <span class="badge">Signals</span>
+              </header>
+              <ul>
+                <li>Trap <code>INT</code> and <code>TERM</code>, mark still-running modules as interrupted or skipped, and stop polling new work.</li>
+                <li>Leave alternate screen before printing the interrupted report.</li>
+                <li>Return a non-zero exit code after the report is printed.</li>
+              </ul>
+            </article>
+
+            <article class="task error">
+              <header>
+                <h3>Best-effort report on unexpected error</h3>
+                <span class="badge">Error path</span>
+              </header>
+              <ul>
+                <li>Trap <code>EXIT</code> and detect non-zero exits that have not already reported.</li>
+                <li>Restore the terminal first, then print whatever module state and logs are available.</li>
+                <li>Accept that hard kills such as <code>SIGKILL</code> cannot run cleanup or print a summary.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="phase" id="phase-4">
+          <h2>4. Tests and rollout</h2>
+          <p>
+            Update terminal stress coverage around the new default TTY mode and the simple non-TTY log mode.
+          </p>
+          <div class="tasks">
+            <article class="task">
+              <header>
+                <h3>Replace old repaint assumptions</h3>
+                <span class="badge">Regression</span>
+              </header>
+              <ul>
+                <li>Update the existing no-live-scroll test so TTY runs expect alternate screen instead of rejecting it.</li>
+                <li>Remove cursor-up repaint expectations from the default path.</li>
+                <li>Keep regression coverage that the final expanded report appears in normal scrollback after the TUI exits.</li>
+              </ul>
+            </article>
+
+            <article class="task">
+              <header>
+                <h3>Add alternate mode terminal probes</h3>
+                <span class="badge">Acceptance</span>
+              </header>
+              <ul>
+                <li>Assert the raw stream enters and leaves alternate screen exactly once during a normal TTY run.</li>
+                <li>Assert cursor show is emitted after normal completion, Ctrl-C, and synthetic module failure.</li>
+                <li>Assert the final normal-screen report appears after <code>\e[?1049l</code>.</li>
+              </ul>
+            </article>
+
+            <article class="task">
+              <header>
+                <h3>Cover forced log mode</h3>
+                <span class="badge">Non-TTY</span>
+              </header>
+              <ul>
+                <li>Assert redirected output and <code>--log</code> never emit alternate-screen or cursor-control escapes.</li>
+                <li>Assert module progress and module logs are printed incrementally in log mode.</li>
+                <li>Assert <code>--tui</code> can force alternate mode only when a usable TTY is available; otherwise fail clearly or fall back to log mode.</li>
+              </ul>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Target lifecycle</h2>
+          <p>
+            The implementation should make the terminal state machine obvious enough that every path can be audited.
+          </p>
+          <div class="terminal" aria-label="Target lifecycle pseudocode">
+<span class="dim">normal screen</span>
+pre-auth sudo if needed
+print lightweight startup line
+
+if stdout is a TTY, or --tui is forced with a usable TTY:
+  enter alternate screen <span class="dim"># ESC [?1049h</span>
+  hide cursor
+  render full-screen setup UI until done, failed, or interrupted
+
+if stdout is not a TTY, or --log is forced:
+  print module start/progress/done/failure lines as work happens
+  stream captured module log output in normal order
+
+on completion, Ctrl-C, or handled error:
+  restore cursor
+  leave alternate screen if active <span class="dim"># ESC [?1049l</span>
+  print final expanded report in normal scrollback
+  print failed module logs if present
+
+<span class="ok">success returns 0</span>
+<span class="warn">interrupted returns non-zero with summary</span>
+<span class="fail">unexpected errors restore terminal and print best-effort state</span>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

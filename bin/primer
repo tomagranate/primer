@@ -15,6 +15,7 @@ typeset -g PRIMER_DIR=""   # Set after download or from PRIMER_LOCAL
 typeset -g DRY_RUN=false
 typeset -g PRIMER_SKIP=""  # Space-separated modules to skip (--skip <name>)
 typeset -g PRIMER_ONLY=""  # Space-separated modules to run exclusively (--only <name>)
+typeset -g PRIMER_UI_MODE=""  # auto-selected unless --tui or --log is passed
 
 # ── Framework Download ────────────────────────────────────────────────────────
 
@@ -83,6 +84,8 @@ Flags:
   --dry-run         Preview changes without applying them (update only)
   --skip <module>   Skip a module by name; repeatable (update only)
   --only <module>   Run only this module; repeatable (update only)
+  --tui             Force alternate-screen terminal UI (update only)
+  --log             Force plain log output
   --help            Show this help message
 
 Examples:
@@ -90,6 +93,7 @@ Examples:
   primer update --dry-run                # Preview what would happen
   primer update --skip mac-app-store     # Skip App Store installs
   primer update --only homebrew          # Run only homebrew
+  primer update --log                    # Print progress and logs without a TUI
   primer status                          # Check current state
 
 Environment:
@@ -107,6 +111,8 @@ main() {
         case "$1" in
             update|status)  command="$1" ;;
             --dry-run)      DRY_RUN=true ;;
+            --tui)          PRIMER_UI_MODE="alternate" ;;
+            --log)          PRIMER_UI_MODE="log" ;;
             --skip)
                 if [[ -z "${2:-}" || "${2:-}" == --* ]]; then
                     print "Missing argument for --skip" >&2
@@ -141,6 +147,11 @@ main() {
         return 1
     fi
 
+    if [[ "$PRIMER_UI_MODE" == "alternate" && "$command" != "update" ]]; then
+        print -- "--tui is only valid with 'update'." >&2
+        return 1
+    fi
+
     if [[ -n "$PRIMER_SKIP" && -n "$PRIMER_ONLY" ]]; then
         print -- "--skip and --only cannot be used together." >&2
         return 1
@@ -149,6 +160,7 @@ main() {
     export DRY_RUN
     export PRIMER_SKIP
     export PRIMER_ONLY
+    export PRIMER_UI_MODE
 
     # Keep the launcher itself current before running update.
     if primer::should_self_update "$command"; then

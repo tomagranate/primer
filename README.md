@@ -53,13 +53,14 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 
 | Module | Depends On | What It Does |
 | --- | --- | --- |
-| **xcode** | -- | Installs Xcode Command Line Tools, completes Xcode first launch, and downloads configured simulator platforms |
-| **homebrew** | xcode | Installs Homebrew and configured formulae |
+| **xcode-clt** | -- | Installs Xcode Command Line Tools |
+| **xcode** | xcode-clt | Selects Xcode.app, completes Xcode first launch, and downloads configured simulator platforms |
+| **homebrew** | xcode-clt | Installs Homebrew and configured formulae |
 | **macos** | homebrew-apps | Applies macOS defaults and configures the Dock |
 | **zsh** | homebrew | Updates managed section in ~/.zshrc, manages ~/.zimrc, installs Zim |
 | **starship** | homebrew | Deploys starship.toml to ~/.config/ |
 | **mise** | homebrew | Installs language runtimes (Node, Python, Bun) |
-| **ssh** | xcode | Creates an SSH key and configures macOS keychain-backed agent support |
+| **ssh** | xcode-clt | Creates an SSH key and configures macOS keychain-backed agent support |
 | **touchid** | -- | Enables Touch ID for sudo |
 | **scripts** | -- | Installs custom scripts to ~/bin/ |
 
@@ -74,6 +75,8 @@ Each module is a **self-contained folder** that owns its config files, scripts, 
 │   ├── engine.zsh                # Ready-queue DAG executor + INI parser
 │   └── ui.zsh                    # Terminal UI (spinners, boxes, colors, helpers)
 ├── modules/
+│   ├── xcode-clt/
+│   │   └── module.zsh
 │   ├── xcode/
 │   │   └── module.zsh
 │   ├── homebrew/
@@ -131,7 +134,7 @@ All module settings live in `primer.conf`. Each `[section]` activates a module. 
 ```ini
 [homebrew]
 label = Homebrew
-depends_on = xcode
+depends_on = xcode-clt
 taps =
     tomagranate/tap
 formulae =

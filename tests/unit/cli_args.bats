@@ -93,3 +93,15 @@ load '../helpers/common'
     assert_failure
     assert_output --partial "cannot be used together"
 }
+
+@test "cli: --tui is rejected for status" {
+    run zsh "$PRIMER_DIR/bin/primer" status --tui
+    assert_failure
+    assert_output --partial "only valid with 'update'"
+}
+
+@test "cli: --log is accepted without a command and shows help" {
+    run zsh "$PRIMER_DIR/bin/primer" --log
+    assert_success
+    assert_output --partial "Usage"
+}
