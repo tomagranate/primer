@@ -54,8 +54,9 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | Module | Depends On | What It Does |
 | --- | --- | --- |
 | **xcode-cli-tools** | -- | Installs Xcode Command Line Tools and waits for the installer dialog to be accepted |
-| **xcode** | xcode-cli-tools | Configures full Xcode first launch and configured simulator platforms when Xcode.app is active |
 | **homebrew** | xcode-cli-tools | Installs Homebrew and configured formulae |
+| **mac-app-store** | homebrew | Installs configured Mac App Store apps via `mas`, including Xcode |
+| **xcode** | mac-app-store | Selects full Xcode, runs first launch setup, and installs configured simulator platforms |
 | **macos** | homebrew-apps | Applies macOS defaults and configures the Dock |
 | **zsh** | homebrew | Updates managed section in ~/.zshrc, manages ~/.zimrc, installs Zim |
 | **starship** | homebrew | Deploys starship.toml to ~/.config/ |
@@ -81,6 +82,10 @@ Each module is a **self-contained folder** that owns its config files, scripts, 
 │   │   └── module.zsh
 │   ├── homebrew/
 │   │   └── module.zsh            # Generates Brewfile from config, runs brew bundle
+│   ├── mac-app-store/
+│   │   └── module.zsh
+│   ├── homebrew-apps/
+│   │   └── module.zsh
 │   ├── zsh/
 │   │   ├── module.zsh
 │   │   └── files/                # .zshrc managed block + .zimrc
@@ -142,11 +147,26 @@ formulae =
     starship
     fzf
     corsa
+
+[homebrew-apps]
+label = Mac Apps
+depends_on = homebrew
 casks =
     google-chrome
     slack
+
+[mac-app-store]
+label = Mac App Store
+depends_on = homebrew
 mas =
-    Magnet:441258766
+    Xcode:497799835
+
+[xcode]
+label = Xcode app
+depends_on = mac-app-store
+app_path = /Applications/Xcode.app
+simulator_platforms =
+    iOS
 
 [mise]
 label = Mise languages

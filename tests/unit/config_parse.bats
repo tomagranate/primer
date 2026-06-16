@@ -209,7 +209,9 @@ EOF
         [[ -n "${_mod_config[mise.tools]}" ]] || { echo "missing:mise.tools"; exit 1; }
         [[ "${_mod_deps[homebrew]}" == "xcode-cli-tools" ]] || { echo "wrong homebrew dep"; exit 1; }
         [[ "${_mod_deps[ssh]}" == "xcode-cli-tools" ]] || { echo "wrong ssh dep"; exit 1; }
-        [[ "${_mod_deps[xcode]}" == "xcode-cli-tools" ]] || { echo "wrong xcode dep"; exit 1; }
+        [[ "${_mod_deps[mac-app-store]}" == "homebrew" ]] || { echo "wrong mac app store dep"; exit 1; }
+        [[ "${_mod_deps[xcode]}" == "mac-app-store" ]] || { echo "wrong xcode dep"; exit 1; }
+        [[ "${_mod_config[mac-app-store.mas]}" == *"Xcode:497799835"* ]] || { echo "missing xcode app store item"; exit 1; }
         [[ "${_login_order[*]}" == "helium-google dashlane github" ]] || { echo "missing configured logins"; exit 1; }
         [[ "${_mod_config[logins.github_default]}" == "yes" ]] || { echo "missing login default"; exit 1; }
         [[ "${_mod_config[logins.github_depends_on]}" == "ssh, homebrew" ]] || { echo "missing login module deps"; exit 1; }

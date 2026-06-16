@@ -8,7 +8,9 @@ setup() {
     export MOCK_DIR="$TEST_HOME/mocks"
     mkdir -p "$MOCK_DIR"
     export MOCK_LOG="$(mktemp)"
+    export PRIMER_XCODE_APP_PATH="$TEST_HOME/Applications/Xcode.app"
     export PATH="$MOCK_DIR:$PRIMER_DIR/tests/helpers/mocks:$PATH"
+    mkdir -p "$PRIMER_XCODE_APP_PATH/Contents/Developer"
 
     cat > "$MOCK_DIR/xcodebuild" <<'EOF'
 #!/bin/sh
@@ -83,12 +85,19 @@ teardown() {
     assert_output --partial "[dry-run] xcodebuild -downloadPlatform iOS"
 }
 
-@test "xcode: skips setup when full Xcode is not active" {
+@test "xcode: selects full Xcode when app is installed but CLT is active" {
     export MOCK_XCODE_FIRST_LAUNCH_NEEDED=1
     export MOCK_IOS_RUNTIME_MISSING=1
     zsh_run_module xcode "mod_update"
     assert_success
-    run grep "xcodebuild" "$MOCK_LOG"
+    run grep "sudo xcode-select -s ${PRIMER_XCODE_APP_PATH}/Contents/Developer" "$MOCK_LOG"
+    assert_success
+}
+
+@test "xcode: update fails when Xcode app is missing" {
+    rm -rf "$PRIMER_XCODE_APP_PATH"
+
+    zsh_run_module xcode "mod_update"
     assert_failure
 }
 
@@ -98,9 +107,16 @@ teardown() {
     assert_success
 }
 
-@test "xcode: mod_status succeeds when full Xcode is not active" {
+@test "xcode: mod_status fails when full Xcode is not selected" {
     zsh_run_module xcode "mod_status"
-    assert_success
+    assert_failure
+}
+
+@test "xcode: mod_status fails when Xcode app is missing" {
+    rm -rf "$PRIMER_XCODE_APP_PATH"
+
+    zsh_run_module xcode "mod_status"
+    assert_failure
 }
 
 @test "xcode: mod_status fails when first launch is incomplete" {
