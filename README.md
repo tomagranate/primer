@@ -53,15 +53,17 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 
 | Module | Depends On | What It Does |
 | --- | --- | --- |
-| **xcode** | -- | Installs Xcode Command Line Tools, completes Xcode first launch, and downloads configured simulator platforms |
-| **shell-installers** | xcode | Installs configured tools from remote shell installers |
-| **homebrew** | xcode | Installs Homebrew and configured formulae |
+| **xcode-cli-tools** | -- | Installs Xcode Command Line Tools and waits for the installer dialog to be accepted |
+| **shell-installers** | xcode-cli-tools | Installs configured tools from remote shell installers |
+| **homebrew** | xcode-cli-tools | Installs Homebrew and configured formulae |
 | **homebrew-apps** | homebrew | Installs configured Homebrew cask apps |
+| **mac-app-store** | homebrew | Installs configured Mac App Store apps via `mas`, including Xcode |
+| **xcode** | mac-app-store | Selects full Xcode, runs first launch setup, and installs configured simulator platforms |
 | **macos** | homebrew-apps | Applies macOS defaults and configures the Dock |
 | **zsh** | homebrew | Updates managed section in ~/.zshrc, manages ~/.zimrc, installs Zim |
 | **starship** | homebrew | Deploys starship.toml to ~/.config/ |
 | **mise** | homebrew | Installs language runtimes (Node, Python, Bun) |
-| **ssh** | xcode | Creates an SSH key and configures macOS keychain-backed agent support |
+| **ssh** | xcode-cli-tools | Creates an SSH key and configures macOS keychain-backed agent support |
 | **touchid** | -- | Enables Touch ID for sudo |
 | **scripts** | -- | Installs custom scripts to ~/bin/ |
 
@@ -76,10 +78,18 @@ Each module is a **self-contained folder** that owns its config files, scripts, 
 │   ├── engine.zsh                # Ready-queue DAG executor + INI parser
 │   └── ui.zsh                    # Terminal UI (spinners, boxes, colors, helpers)
 ├── modules/
+│   ├── xcode-cli-tools/
+│   │   └── module.zsh
 │   ├── xcode/
+│   │   └── module.zsh
+│   ├── shell-installers/
 │   │   └── module.zsh
 │   ├── homebrew/
 │   │   └── module.zsh            # Generates Brewfile from config, runs brew bundle
+│   ├── mac-app-store/
+│   │   └── module.zsh
+│   ├── homebrew-apps/
+│   │   └── module.zsh
 │   ├── zsh/
 │   │   ├── module.zsh
 │   │   └── files/                # .zshrc managed block + .zimrc
@@ -133,7 +143,7 @@ All module settings live in `primer.conf`. Each `[section]` activates a module. 
 ```ini
 [homebrew]
 label = Homebrew
-depends_on = xcode
+depends_on = xcode-cli-tools
 taps =
     tomagranate/tap
 formulae =
@@ -141,11 +151,35 @@ formulae =
     starship
     fzf
     corsa
+
+[shell-installers]
+label = Shell installers
+depends_on = xcode-cli-tools
+installers =
+    - name: example
+      url: https://example.com/install.sh
+      command: example
+      check: example --version
+
+[homebrew-apps]
+label = Mac Apps
+depends_on = homebrew
 casks =
     google-chrome
     slack
+
+[mac-app-store]
+label = Mac App Store
+depends_on = homebrew
 mas =
-    Magnet:441258766
+    Xcode:497799835
+
+[xcode]
+label = Xcode app
+depends_on = mac-app-store
+app_path = /Applications/Xcode.app
+simulator_platforms =
+    iOS
 
 [mise]
 label = Mise languages
@@ -154,6 +188,46 @@ tools =
     node:lts
     python:3.12
     bun:latest
+```
+
+Interactive logins are configured in `[logins]` and run after installation
+finishes. `*_depends_on` names Primer modules that must complete first,
+`*_requires` names commands that must exist, `*_status` detects whether the
+account is already logged in, and `*_command` starts the login flow.
+
+```ini
+[logins]
+order =
+    xcode-cli-terms
+    helium-google
+    dashlane
+    github
+xcode-cli-terms_label = Xcode CLI terms
+xcode-cli-terms_default = yes
+xcode-cli-terms_depends_on = xcode-cli-tools
+xcode-cli-terms_requires = xcodebuild, sudo
+xcode-cli-terms_status = xcodebuild -checkFirstLaunchStatus
+xcode-cli-terms_done_detail = accepted
+xcode-cli-terms_instruction = Review and accept the Xcode Command Line Tools license.
+xcode-cli-terms_command = sudo xcodebuild -license
+github_label = GitHub CLI
+github_default = yes
+github_depends_on = ssh, homebrew
+github_requires = gh
+github_status = gh auth status
+github_command = gh auth login
+helium-google_label = Helium Google profile
+helium-google_default = yes
+helium-google_depends_on = homebrew-apps
+helium-google_requires = open
+helium-google_instruction = Sign in to your Google or Chrome profile in Helium.
+helium-google_command = open -a Helium https://accounts.google.com/
+dashlane_label = Dashlane
+dashlane_default = yes
+dashlane_depends_on = homebrew-apps
+dashlane_requires = open
+dashlane_instruction = Sign in to Dashlane.
+dashlane_command = open -a Helium https://app.dashlane.com/login
 ```
 
 ## Config Locations (on your Mac)
@@ -206,24 +280,31 @@ bats tests/dry_run.bats
 
 ### Wet-run testing (macOS VM)
 
-For full end-to-end validation on a clean macOS, use [Tart](https://github.com/cirruslabs/tart):
+For full end-to-end validation on a clean macOS, use [Tart](https://github.com/cirruslabs/tart).
+To test the current checkout before pushing, run Tart from this repo root and
+mount the working tree into the VM:
 
 ```sh
 brew install cirruslabs/cli/tart
 tart clone ghcr.io/cirruslabs/macos-sequoia-base:latest primer-test
-tart run primer-test
+tart run --dir="primer:$PWD" primer-test
 ```
 
 Inside the VM:
 
 ```sh
-# Test the bootstrap flow
-curl -fsSL https://raw.githubusercontent.com/tomagranate/primer/main/setup.sh | sh
+# The host checkout is mounted here by tart run --dir.
+cd "/Volumes/My Shared Files/primer"
 
-# Or test from a local checkout
-git clone https://github.com/tomagranate/primer.git && cd primer
-PRIMER_LOCAL=$PWD ./bin/primer update
-./bin/primer status
+# Run against the mounted local checkout, including uncommitted host changes.
+PRIMER_LOCAL=$PWD zsh ./bin/primer update
+PRIMER_LOCAL=$PWD zsh ./bin/primer status
+```
+
+To test the published bootstrap flow instead of your local changes:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/tomagranate/primer/main/setup.sh | sh
 ```
 
 Reset to a clean slate with `tart delete primer-test` and re-clone.

@@ -9,6 +9,12 @@ typeset -ga _mod_order=()       # Module names in config order
 typeset -gA _mod_deps=()        # module -> "dep1,dep2,..."
 typeset -gA _mod_desc=()        # module -> "Display Label"
 typeset -gA _mod_config=()      # "module.key" -> "value\nvalue..."
+typeset -ga _login_order=()     # Login target names in config order
+typeset -ga _login_all_order=() # All configured login target names
+typeset -gA _login_selected=()  # login -> true|false
+typeset -gA _login_state=()     # login -> done|failed|skipped|pending
+typeset -gA _login_detail=()    # login -> summary detail
+typeset -g  _login_interrupted=false
 
 # ── Runtime State ─────────────────────────────────────────────────────────────
 
@@ -29,6 +35,12 @@ engine::load_config() {
     _mod_deps=()
     _mod_desc=()
     _mod_config=()
+    _login_order=()
+    _login_all_order=()
+    _login_selected=()
+    _login_state=()
+    _login_detail=()
+    _login_interrupted=false
 
     while IFS= read -r line; do
         # Skip comments and blank lines
@@ -38,7 +50,7 @@ engine::load_config() {
         # Section header: [module_name] (allows hyphens)
         if [[ "$line" =~ '^\[([a-z_-]+)\]' ]]; then
             section="${match[1]}"
-            _mod_order+=("$section")
+            [[ "$section" != "logins" ]] && _mod_order+=("$section")
             key=""
             continue
         fi
@@ -50,7 +62,7 @@ engine::load_config() {
         fi
 
         # Key = value line
-        if [[ "$line" =~ '^([a-z_]+)[[:space:]]*=[[:space:]]*(.*)' && -n "$section" ]]; then
+        if [[ "$line" =~ '^([a-z_-]+)[[:space:]]*=[[:space:]]*(.*)' && -n "$section" ]]; then
             key="${match[1]}"
             local val="${match[2]}"
             _mod_config[${section}.${key}]="$val"
@@ -58,6 +70,8 @@ engine::load_config() {
             [[ "$key" == "label" ]]      && _mod_desc[$section]="$val"
         fi
     done < "$config"
+
+    engine::_load_logins
 }
 
 # ── DAG Helpers ───────────────────────────────────────────────────────────────
@@ -103,6 +117,428 @@ engine::_apply_filters() {
             [[ " ${PRIMER_ONLY} " != *" ${mod} "* ]] && _state[$mod]="skipped"
         done
     fi
+}
+
+# ── Interactive Login Selection ──────────────────────────────────────────────
+
+engine::_trim() {
+    local value="$1"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    print -r -- "$value"
+}
+
+engine::_config_lines() {
+    local raw="${_mod_config[$1]}"
+    local line
+    while IFS= read -r line; do
+        line="$(engine::_trim "$line")"
+        [[ -n "$line" ]] && print -r -- "$line"
+    done <<< "$raw"
+}
+
+engine::_bool_default() {
+    local value="${1:l}"
+    case "$value" in
+        yes|y|true|1|on) print "true" ;;
+        no|n|false|0|off) print "false" ;;
+        *) print "true" ;;
+    esac
+}
+
+engine::_answer_to_bool() {
+    local answer="${1:l}" default_bool="$2"
+    answer="$(engine::_trim "$answer")"
+    if [[ -z "$answer" ]]; then
+        print "$default_bool"
+        return 0
+    fi
+
+    case "$answer" in
+        y|yes|true|1|on) print "true" ;;
+        n|no|false|0|off) print "false" ;;
+        *) return 1 ;;
+    esac
+}
+
+engine::_login_toggle() {
+    local name="$1"
+    if [[ "${_login_selected[$name]:-false}" == true ]]; then
+        _login_selected[$name]="false"
+    else
+        _login_selected[$name]="true"
+    fi
+}
+
+engine::_load_logins() {
+    _login_order=()
+    _login_all_order=()
+    _login_selected=()
+    _login_state=()
+    _login_detail=()
+
+    local name
+    for name in ${(f)"$(engine::_config_lines logins.order)"}; do
+        if [[ -n "$name" ]]; then
+            _login_order+=("$name")
+            _login_all_order+=("$name")
+            _login_state[$name]="pending"
+            _login_detail[$name]="waiting"
+        fi
+    done
+}
+
+engine::_has_prompt_tty() {
+    [[ -t 0 ]] && return 0
+    [[ -e /dev/tty ]] || return 1
+    ( : </dev/tty >/dev/tty ) 2>/dev/null
+}
+
+engine::_missing_login_requirements() {
+    local requires="$1"
+    local req_words requirement
+    local -a missing=()
+
+    req_words="${requires//,/ }"
+    for requirement in ${(z)req_words}; do
+        [[ -z "$requirement" ]] && continue
+        command -v "$requirement" >/dev/null 2>&1 || missing+=("$requirement")
+    done
+
+    print "${(j:, :)missing}"
+    (( ${#missing[@]} == 0 ))
+}
+
+engine::_missing_login_module_deps() {
+    local deps="$1"
+    local dep_words dep
+    local -a missing=()
+
+    dep_words="${deps//,/ }"
+    for dep in ${(z)dep_words}; do
+        [[ -z "$dep" ]] && continue
+        [[ "${_state[$dep]:-}" == "done" ]] || missing+=("$dep")
+    done
+
+    print "${(j:, :)missing}"
+    (( ${#missing[@]} == 0 ))
+}
+
+engine::_login_already_done() {
+    local status_cmd="$1"
+    [[ -z "$status_cmd" ]] && return 1
+    ${(z)status_cmd} >/dev/null 2>&1
+}
+
+engine::_render_login_picker() {
+    local cursor="$1"
+    local name label marker pointer color i
+
+    print "  ${C_DIM}Use Up/Down to move. Space toggles a login. Enter starts selected logins.${C_RESET}"
+    print ""
+
+    for (( i = 1; i <= ${#_login_order[@]}; i++ )); do
+        name="${_login_order[$i]}"
+        label="${_mod_config[logins.${name}_label]:-$name}"
+        marker=$([[ "${_login_selected[$name]:-false}" == true ]] && print "●" || print "○")
+        if (( i == cursor )); then
+            pointer="›"
+            color="$C_CYAN"
+        else
+            pointer=" "
+            color="$C_DIM"
+        fi
+        printf '  %s%s%s  %s%s%s  %s\n' "$color" "$pointer" "$C_RESET" "$color" "$marker" "$C_RESET" "$label"
+    done
+}
+
+engine::_prime_login_selection() {
+    local name label default default_bool depends_on missing_deps requires missing_reqs status_cmd done_detail
+    local -a eligible=()
+
+    _login_selected=()
+
+    print ""
+    ui::box "login setup" "$C_CYAN"
+    print ""
+    print "  ${C_DIM}Installation is complete. Choose the accounts to authenticate now.${C_RESET}"
+
+    for name in $_login_order; do
+        label="${_mod_config[logins.${name}_label]:-$name}"
+        depends_on="${_mod_config[logins.${name}_depends_on]:-}"
+        requires="${_mod_config[logins.${name}_requires]:-}"
+        status_cmd="${_mod_config[logins.${name}_status]:-}"
+
+        missing_deps=""
+        if [[ -n "$depends_on" ]]; then
+            missing_deps="$(engine::_missing_login_module_deps "$depends_on")"
+        fi
+        if [[ -n "$missing_deps" ]]; then
+            print "  ${C_YELLOW}${GLYPH_SKIP}${C_RESET}  $label unavailable (waiting on: $missing_deps)"
+            _login_state[$name]="skipped"
+            _login_detail[$name]="waiting on: $missing_deps"
+            continue
+        fi
+
+        missing_reqs=""
+        if [[ -n "$requires" ]]; then
+            missing_reqs="$(engine::_missing_login_requirements "$requires")"
+        fi
+        if [[ -n "$missing_reqs" ]]; then
+            print "  ${C_YELLOW}${GLYPH_SKIP}${C_RESET}  $label unavailable (missing: $missing_reqs)"
+            _login_state[$name]="skipped"
+            _login_detail[$name]="missing: $missing_reqs"
+            continue
+        fi
+
+        if engine::_login_already_done "$status_cmd"; then
+            done_detail="${_mod_config[logins.${name}_done_detail]:-logged in}"
+            print "  ${C_GREEN}${GLYPH_OK}${C_RESET}  $label already $done_detail"
+            _login_state[$name]="done"
+            _login_detail[$name]="$done_detail"
+            continue
+        fi
+
+        default="${_mod_config[logins.${name}_default]:-yes}"
+        default_bool="$(engine::_bool_default "$default")"
+        _login_selected[$name]="$default_bool"
+        _login_state[$name]="pending"
+        _login_detail[$name]="selected"
+        eligible+=("$name")
+    done
+
+    _login_order=("${eligible[@]}")
+    (( ${#_login_order[@]} > 0 ))
+}
+
+engine::_draw_login_picker() {
+    local cursor="$1" output="$2" move_up="${3:-0}"
+    local rendered_line
+
+    if (( move_up > 0 )); then
+        printf '\e[%dA' "$move_up" > "$output"
+    fi
+    while IFS= read -r rendered_line; do
+        printf '\r\e[2K%s\n' "$rendered_line"
+    done < <(engine::_render_login_picker "$cursor") > "$output"
+    printf '\e[J' > "$output"
+}
+
+engine::_select_interactive_logins() {
+    (( ${#_login_order[@]} == 0 )) && return 0
+    [[ "$DRY_RUN" == true ]] && return 0
+
+    if ! engine::_prime_login_selection; then
+        return 0
+    fi
+
+    print ""
+
+    if ! engine::_has_prompt_tty; then
+        local name
+        for name in $_login_order; do
+            _login_selected[$name]="false"
+            _login_state[$name]="skipped"
+            _login_detail[$name]="no terminal"
+        done
+        print "  ${C_DIM}No interactive terminal available; skipping login prompts.${C_RESET}"
+        return 0
+    fi
+
+    local input="/dev/stdin" output="/dev/stdout"
+    if [[ ! -t 0 ]]; then
+        input="/dev/tty"
+        output="/dev/tty"
+    fi
+
+    local old_stty cursor=1 key seq picker_lines interrupted=false
+    picker_lines=$(( ${#_login_order[@]} + 2 ))
+    old_stty="$(stty -g < "$input")" || return 1
+
+    printf '\e[?25l' > "$output"
+    stty raw -echo < "$input"
+    engine::_draw_login_picker "$cursor" "$output" 0
+
+    while true; do
+        IFS= read -rsk1 key < "$input" || break
+        case "$key" in
+            $'\003')
+                interrupted=true
+                break
+                ;;
+            $'\r'|$'\n')
+                break
+                ;;
+            " ")
+                engine::_login_toggle "${_login_order[$cursor]}"
+                ;;
+            $'\e')
+                seq=""
+                IFS= read -rsk2 -t 0.05 seq < "$input" || true
+                case "$seq" in
+                    "[A") cursor=$(( cursor <= 1 ? ${#_login_order[@]} : cursor - 1 )) ;;
+                    "[B") cursor=$(( cursor >= ${#_login_order[@]} ? 1 : cursor + 1 )) ;;
+                esac
+                ;;
+        esac
+
+        engine::_draw_login_picker "$cursor" "$output" "$picker_lines"
+    done
+
+    stty "$old_stty" < "$input" 2>/dev/null || true
+    printf '\e[?25h' > "$output"
+    print ""
+
+    if [[ "$interrupted" == true ]]; then
+        print "  ${C_DIM}Login setup cancelled.${C_RESET}"
+        return 130
+    fi
+}
+
+engine::_record_login_result() {
+    local name="$1" label="$2" rc="$3"
+
+    if (( rc == 0 )); then
+        print "  ${C_GREEN}${GLYPH_OK}${C_RESET}  $label complete"
+        _login_state[$name]="done"
+        _login_detail[$name]="complete"
+        return 0
+    fi
+
+    if (( rc == 130 )); then
+        print ""
+        print "  ${C_YELLOW}${GLYPH_SKIP}${C_RESET}  $label skipped"
+        _login_state[$name]="skipped"
+        _login_detail[$name]="interrupted"
+        _login_interrupted=true
+        return 0
+    fi
+
+    print "  ${C_RED}${GLYPH_FAIL}${C_RESET}  $label failed"
+    _login_state[$name]="failed"
+    _login_detail[$name]="failed"
+    return 1
+}
+
+engine::_run_interactive_logins() {
+    (( ${#_login_order[@]} == 0 )) && return 0
+    [[ "$DRY_RUN" == true ]] && return 0
+
+    local selected_count=0 name
+    for name in $_login_order; do
+        if [[ "${_login_selected[$name]:-false}" == true ]]; then
+            selected_count=$(( selected_count + 1 ))
+        else
+            _login_state[$name]="skipped"
+            _login_detail[$name]="not selected"
+        fi
+    done
+    (( selected_count == 0 )) && return 0
+
+    print ""
+    ui::box "interactive logins" "$C_CYAN"
+    print ""
+
+    local label requires missing status_cmd command_line instruction done_detail rc any_failed=false
+    for name in $_login_order; do
+        [[ "${_login_selected[$name]:-false}" == true ]] || continue
+
+        label="${_mod_config[logins.${name}_label]:-$name}"
+        requires="${_mod_config[logins.${name}_requires]:-}"
+        status_cmd="${_mod_config[logins.${name}_status]:-}"
+        command_line="${_mod_config[logins.${name}_command]:-}"
+        instruction="${_mod_config[logins.${name}_instruction]:-}"
+
+        missing=""
+        if [[ -n "${_mod_config[logins.${name}_depends_on]:-}" ]]; then
+            missing="$(engine::_missing_login_module_deps "${_mod_config[logins.${name}_depends_on]}")"
+        fi
+        if [[ -n "$missing" ]]; then
+            print "  ${C_YELLOW}${GLYPH_SKIP}${C_RESET}  $label skipped (waiting on: $missing)"
+            _login_state[$name]="skipped"
+            _login_detail[$name]="waiting on: $missing"
+            any_failed=true
+            continue
+        fi
+
+        missing=""
+        if [[ -n "$requires" ]]; then
+            missing="$(engine::_missing_login_requirements "$requires")"
+        fi
+        if [[ -n "$missing" ]]; then
+            print "  ${C_YELLOW}${GLYPH_SKIP}${C_RESET}  $label skipped (missing: $missing)"
+            _login_state[$name]="skipped"
+            _login_detail[$name]="missing: $missing"
+            any_failed=true
+            continue
+        fi
+
+        if [[ -n "$status_cmd" ]]; then
+            if engine::_login_already_done "$status_cmd"; then
+                done_detail="${_mod_config[logins.${name}_done_detail]:-logged in}"
+                print "  ${C_GREEN}${GLYPH_OK}${C_RESET}  $label already $done_detail"
+                _login_state[$name]="done"
+                _login_detail[$name]="$done_detail"
+                continue
+            fi
+        fi
+
+        if [[ -z "$command_line" ]]; then
+            print "  ${C_YELLOW}${GLYPH_SKIP}${C_RESET}  $label skipped (no command configured)"
+            _login_state[$name]="skipped"
+            _login_detail[$name]="no command"
+            any_failed=true
+            continue
+        fi
+
+        print "  ${C_BLUE}›${C_RESET}  $label"
+        [[ -n "$instruction" ]] && print "     ${C_DIM}${instruction}${C_RESET}"
+        rc=0
+        local command_interrupted=false
+        trap 'command_interrupted=true' INT
+        if [[ -t 0 ]]; then
+            ${(z)command_line} || rc=$?
+        elif engine::_has_prompt_tty; then
+            ${(z)command_line} </dev/tty >/dev/tty || rc=$?
+        else
+            rc=1
+        fi
+        trap - INT
+        [[ "$command_interrupted" == true && "$rc" != 0 ]] && rc=130
+
+        if ! engine::_record_login_result "$name" "$label" "$rc"; then
+            any_failed=true
+        fi
+    done
+
+    print ""
+    $any_failed && return 1
+    return 0
+}
+
+engine::_render_login_summary() {
+    (( ${#_login_all_order[@]} == 0 )) && return 0
+    [[ "$DRY_RUN" == true ]] && return 0
+
+    local any_login=false name
+    for name in $_login_all_order; do
+        [[ -n "${_login_state[$name]:-}" && "${_login_state[$name]}" != "pending" ]] && any_login=true
+    done
+    $any_login || return 0
+
+    print ""
+    ui::box "login summary" "$C_CYAN"
+    print ""
+
+    local label state detail
+    for name in $_login_all_order; do
+        label="${_mod_config[logins.${name}_label]:-$name}"
+        state="${_login_state[$name]:-skipped}"
+        detail="${_login_detail[$name]:-not selected}"
+        [[ "$state" == "pending" ]] && state="skipped" detail="not selected"
+        ui::module_line "$state" "$label" "$detail"
+        print ""
+    done
 }
 
 # Are there any modules still pending or running?
@@ -476,7 +912,7 @@ engine::run_update() {
         sleep 0.08
     done
 
-    # Final render back in the normal terminal history.
+    # Leave the live dashboard and return to normal terminal history.
     if $live_ui; then
         printf '\e[?25h'
         if $_frame_active && (( _frame_lines > 0 )); then
@@ -489,16 +925,34 @@ engine::run_update() {
     UI_LIVE_FRAME=false
     PRIMER_RENDER_TTY=false
     UI_REPAINT_MODE="cursor"
-    ENGINE_RENDER_FINAL=true
-    engine::_render
     # Clear the trap so cursor-show doesn't fire twice
     trap "rm -rf '$PRIMER_TMPDIR'" EXIT
 
-    # Show error details for any failed modules
+    # Check for failed modules before post-install logins so login dependency
+    # filters can still decide which prompts are safe to offer.
     local any_failed=false
     for mod in $_mod_order; do
         if [[ "${_state[$mod]}" == "failed" ]]; then
             any_failed=true
+        fi
+    done
+
+    local login_failed=false
+    engine::_select_interactive_logins || return $?
+    engine::_run_interactive_logins || login_failed=true
+
+    # Final render back in the normal terminal history after post-install
+    # logins, so the recap includes both install and login outcomes.
+    ENGINE_RENDER_FINAL=true
+    if [[ "$_login_interrupted" == true && -t 1 ]]; then
+        printf '\e[H\e[J'
+    fi
+    engine::_render
+    engine::_render_login_summary
+
+    # Show error details for any failed modules
+    for mod in $_mod_order; do
+        if [[ "${_state[$mod]}" == "failed" ]]; then
             local logfile="${PRIMER_TMPDIR}/${mod}.log"
             if [[ -f "$logfile" && -s "$logfile" ]]; then
                 ui::error_box "${_mod_desc[$mod]}" "$logfile"
@@ -509,6 +963,7 @@ engine::run_update() {
     print ""
 
     $any_failed && return 1
+    $login_failed && return 1
     return 0
 }
 

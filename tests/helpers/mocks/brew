@@ -11,6 +11,8 @@
 #   MOCK_BREW_LOCK_ONCE_PACKAGES  space-separated packages that should fail
 #                                  once with a Homebrew lock error, then pass
 #   MOCK_BREW_LOCK_STATE_DIR      directory for lock-once marker files
+#   MOCK_BREW_UNTRUSTED_ONCE_PACKAGES space-separated packages that should fail
+#                                  once with an untrusted tap warning, then pass
 #   MOCK_BREW_EXISTING_APP_PACKAGES space-separated casks that fail with
 #                                  "already an App at '/Applications/...'"
 #   MOCK_BREW_CONCURRENCY_FILE    file prefix used to record max concurrent
@@ -124,6 +126,24 @@ if [ -n "${MOCK_BREW_LOCK_ONCE_PACKAGES:-}" ]; then
                 : > "$marker"
                 echo "Error: A \`brew install ${last_arg}\` process has already locked /opt/homebrew/Cellar/ca-certificates." >&2
                 echo "  Please wait for it to finish or terminate it to continue." >&2
+                exit 1
+            fi
+            ;;
+    esac
+fi
+
+# Simulate a first-run failure caused by tap trust state not being settled yet.
+if [ -n "${MOCK_BREW_UNTRUSTED_ONCE_PACKAGES:-}" ]; then
+    eval "last_arg=\$$#"
+    case " ${MOCK_BREW_UNTRUSTED_ONCE_PACKAGES} " in
+        *" ${last_arg} "*)
+            state_dir="${MOCK_BREW_LOCK_STATE_DIR:-${TMPDIR:-/tmp}}"
+            safe_name=$(printf '%s' "$last_arg" | tr '/:' '__')
+            marker="${state_dir}/brew-untrusted-once-${safe_name}"
+            if [ ! -f "$marker" ]; then
+                mkdir -p "$state_dir"
+                : > "$marker"
+                echo "Warning: Skipping owner/tap because it is not trusted. Run \`brew trust owner/tap\` to trust it." >&2
                 exit 1
             fi
             ;;

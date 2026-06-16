@@ -1,8 +1,38 @@
 #!/bin/zsh
-# modules/xcode -- Xcode Command Line Tools and Xcode first-launch setup
+# modules/xcode -- Optional full Xcode first-launch and simulator setup
+
+_xcode::active_developer_dir() {
+    xcode-select -p 2>/dev/null
+}
+
+_xcode::app_path() {
+    local configured
+    configured="${PRIMER_XCODE_APP_PATH:-$(mod_config app_path)}"
+    print "${configured:-/Applications/Xcode.app}"
+}
+
+_xcode::developer_dir() {
+    print "$(_xcode::app_path)/Contents/Developer"
+}
 
 _xcode::installed() {
-    xcode-select -p &>/dev/null
+    [[ -d "$(_xcode::app_path)" ]]
+}
+
+_xcode::full_xcode_active() {
+    local developer_dir
+    developer_dir="$(_xcode::active_developer_dir)" || return 1
+    [[ "$developer_dir" == *.app/Contents/Developer ]]
+}
+
+_xcode::select() {
+    local developer_dir="$(_xcode::developer_dir)"
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "[dry-run] sudo xcode-select -s $developer_dir"
+        return 0
+    fi
+
+    sudo xcode-select -s "$developer_dir"
 }
 
 _xcode::platforms() {
@@ -52,18 +82,14 @@ _xcode::download_platforms() {
 }
 
 mod_update() {
-    if ! _xcode::installed; then
-        primer::status_msg "installing..."
-        run xcode-select --install
-
-        if [[ "$DRY_RUN" != true ]]; then
-            echo "Waiting for Xcode CLT installation..."
-            until _xcode::installed; do
-                sleep 5
-            done
+    if ! _xcode::full_xcode_active; then
+        if ! _xcode::installed; then
+            primer::status_msg "not installed"
+            return 1
         fi
 
-        primer::status_msg "installed"
+        primer::status_msg "selecting Xcode..."
+        _xcode::select || return 1
     fi
 
     if ! _xcode::first_launch_complete; then
@@ -79,9 +105,18 @@ mod_update() {
 }
 
 mod_status() {
-    local missing=0 drifted=0 platform
+    local drifted=0 platform
 
-    _xcode::installed || missing=$(( missing + 1 ))
+    if ! _xcode::installed; then
+        primer::status_msg "not installed"
+        return 1
+    fi
+
+    if ! _xcode::full_xcode_active; then
+        primer::status_msg "not selected"
+        return 1
+    fi
+
     _xcode::first_launch_complete || drifted=$(( drifted + 1 ))
 
     while IFS= read -r platform; do
@@ -89,13 +124,12 @@ mod_status() {
         _xcode::platform_runtime_installed "$platform" || drifted=$(( drifted + 1 ))
     done <<< "$(_xcode::platforms)"
 
-    if (( missing == 0 && drifted == 0 )); then
+    if (( drifted == 0 )); then
         primer::status_msg "configured"
         return 0
     fi
 
     local parts=()
-    (( missing > 0 )) && parts+=("${missing} missing")
     (( drifted > 0 )) && parts+=("${drifted} drifted")
     primer::status_msg "${(j: · :)parts}"
     return 1
