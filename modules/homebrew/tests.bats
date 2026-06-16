@@ -126,6 +126,20 @@ EOF
     assert_success
 }
 
+@test "homebrew: retries formula install after transient untrusted tap warning" {
+    export MOCK_BREW_UNTRUSTED_ONCE_PACKAGES="alpha"
+    export MOCK_BREW_LOCK_STATE_DIR="$TEST_HOME/trust"
+    run_homebrew_with_conf "mod_update"
+    assert_success
+    run grep "done:alpha" "$MOD_ITEMS_FILE"
+    assert_success
+    run grep -c "brew trust owner/tap" "$MOCK_LOG"
+    assert_success
+    [[ "$output" -ge 2 ]] || {
+        echo "Expected tap to be trusted before install and again before retry"; false
+    }
+}
+
 @test "homebrew: wet run calls brew tap for each tap" {
     run_homebrew_with_conf "mod_update"
     assert_success

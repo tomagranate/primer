@@ -428,6 +428,12 @@ def check_stream(name: str, repo: Path, stream: bytes, rc: int, *, expect_hostil
         failures.append(f"{name}: live renderer did not leave alternate screen exactly once")
     if raw.find("\x1b[?1049l") < raw.find("\x1b[?1049h"):
         failures.append(f"{name}: live renderer left alternate screen before entering it")
+    if raw.count("\x1b[2J") != 1:
+        failures.append(f"{name}: live renderer should clear the screen once on alternate-screen entry")
+    if "\x1b[J" in raw:
+        failures.append(f"{name}: live renderer used erase-to-end-of-screen during alternate-screen updates")
+    if "Ctrl-C to stop" not in plain:
+        failures.append(f"{name}: full-screen footer was not rendered")
     if expect_hostile:
         leave_idx = raw.find("\x1b[?1049l")
         after_leave = strip_ansi(stream[leave_idx:]) if leave_idx != -1 else plain
