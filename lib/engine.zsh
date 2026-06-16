@@ -246,8 +246,6 @@ engine::_prime_login_selection() {
     ui::box "login setup" "$C_CYAN"
     print ""
     print "  ${C_DIM}Installation is complete. Choose the accounts to authenticate now.${C_RESET}"
-    print "  ${C_DIM}Primer skips anything already logged in or missing installed prerequisites.${C_RESET}"
-    print ""
 
     for name in $_login_order; do
         label="${_mod_config[logins.${name}_label]:-$name}"
