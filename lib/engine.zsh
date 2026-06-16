@@ -182,7 +182,7 @@ engine::_render_login_picker() {
     local cursor="$1"
     local name label marker pointer color i
 
-    print "  ${C_DIM}Use ↑/↓ to move, Space to toggle, Enter to continue.${C_RESET}"
+    print "  ${C_DIM}Use Up/Down to move, Space to toggle, Enter to continue, Ctrl-C to exit.${C_RESET}"
     print ""
 
     for (( i = 1; i <= ${#_login_order[@]}; i++ )); do
@@ -198,6 +198,17 @@ engine::_render_login_picker() {
         fi
         printf '  %s%s%s  %s%s%s  %s\n' "$color" "$pointer" "$C_RESET" "$color" "$marker" "$C_RESET" "$label"
     done
+}
+
+engine::_draw_login_picker() {
+    local cursor="$1" output="$2"
+    local rendered_line
+
+    printf '\e8' > "$output"
+    while IFS= read -r rendered_line; do
+        printf '\e[2K%s\n' "$rendered_line"
+    done < <(engine::_render_login_picker "$cursor") > "$output"
+    printf '\e[J\e8' > "$output"
 }
 
 engine::_select_interactive_logins() {
@@ -231,17 +242,22 @@ engine::_select_interactive_logins() {
         output="/dev/tty"
     fi
 
-    local old_stty cursor=1 key seq lines
-    lines=$(( ${#_login_order[@]} + 2 ))
+    local old_stty cursor=1 key seq picker_lines interrupted=false
+    picker_lines=$(( ${#_login_order[@]} + 2 ))
     old_stty="$(stty -g < "$input")" || return 1
 
     {
+        printf '\e7\e[?25l' > "$output"
         stty raw -echo < "$input"
-        engine::_render_login_picker "$cursor" > "$output"
+        engine::_draw_login_picker "$cursor" "$output"
 
         while true; do
             IFS= read -rsk1 key < "$input" || break
             case "$key" in
+                $'\003')
+                    interrupted=true
+                    break
+                    ;;
                 $'\r'|$'\n')
                     break
                     ;;
@@ -258,18 +274,18 @@ engine::_select_interactive_logins() {
                     ;;
             esac
 
-            printf '\e[%dA' "$lines" > "$output"
-            {
-                local rendered_line
-                while IFS= read -r rendered_line; do
-                    printf '\e[2K%s\n' "$rendered_line"
-                done < <(engine::_render_login_picker "$cursor")
-            } > "$output"
+            engine::_draw_login_picker "$cursor" "$output"
         done
     } always {
         stty "$old_stty" < "$input" 2>/dev/null || true
+        printf '\e8\e[%dB\e[?25h' "$picker_lines" > "$output"
     }
     print ""
+
+    if [[ "$interrupted" == true ]]; then
+        print "  ${C_DIM}Login setup cancelled.${C_RESET}"
+        return 130
+    fi
 }
 
 engine::_run_interactive_logins() {
@@ -653,7 +669,7 @@ engine::run_update() {
     engine::_apply_filters
 
     # Decide all post-install interactive logins before installation begins.
-    engine::_select_interactive_logins
+    engine::_select_interactive_logins || return $?
 
     # Header
     local title="primer update"

@@ -56,7 +56,7 @@ load '../helpers/common'
         engine::_render_login_picker 2
     '
     assert_success
-    assert_output --partial "Use ↑/↓ to move, Space to toggle, Enter to continue."
+    assert_output --partial "Use Up/Down to move, Space to toggle, Enter to continue, Ctrl-C to exit."
     assert_output --partial "●"
     assert_output --partial "○"
     assert_output --partial "GitHub CLI"
