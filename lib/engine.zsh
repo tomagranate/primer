@@ -54,7 +54,7 @@ engine::load_config() {
         fi
 
         # Key = value line
-        if [[ "$line" =~ '^([a-z_]+)[[:space:]]*=[[:space:]]*(.*)' && -n "$section" ]]; then
+        if [[ "$line" =~ '^([a-z_-]+)[[:space:]]*=[[:space:]]*(.*)' && -n "$section" ]]; then
             key="${match[1]}"
             local val="${match[2]}"
             _mod_config[${section}.${key}]="$val"
@@ -384,7 +384,7 @@ engine::_run_interactive_logins() {
     ui::box "interactive logins" "$C_CYAN"
     print ""
 
-    local label requires missing status_cmd command_line rc any_failed=false
+    local label requires missing status_cmd command_line instruction rc any_failed=false
     for name in $_login_order; do
         [[ "${_login_selected[$name]:-false}" == true ]] || continue
 
@@ -392,6 +392,7 @@ engine::_run_interactive_logins() {
         requires="${_mod_config[logins.${name}_requires]:-}"
         status_cmd="${_mod_config[logins.${name}_status]:-}"
         command_line="${_mod_config[logins.${name}_command]:-}"
+        instruction="${_mod_config[logins.${name}_instruction]:-}"
 
         missing=""
         if [[ -n "${_mod_config[logins.${name}_depends_on]:-}" ]]; then
@@ -427,6 +428,7 @@ engine::_run_interactive_logins() {
         fi
 
         print "  ${C_BLUE}›${C_RESET}  $label"
+        [[ -n "$instruction" ]] && print "     ${C_DIM}${instruction}${C_RESET}"
         rc=0
         if [[ -t 0 ]]; then
             ${(z)command_line} || rc=$?

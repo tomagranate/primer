@@ -171,3 +171,20 @@ EOF
     assert_failure
     assert_output --partial "GitHub CLI skipped (waiting on: homebrew)"
 }
+
+@test "login runner: prints instructions before guided browser login" {
+    zsh_run '
+        DRY_RUN=false
+        _login_order=(dashlane)
+        _login_selected[dashlane]=true
+        _state[homebrew-apps]=done
+        _mod_config[logins.dashlane_label]=Dashlane
+        _mod_config[logins.dashlane_depends_on]=homebrew-apps
+        _mod_config[logins.dashlane_instruction]="Sign in to Dashlane."
+        _mod_config[logins.dashlane_command]=true
+        engine::_run_interactive_logins
+    '
+    assert_failure
+    assert_output --partial "Sign in to Dashlane."
+    assert_output --partial "Dashlane failed"
+}
