@@ -83,7 +83,7 @@ teardown() {
     assert_output --partial "[dry-run] xcodebuild -downloadPlatform iOS"
 }
 
-@test "xcode: CLT-only install skips full Xcode setup" {
+@test "xcode: skips setup when full Xcode is not active" {
     export MOCK_XCODE_FIRST_LAUNCH_NEEDED=1
     export MOCK_IOS_RUNTIME_MISSING=1
     zsh_run_module xcode "mod_update"
@@ -93,14 +93,14 @@ teardown() {
 }
 
 @test "xcode: mod_status succeeds when configured" {
+    export MOCK_XCODE_FULL=1
     zsh_run_module xcode "mod_status"
     assert_success
 }
 
-@test "xcode: mod_status fails when not installed" {
-    export MOCK_XCODE_MISSING=1
+@test "xcode: mod_status succeeds when full Xcode is not active" {
     zsh_run_module xcode "mod_status"
-    assert_failure
+    assert_success
 }
 
 @test "xcode: mod_status fails when first launch is incomplete" {

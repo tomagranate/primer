@@ -106,7 +106,7 @@ _run_deploy_scripts() {
         result=$(mod_config depends_on)
         echo "$result"
     '
-    assert_output "xcode"
+    assert_output "xcode-cli-tools"
 }
 
 @test "mod_config: reads multi-line value as separate lines" {

@@ -194,6 +194,8 @@ EOF
     zsh_run '
         engine::load_config "$PRIMER_DIR/primer.conf"
         [[ ${_mod_order[(Ie)logins]} -eq 0 ]] || { echo "logins should not be a module"; exit 1; }
+        [[ ${_mod_order[(Ie)xcode-cli-tools]} -gt 0 ]] || { echo "missing:xcode-cli-tools"; exit 1; }
+        [[ ${_mod_order[(Ie)xcode]} -gt 0 ]] || { echo "missing:xcode"; exit 1; }
         [[ ${_mod_order[(Ie)homebrew]} -gt 0 ]] || { echo "missing:homebrew"; exit 1; }
         [[ ${_mod_order[(Ie)homebrew-apps]} -gt 0 ]] || { echo "missing:homebrew-apps"; exit 1; }
         [[ ${_mod_order[(Ie)macos]} -gt 0 ]] || { echo "missing:macos"; exit 1; }
@@ -205,6 +207,9 @@ EOF
         [[ -n "${_mod_config[macos.dock_apps]}" ]] || { echo "missing:macos.dock_apps"; exit 1; }
         [[ -n "${_mod_config[ssh.key_path]}" ]] || { echo "missing:ssh.key_path"; exit 1; }
         [[ -n "${_mod_config[mise.tools]}" ]] || { echo "missing:mise.tools"; exit 1; }
+        [[ "${_mod_deps[homebrew]}" == "xcode-cli-tools" ]] || { echo "wrong homebrew dep"; exit 1; }
+        [[ "${_mod_deps[ssh]}" == "xcode-cli-tools" ]] || { echo "wrong ssh dep"; exit 1; }
+        [[ "${_mod_deps[xcode]}" == "xcode-cli-tools" ]] || { echo "wrong xcode dep"; exit 1; }
         [[ "${_login_order[*]}" == "github" ]] || { echo "missing login:github"; exit 1; }
         [[ "${_mod_config[logins.github_default]}" == "yes" ]] || { echo "missing login default"; exit 1; }
         [[ "${_mod_config[logins.github_command]}" == "gh auth login" ]] || { echo "missing login command"; exit 1; }

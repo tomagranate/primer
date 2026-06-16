@@ -1,9 +1,5 @@
 #!/bin/zsh
-# modules/xcode -- Xcode Command Line Tools and Xcode first-launch setup
-
-_xcode::installed() {
-    xcode-select -p &>/dev/null
-}
+# modules/xcode -- Optional full Xcode first-launch and simulator setup
 
 _xcode::active_developer_dir() {
     xcode-select -p 2>/dev/null
@@ -62,22 +58,8 @@ _xcode::download_platforms() {
 }
 
 mod_update() {
-    if ! _xcode::installed; then
-        primer::status_msg "installing..."
-        run xcode-select --install
-
-        if [[ "$DRY_RUN" != true ]]; then
-            echo "Waiting for Xcode CLT installation..."
-            until _xcode::installed; do
-                sleep 5
-            done
-        fi
-
-        primer::status_msg "installed"
-    fi
-
     if ! _xcode::full_xcode_active; then
-        primer::status_msg "CLT installed"
+        primer::status_msg "not installed"
         return 0
     fi
 
@@ -94,25 +76,26 @@ mod_update() {
 }
 
 mod_status() {
-    local missing=0 drifted=0 platform
+    local drifted=0 platform
 
-    _xcode::installed || missing=$(( missing + 1 ))
-    if _xcode::full_xcode_active; then
-        _xcode::first_launch_complete || drifted=$(( drifted + 1 ))
-
-        while IFS= read -r platform; do
-            [[ -z "$platform" ]] && continue
-            _xcode::platform_runtime_installed "$platform" || drifted=$(( drifted + 1 ))
-        done <<< "$(_xcode::platforms)"
+    if ! _xcode::full_xcode_active; then
+        primer::status_msg "not installed"
+        return 0
     fi
 
-    if (( missing == 0 && drifted == 0 )); then
+    _xcode::first_launch_complete || drifted=$(( drifted + 1 ))
+
+    while IFS= read -r platform; do
+        [[ -z "$platform" ]] && continue
+        _xcode::platform_runtime_installed "$platform" || drifted=$(( drifted + 1 ))
+    done <<< "$(_xcode::platforms)"
+
+    if (( drifted == 0 )); then
         primer::status_msg "configured"
         return 0
     fi
 
     local parts=()
-    (( missing > 0 )) && parts+=("${missing} missing")
     (( drifted > 0 )) && parts+=("${drifted} drifted")
     primer::status_msg "${(j: · :)parts}"
     return 1
