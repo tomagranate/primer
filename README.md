@@ -185,9 +185,18 @@ account is already logged in, and `*_command` starts the login flow.
 ```ini
 [logins]
 order =
-    github
+    xcode-cli-terms
     helium-google
     dashlane
+    github
+xcode-cli-terms_label = Xcode CLI terms
+xcode-cli-terms_default = yes
+xcode-cli-terms_depends_on = xcode-cli-tools
+xcode-cli-terms_requires = xcodebuild, sudo
+xcode-cli-terms_status = xcodebuild -checkFirstLaunchStatus
+xcode-cli-terms_done_detail = accepted
+xcode-cli-terms_instruction = Review and accept the Xcode Command Line Tools license.
+xcode-cli-terms_command = sudo xcodebuild -license
 github_label = GitHub CLI
 github_default = yes
 github_depends_on = ssh, homebrew

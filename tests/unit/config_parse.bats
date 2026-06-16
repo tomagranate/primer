@@ -212,7 +212,10 @@ EOF
         [[ "${_mod_deps[mac-app-store]}" == "homebrew" ]] || { echo "wrong mac app store dep"; exit 1; }
         [[ "${_mod_deps[xcode]}" == "mac-app-store" ]] || { echo "wrong xcode dep"; exit 1; }
         [[ "${_mod_config[mac-app-store.mas]}" == *"Xcode:497799835"* ]] || { echo "missing xcode app store item"; exit 1; }
-        [[ "${_login_order[*]}" == "helium-google dashlane github" ]] || { echo "missing configured logins"; exit 1; }
+        [[ "${_login_order[*]}" == "xcode-cli-terms helium-google dashlane github" ]] || { echo "missing configured logins"; exit 1; }
+        [[ "${_mod_config[logins.xcode-cli-terms_depends_on]}" == "xcode-cli-tools" ]] || { echo "missing xcode terms dep"; exit 1; }
+        [[ "${_mod_config[logins.xcode-cli-terms_command]}" == "sudo xcodebuild -license" ]] || { echo "missing xcode terms command"; exit 1; }
+        [[ "${_mod_config[logins.xcode-cli-terms_done_detail]}" == "accepted" ]] || { echo "missing xcode terms done detail"; exit 1; }
         [[ "${_mod_config[logins.github_default]}" == "yes" ]] || { echo "missing login default"; exit 1; }
         [[ "${_mod_config[logins.github_depends_on]}" == "ssh, homebrew" ]] || { echo "missing login module deps"; exit 1; }
         [[ "${_mod_config[logins.github_command]}" == "gh auth login" ]] || { echo "missing login command"; exit 1; }

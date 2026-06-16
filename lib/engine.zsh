@@ -253,7 +253,7 @@ engine::_render_login_picker() {
 }
 
 engine::_prime_login_selection() {
-    local name label default default_bool depends_on missing_deps requires missing_reqs status_cmd
+    local name label default default_bool depends_on missing_deps requires missing_reqs status_cmd done_detail
     local -a eligible=()
 
     _login_selected=()
@@ -292,9 +292,10 @@ engine::_prime_login_selection() {
         fi
 
         if engine::_login_already_done "$status_cmd"; then
-            print "  ${C_GREEN}${GLYPH_OK}${C_RESET}  $label already logged in"
+            done_detail="${_mod_config[logins.${name}_done_detail]:-logged in}"
+            print "  ${C_GREEN}${GLYPH_OK}${C_RESET}  $label already $done_detail"
             _login_state[$name]="done"
-            _login_detail[$name]="logged in"
+            _login_detail[$name]="$done_detail"
             continue
         fi
 
@@ -438,7 +439,7 @@ engine::_run_interactive_logins() {
     ui::box "interactive logins" "$C_CYAN"
     print ""
 
-    local label requires missing status_cmd command_line instruction rc any_failed=false
+    local label requires missing status_cmd command_line instruction done_detail rc any_failed=false
     for name in $_login_order; do
         [[ "${_login_selected[$name]:-false}" == true ]] || continue
 
@@ -474,9 +475,10 @@ engine::_run_interactive_logins() {
 
         if [[ -n "$status_cmd" ]]; then
             if engine::_login_already_done "$status_cmd"; then
-                print "  ${C_GREEN}${GLYPH_OK}${C_RESET}  $label already logged in"
+                done_detail="${_mod_config[logins.${name}_done_detail]:-logged in}"
+                print "  ${C_GREEN}${GLYPH_OK}${C_RESET}  $label already $done_detail"
                 _login_state[$name]="done"
-                _login_detail[$name]="logged in"
+                _login_detail[$name]="$done_detail"
                 continue
             fi
         fi
