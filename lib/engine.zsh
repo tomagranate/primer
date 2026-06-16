@@ -352,40 +352,38 @@ engine::_select_interactive_logins() {
     picker_lines=$(( ${#_login_order[@]} + 2 ))
     old_stty="$(stty -g < "$input")" || return 1
 
-    {
-        printf '\e[?25l' > "$output"
-        stty raw -echo < "$input"
-        engine::_draw_login_picker "$cursor" "$output" 0
+    printf '\e[?25l' > "$output"
+    stty raw -echo < "$input"
+    engine::_draw_login_picker "$cursor" "$output" 0
 
-        while true; do
-            IFS= read -rsk1 key < "$input" || break
-            case "$key" in
-                $'\003')
-                    interrupted=true
-                    break
-                    ;;
-                $'\r'|$'\n')
-                    break
-                    ;;
-                " ")
-                    engine::_login_toggle "${_login_order[$cursor]}"
-                    ;;
-                $'\e')
-                    seq=""
-                    IFS= read -rsk2 -t 0.05 seq < "$input" || true
-                    case "$seq" in
-                        "[A") cursor=$(( cursor <= 1 ? ${#_login_order[@]} : cursor - 1 )) ;;
-                        "[B") cursor=$(( cursor >= ${#_login_order[@]} ? 1 : cursor + 1 )) ;;
-                    esac
-                    ;;
-            esac
+    while true; do
+        IFS= read -rsk1 key < "$input" || break
+        case "$key" in
+            $'\003')
+                interrupted=true
+                break
+                ;;
+            $'\r'|$'\n')
+                break
+                ;;
+            " ")
+                engine::_login_toggle "${_login_order[$cursor]}"
+                ;;
+            $'\e')
+                seq=""
+                IFS= read -rsk2 -t 0.05 seq < "$input" || true
+                case "$seq" in
+                    "[A") cursor=$(( cursor <= 1 ? ${#_login_order[@]} : cursor - 1 )) ;;
+                    "[B") cursor=$(( cursor >= ${#_login_order[@]} ? 1 : cursor + 1 )) ;;
+                esac
+                ;;
+        esac
 
-            engine::_draw_login_picker "$cursor" "$output" "$picker_lines"
-        done
-    } always {
-        stty "$old_stty" < "$input" 2>/dev/null || true
-        printf '\e[?25h' > "$output"
-    }
+        engine::_draw_login_picker "$cursor" "$output" "$picker_lines"
+    done
+
+    stty "$old_stty" < "$input" 2>/dev/null || true
+    printf '\e[?25h' > "$output"
     print ""
 
     if [[ "$interrupted" == true ]]; then
