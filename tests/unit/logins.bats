@@ -88,6 +88,21 @@ EOF
     assert_output --partial "remaining=0"
 }
 
+@test "login summary: includes already logged in targets" {
+    zsh_run '
+        DRY_RUN=false
+        _login_all_order=(github)
+        _mod_config[logins.github_label]="GitHub CLI"
+        _login_state[github]=done
+        _login_detail[github]="logged in"
+        engine::_render_login_summary
+    '
+    assert_success
+    assert_output --partial "login summary"
+    assert_output --partial "GitHub CLI"
+    assert_output --partial "logged in"
+}
+
 @test "login selection: filters targets whose module dependencies did not finish" {
     zsh_run '
         DRY_RUN=false
@@ -187,4 +202,23 @@ EOF
     assert_failure
     assert_output --partial "Sign in to Dashlane."
     assert_output --partial "Dashlane failed"
+}
+
+@test "login summary: includes skipped and failed targets" {
+    zsh_run '
+        DRY_RUN=false
+        _login_all_order=(dashlane github)
+        _mod_config[logins.dashlane_label]=Dashlane
+        _mod_config[logins.github_label]="GitHub CLI"
+        _login_state[dashlane]=skipped
+        _login_detail[dashlane]="not selected"
+        _login_state[github]=failed
+        _login_detail[github]=failed
+        engine::_render_login_summary
+    '
+    assert_success
+    assert_output --partial "Dashlane"
+    assert_output --partial "not selected"
+    assert_output --partial "GitHub CLI"
+    assert_output --partial "failed"
 }
