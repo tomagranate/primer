@@ -204,6 +204,22 @@ EOF
     assert_output --partial "Dashlane failed"
 }
 
+@test "login result: ctrl-c skips login and continues" {
+    zsh_run '
+        DRY_RUN=false
+        _mod_config[logins.github_label]="GitHub CLI"
+        engine::_record_login_result github "GitHub CLI" 130
+        echo "state=${_login_state[github]}"
+        echo "detail=${_login_detail[github]}"
+        echo "interrupted=${_login_interrupted}"
+    '
+    assert_success
+    assert_output --partial "GitHub CLI skipped"
+    assert_output --partial "state=skipped"
+    assert_output --partial "detail=interrupted"
+    assert_output --partial "interrupted=true"
+}
+
 @test "login summary: includes skipped and failed targets" {
     zsh_run '
         DRY_RUN=false

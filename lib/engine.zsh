@@ -14,6 +14,7 @@ typeset -ga _login_all_order=() # All configured login target names
 typeset -gA _login_selected=()  # login -> true|false
 typeset -gA _login_state=()     # login -> done|failed|skipped|pending
 typeset -gA _login_detail=()    # login -> summary detail
+typeset -g  _login_interrupted=false
 
 # ── Runtime State ─────────────────────────────────────────────────────────────
 
@@ -39,6 +40,7 @@ engine::load_config() {
     _login_selected=()
     _login_state=()
     _login_detail=()
+    _login_interrupted=false
 
     while IFS= read -r line; do
         # Skip comments and blank lines
@@ -392,6 +394,31 @@ engine::_select_interactive_logins() {
     fi
 }
 
+engine::_record_login_result() {
+    local name="$1" label="$2" rc="$3"
+
+    if (( rc == 0 )); then
+        print "  ${C_GREEN}${GLYPH_OK}${C_RESET}  $label complete"
+        _login_state[$name]="done"
+        _login_detail[$name]="complete"
+        return 0
+    fi
+
+    if (( rc == 130 )); then
+        print ""
+        print "  ${C_YELLOW}${GLYPH_SKIP}${C_RESET}  $label skipped"
+        _login_state[$name]="skipped"
+        _login_detail[$name]="interrupted"
+        _login_interrupted=true
+        return 0
+    fi
+
+    print "  ${C_RED}${GLYPH_FAIL}${C_RESET}  $label failed"
+    _login_state[$name]="failed"
+    _login_detail[$name]="failed"
+    return 1
+}
+
 engine::_run_interactive_logins() {
     (( ${#_login_order[@]} == 0 )) && return 0
     [[ "$DRY_RUN" == true ]] && return 0
@@ -465,6 +492,8 @@ engine::_run_interactive_logins() {
         print "  ${C_BLUE}›${C_RESET}  $label"
         [[ -n "$instruction" ]] && print "     ${C_DIM}${instruction}${C_RESET}"
         rc=0
+        local command_interrupted=false
+        trap 'command_interrupted=true' INT
         if [[ -t 0 ]]; then
             ${(z)command_line} || rc=$?
         elif engine::_has_prompt_tty; then
@@ -472,15 +501,10 @@ engine::_run_interactive_logins() {
         else
             rc=1
         fi
+        trap - INT
+        [[ "$command_interrupted" == true && "$rc" != 0 ]] && rc=130
 
-        if (( rc == 0 )); then
-            print "  ${C_GREEN}${GLYPH_OK}${C_RESET}  $label complete"
-            _login_state[$name]="done"
-            _login_detail[$name]="complete"
-        else
-            print "  ${C_RED}${GLYPH_FAIL}${C_RESET}  $label failed"
-            _login_state[$name]="failed"
-            _login_detail[$name]="failed"
+        if ! engine::_record_login_result "$name" "$label" "$rc"; then
             any_failed=true
         fi
     done
@@ -918,6 +942,9 @@ engine::run_update() {
     # Final render back in the normal terminal history after post-install
     # logins, so the recap includes both install and login outcomes.
     ENGINE_RENDER_FINAL=true
+    if [[ "$_login_interrupted" == true && -t 1 ]]; then
+        printf '\e[H\e[J'
+    fi
     engine::_render
     engine::_render_login_summary
 
