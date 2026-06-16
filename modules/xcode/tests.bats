@@ -49,6 +49,7 @@ teardown() {
 }
 
 @test "xcode: configures first launch and simulator platforms when already installed" {
+    export MOCK_XCODE_FULL=1
     zsh_run_module xcode "mod_update"
     assert_success
     run grep "xcodebuild -checkFirstLaunchStatus" "$MOCK_LOG"
@@ -60,6 +61,7 @@ teardown() {
 }
 
 @test "xcode: runs first launch and downloads missing iOS simulator" {
+    export MOCK_XCODE_FULL=1
     export MOCK_XCODE_FIRST_LAUNCH_NEEDED=1
     export MOCK_IOS_RUNTIME_MISSING=1
     zsh_run_module xcode "mod_update"
@@ -71,6 +73,7 @@ teardown() {
 }
 
 @test "xcode: dry-run prints first launch and simulator download" {
+    export MOCK_XCODE_FULL=1
     export DRY_RUN=true
     export MOCK_XCODE_FIRST_LAUNCH_NEEDED=1
     export MOCK_IOS_RUNTIME_MISSING=1
@@ -78,6 +81,15 @@ teardown() {
     assert_success
     assert_output --partial "[dry-run] sudo xcodebuild -runFirstLaunch -checkForNewerComponents"
     assert_output --partial "[dry-run] xcodebuild -downloadPlatform iOS"
+}
+
+@test "xcode: CLT-only install skips full Xcode setup" {
+    export MOCK_XCODE_FIRST_LAUNCH_NEEDED=1
+    export MOCK_IOS_RUNTIME_MISSING=1
+    zsh_run_module xcode "mod_update"
+    assert_success
+    run grep "xcodebuild" "$MOCK_LOG"
+    assert_failure
 }
 
 @test "xcode: mod_status succeeds when configured" {
@@ -92,12 +104,14 @@ teardown() {
 }
 
 @test "xcode: mod_status fails when first launch is incomplete" {
+    export MOCK_XCODE_FULL=1
     export MOCK_XCODE_FIRST_LAUNCH_NEEDED=1
     zsh_run_module xcode "mod_status"
     assert_failure
 }
 
 @test "xcode: mod_status fails when iOS runtime is missing" {
+    export MOCK_XCODE_FULL=1
     export MOCK_IOS_RUNTIME_MISSING=1
     zsh_run_module xcode "mod_status"
     assert_failure

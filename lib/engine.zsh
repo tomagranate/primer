@@ -195,7 +195,7 @@ engine::_missing_login_requirements() {
 
 engine::_render_login_picker() {
     local cursor="$1"
-    local name label requires marker pointer color i
+    local name label marker pointer color i
 
     print "  ${C_DIM}Use Up/Down to move, Space to toggle, Enter to continue.${C_RESET}"
     print ""
@@ -203,8 +203,6 @@ engine::_render_login_picker() {
     for (( i = 1; i <= ${#_login_order[@]}; i++ )); do
         name="${_login_order[$i]}"
         label="${_mod_config[logins.${name}_label]:-$name}"
-        requires="${_mod_config[logins.${name}_requires]:-}"
-        [[ -n "$requires" ]] && label="${label} ${C_DIM}(requires: ${requires})${C_RESET}"
         marker=$([[ "${_login_selected[$name]:-false}" == true ]] && print "●" || print "○")
         if (( i == cursor )); then
             pointer="›"

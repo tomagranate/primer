@@ -9,7 +9,14 @@ if [ "${MOCK_XCODE_MISSING:-0}" = "1" ]; then
     esac
 else
     case "$1" in
-        -p) echo "/Library/Developer/CommandLineTools"; exit 0 ;;
+        -p)
+            if [ "${MOCK_XCODE_FULL:-0}" = "1" ]; then
+                echo "/Applications/Xcode.app/Contents/Developer"
+            else
+                echo "/Library/Developer/CommandLineTools"
+            fi
+            exit 0
+            ;;
     esac
 fi
 

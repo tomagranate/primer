@@ -5,6 +5,16 @@ _xcode::installed() {
     xcode-select -p &>/dev/null
 }
 
+_xcode::active_developer_dir() {
+    xcode-select -p 2>/dev/null
+}
+
+_xcode::full_xcode_active() {
+    local developer_dir
+    developer_dir="$(_xcode::active_developer_dir)" || return 1
+    [[ "$developer_dir" == *.app/Contents/Developer ]]
+}
+
 _xcode::platforms() {
     mod_config simulator_platforms
 }
@@ -66,6 +76,11 @@ mod_update() {
         primer::status_msg "installed"
     fi
 
+    if ! _xcode::full_xcode_active; then
+        primer::status_msg "CLT installed"
+        return 0
+    fi
+
     if ! _xcode::first_launch_complete; then
         primer::status_msg "running first launch..."
         _xcode::run_first_launch || return 1
@@ -82,12 +97,14 @@ mod_status() {
     local missing=0 drifted=0 platform
 
     _xcode::installed || missing=$(( missing + 1 ))
-    _xcode::first_launch_complete || drifted=$(( drifted + 1 ))
+    if _xcode::full_xcode_active; then
+        _xcode::first_launch_complete || drifted=$(( drifted + 1 ))
 
-    while IFS= read -r platform; do
-        [[ -z "$platform" ]] && continue
-        _xcode::platform_runtime_installed "$platform" || drifted=$(( drifted + 1 ))
-    done <<< "$(_xcode::platforms)"
+        while IFS= read -r platform; do
+            [[ -z "$platform" ]] && continue
+            _xcode::platform_runtime_installed "$platform" || drifted=$(( drifted + 1 ))
+        done <<< "$(_xcode::platforms)"
+    fi
 
     if (( missing == 0 && drifted == 0 )); then
         primer::status_msg "configured"
