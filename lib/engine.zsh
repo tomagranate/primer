@@ -182,7 +182,7 @@ engine::_render_login_picker() {
     local cursor="$1"
     local name label marker pointer color i
 
-    print "  ${C_DIM}Use Up/Down to move, Space to toggle, Enter to continue, Ctrl-C to exit.${C_RESET}"
+    print "  ${C_DIM}Use Up/Down to move, Space to toggle, Enter to continue.${C_RESET}"
     print ""
 
     for (( i = 1; i <= ${#_login_order[@]}; i++ )); do
@@ -201,14 +201,16 @@ engine::_render_login_picker() {
 }
 
 engine::_draw_login_picker() {
-    local cursor="$1" output="$2"
+    local cursor="$1" output="$2" move_up="${3:-0}"
     local rendered_line
 
-    printf '\e8' > "$output"
+    if (( move_up > 0 )); then
+        printf '\e[%dA' "$move_up" > "$output"
+    fi
     while IFS= read -r rendered_line; do
-        printf '\e[2K%s\n' "$rendered_line"
+        printf '\r\e[2K%s\n' "$rendered_line"
     done < <(engine::_render_login_picker "$cursor") > "$output"
-    printf '\e[J\e8' > "$output"
+    printf '\e[J' > "$output"
 }
 
 engine::_select_interactive_logins() {
@@ -247,9 +249,9 @@ engine::_select_interactive_logins() {
     old_stty="$(stty -g < "$input")" || return 1
 
     {
-        printf '\e7\e[?25l' > "$output"
+        printf '\e[?25l' > "$output"
         stty raw -echo < "$input"
-        engine::_draw_login_picker "$cursor" "$output"
+        engine::_draw_login_picker "$cursor" "$output" 0
 
         while true; do
             IFS= read -rsk1 key < "$input" || break
@@ -274,11 +276,11 @@ engine::_select_interactive_logins() {
                     ;;
             esac
 
-            engine::_draw_login_picker "$cursor" "$output"
+            engine::_draw_login_picker "$cursor" "$output" "$picker_lines"
         done
     } always {
         stty "$old_stty" < "$input" 2>/dev/null || true
-        printf '\e8\e[%dB\e[?25h' "$picker_lines" > "$output"
+        printf '\e[?25h' > "$output"
     }
     print ""
 
