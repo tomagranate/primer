@@ -8,6 +8,9 @@
 #   MOCK_BREW_INSTALLED_CASKS     space-separated list of installed casks
 #   MOCK_BREW_OUTDATED_CASKS      space-separated list of outdated casks
 #   MOCK_BREW_FAIL_PACKAGES       space-separated list of packages that should fail
+#   MOCK_BREW_FAIL_OUTPUT         optional stderr emitted when a package fails
+#   MOCK_BREW_FAIL_AFTER_INSTALL_PACKAGES
+#                                  packages that should become installed but exit 1
 #   MOCK_BREW_LOCK_ONCE_PACKAGES  space-separated packages that should fail
 #                                  once with a Homebrew lock error, then pass
 #   MOCK_BREW_LOCK_STATE_DIR      directory for lock-once marker files
@@ -18,6 +21,7 @@
 #   MOCK_BREW_CONCURRENCY_FILE    file prefix used to record max concurrent
 #                                  install/upgrade invocations
 #   MOCK_BREW_SLEEP               seconds to sleep during install/upgrade
+#   MOCK_BREW_VERBOSE_SETUP       emit noisy output for successful setup commands
 
 case "$1" in
     --version)
@@ -33,8 +37,44 @@ case "$1" in
         ;;
     list)
         case "${2:-}" in
-            --formula) printf '%s\n' $MOCK_BREW_INSTALLED_FORMULAE; exit 0 ;;
-            --cask)    printf '%s\n' $MOCK_BREW_INSTALLED_CASKS;    exit 0 ;;
+            --formula)
+                if [ $# -ge 3 ]; then
+                    case " ${MOCK_BREW_INSTALLED_FORMULAE:-} " in
+                        *" $3 "*) exit 0 ;;
+                    esac
+                    if [ -n "${MOCK_BREW_STATE_DIR:-}" ] && [ -f "${MOCK_BREW_STATE_DIR}/installed-formula-$3" ]; then
+                        exit 0
+                    fi
+                    exit 1
+                fi
+                printf '%s\n' $MOCK_BREW_INSTALLED_FORMULAE
+                if [ -n "${MOCK_BREW_STATE_DIR:-}" ]; then
+                    for marker in "${MOCK_BREW_STATE_DIR}"/installed-formula-*; do
+                        [ -f "$marker" ] || continue
+                        basename "$marker" | sed 's/^installed-formula-//'
+                    done
+                fi
+                exit 0
+                ;;
+            --cask)
+                if [ $# -ge 3 ]; then
+                    case " ${MOCK_BREW_INSTALLED_CASKS:-} " in
+                        *" $3 "*) exit 0 ;;
+                    esac
+                    if [ -n "${MOCK_BREW_STATE_DIR:-}" ] && [ -f "${MOCK_BREW_STATE_DIR}/installed-cask-$3" ]; then
+                        exit 0
+                    fi
+                    exit 1
+                fi
+                printf '%s\n' $MOCK_BREW_INSTALLED_CASKS
+                if [ -n "${MOCK_BREW_STATE_DIR:-}" ]; then
+                    for marker in "${MOCK_BREW_STATE_DIR}"/installed-cask-*; do
+                        [ -f "$marker" ] || continue
+                        basename "$marker" | sed 's/^installed-cask-//'
+                    done
+                fi
+                exit 0
+                ;;
         esac
         ;;
     outdated)
@@ -47,6 +87,22 @@ esac
 
 # Log this invocation
 echo "brew $*" >> "${MOCK_LOG:-/dev/null}"
+
+if [ -n "${MOCK_BREW_VERBOSE_SETUP:-}" ]; then
+    case "$1" in
+        update)
+            echo "==> Updating Homebrew..."
+            echo "Updated noisy taps"
+            ;;
+        tap)
+            echo "==> Tapping $2"
+            echo "Tapped noisy formulae"
+            ;;
+        trust)
+            echo "Trusted tap: $2"
+            ;;
+    esac
+fi
 
 brew_mock_lock() {
     lock="$1.lock"
@@ -151,10 +207,31 @@ if [ -n "${MOCK_BREW_UNTRUSTED_ONCE_PACKAGES:-}" ]; then
 fi
 
 # Simulate failure for specific packages (last argument is the package name)
+if [ -n "${MOCK_BREW_FAIL_AFTER_INSTALL_PACKAGES:-}" ]; then
+    eval "last_arg=\$$#"
+    case " ${MOCK_BREW_FAIL_AFTER_INSTALL_PACKAGES} " in
+        *" ${last_arg} "*)
+            state_dir="${MOCK_BREW_STATE_DIR:-${TMPDIR:-/tmp}/primer-brew-mock-state}"
+            mkdir -p "$state_dir"
+            if [ "$1" = "install" ] || [ "$1" = "upgrade" ]; then
+                case " $* " in
+                    *" --cask "*) : > "${state_dir}/installed-cask-${last_arg}" ;;
+                    *) : > "${state_dir}/installed-formula-${last_arg}" ;;
+                esac
+            fi
+            [ -n "${MOCK_BREW_FAIL_OUTPUT:-}" ] && printf '%s\n' "$MOCK_BREW_FAIL_OUTPUT" >&2
+            exit 1
+            ;;
+    esac
+fi
+
 if [ -n "${MOCK_BREW_FAIL_PACKAGES:-}" ]; then
     eval "last_arg=\$$#"
     case " ${MOCK_BREW_FAIL_PACKAGES} " in
-        *" ${last_arg} "*) exit 1 ;;
+        *" ${last_arg} "*)
+            [ -n "${MOCK_BREW_FAIL_OUTPUT:-}" ] && printf '%s\n' "$MOCK_BREW_FAIL_OUTPUT" >&2
+            exit 1
+            ;;
     esac
 fi
 

@@ -231,6 +231,36 @@ EOF
     assert_failure
 }
 
+@test "homebrew: failure output focuses on failed formula, not successful setup chatter" {
+    export MOCK_BREW_VERBOSE_SETUP=1
+    export MOCK_BREW_FAIL_PACKAGES="alpha"
+    export MOCK_BREW_FAIL_OUTPUT="Error: dashlane-cli failed during install"
+    run_homebrew_with_conf "mod_update"
+    assert_failure
+    assert_output --partial "Error while running: brew install alpha"
+    assert_output --partial "Error: dashlane-cli failed during install"
+    [[ "$output" != *"==> Updating Homebrew..."* ]] || {
+        echo "Did not expect successful brew update output in failure log: $output"; false
+    }
+    [[ "$output" != *"Tapped noisy formulae"* ]] || {
+        echo "Did not expect successful brew tap output in failure log: $output"; false
+    }
+    [[ "$output" != *"Trusted tap: owner/tap"* ]] || {
+        echo "Did not expect successful brew trust output in failure log: $output"; false
+    }
+}
+
+@test "homebrew: nonzero formula install is accepted when formula is installed afterward" {
+    export MOCK_BREW_STATE_DIR="$TEST_HOME/brew-state"
+    export MOCK_BREW_FAIL_AFTER_INSTALL_PACKAGES="alpha"
+    export MOCK_BREW_FAIL_OUTPUT="Warning: brew reported failure after installing alpha"
+    run_homebrew_with_conf "mod_update"
+    assert_success
+    run grep "done:alpha" "$MOD_ITEMS_FILE"
+    assert_success
+    refute_output --partial "Warning: brew reported failure after installing alpha"
+}
+
 @test "homebrew: items file marks failed formula as failed" {
     export MOCK_BREW_FAIL_PACKAGES="alpha"
     run_homebrew_with_conf "mod_update"
