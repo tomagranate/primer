@@ -122,6 +122,21 @@ EOF
     assert_success
 }
 
+@test "shell-installers: mod_status accepts tool installed under dotdir bin" {
+    mkdir -p "$TEST_HOME/.darkbloom/bin"
+    cat > "$TEST_HOME/.darkbloom/bin/darkbloom" <<'EOF'
+#!/bin/sh
+case "$1" in
+    --version) echo "0.6.10"; exit 0 ;;
+esac
+exit 0
+EOF
+    chmod +x "$TEST_HOME/.darkbloom/bin/darkbloom"
+
+    run_shell_installers_with_conf "mod_status"
+    assert_success
+}
+
 @test "shell-installers: mod_status fails when missing" {
     run_shell_installers_with_conf "mod_status"
     assert_failure

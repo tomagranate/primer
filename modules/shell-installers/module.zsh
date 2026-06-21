@@ -59,7 +59,31 @@ _shell_installers::check_command() {
     [[ -n "$check" ]] || check="command -v ${_shell_installer_command[$name]}"
     [[ -n "$check" ]] || return 1
 
-    zsh -c "$check" >/dev/null 2>&1
+    zsh -c "$check" >/dev/null 2>&1 && return 0
+
+    local -a check_parts=(${(z)check})
+    local command_name="${_shell_installer_command[$name]}"
+    [[ -z "$command_name" && ${#check_parts[@]} -gt 0 ]] && command_name="${check_parts[1]}"
+    [[ -z "$command_name" ]] && return 1
+
+    local -a args=()
+    if (( ${#check_parts[@]} > 1 && "${check_parts[1]}" == "$command_name" )); then
+        args=("${(@)check_parts[2,-1]}")
+    fi
+
+    local candidate
+    for candidate in \
+        "$HOME/.${name}/bin/${command_name}" \
+        "$HOME/.${name}/${command_name}" \
+        "$HOME/.local/bin/${command_name}" \
+        "$HOME/bin/${command_name}" \
+        "/opt/homebrew/bin/${command_name}" \
+        "/usr/local/bin/${command_name}"; do
+        [[ -x "$candidate" ]] || continue
+        "$candidate" "${args[@]}" >/dev/null 2>&1 && return 0
+    done
+
+    return 1
 }
 
 _shell_installers::install_item() {

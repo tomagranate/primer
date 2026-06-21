@@ -63,6 +63,37 @@ load '../helpers/common'
     assert_output --partial "npm"
 }
 
+@test "login picker: renders alternate-screen selection view" {
+    zsh_run '
+        export COLUMNS=80
+        export LINES=18
+        _login_order=(github npm)
+        _login_selected[github]=true
+        _login_selected[npm]=false
+        _mod_config[logins.github_label]="GitHub CLI"
+        _mod_config[logins.npm_label]="npm"
+        _login_notice_lines=("  notice line")
+        engine::_render_login_selection_tui 1
+    '
+    assert_success
+    assert_output --partial "login setup"
+    assert_output --partial "GitHub CLI"
+    assert_output --partial "npm"
+    assert_output --partial "Ctrl-C skips"
+}
+
+@test "login runner: renders alternate-screen command panel" {
+    zsh_run '
+        export COLUMNS=80
+        export LINES=18
+        engine::_render_login_command_tui "GitHub CLI" "Authenticate with GitHub."
+    '
+    assert_success
+    assert_output --partial "login: GitHub CLI"
+    assert_output --partial "Authenticate with GitHub."
+    assert_output --partial "Complete the prompt above."
+}
+
 @test "login selection: filters already logged-in targets" {
     local fakebin
     fakebin="$(mktemp -d)"
@@ -190,18 +221,52 @@ EOF
 @test "login runner: prints instructions before guided browser login" {
     zsh_run '
         DRY_RUN=false
-        _login_order=(dashlane)
-        _login_selected[dashlane]=true
+        _login_order=(webaccount)
+        _login_selected[webaccount]=true
         _state[homebrew-apps]=done
-        _mod_config[logins.dashlane_label]=Dashlane
-        _mod_config[logins.dashlane_depends_on]=homebrew-apps
-        _mod_config[logins.dashlane_instruction]="Sign in to Dashlane."
-        _mod_config[logins.dashlane_command]=true
+        _mod_config[logins.webaccount_label]="Web account"
+        _mod_config[logins.webaccount_depends_on]=homebrew-apps
+        _mod_config[logins.webaccount_instruction]="Sign in to the web account."
+        _mod_config[logins.webaccount_command]=true
         engine::_run_interactive_logins
     '
     assert_failure
-    assert_output --partial "Sign in to Dashlane."
-    assert_output --partial "Dashlane failed"
+    assert_output --partial "Sign in to the web account."
+    assert_output --partial "Web account failed"
+}
+
+@test "login errors: failed command output is printed after summary" {
+    local fakebin
+    fakebin="$(mktemp -d)"
+    cat > "$fakebin/fail-login" <<'EOF'
+#!/usr/bin/env bash
+echo "login went sideways" >&2
+exit 7
+EOF
+    chmod +x "$fakebin/fail-login"
+
+    PATH="$fakebin:$PATH" zsh_run '
+        DRY_RUN=false
+        PRIMER_TMPDIR="$(mktemp -d)"
+        _login_all_order=(github)
+        _login_order=(github)
+        _login_selected[github]=true
+        _mod_config[logins.github_label]="GitHub CLI"
+        _mod_config[logins.github_requires]=fail-login
+        _mod_config[logins.github_command]=fail-login
+        engine::_run_interactive_logins
+        rc=$?
+        engine::_render_login_summary
+        engine::_render_login_error_output
+        rm -rf "$PRIMER_TMPDIR"
+        exit $rc
+    '
+    rm -rf "$fakebin"
+
+    assert_failure
+    assert_output --partial "GitHub CLI"
+    assert_output --partial "login output"
+    assert_output --partial "login went sideways"
 }
 
 @test "login result: ctrl-c skips login and continues" {
@@ -223,17 +288,17 @@ EOF
 @test "login summary: includes skipped and failed targets" {
     zsh_run '
         DRY_RUN=false
-        _login_all_order=(dashlane github)
-        _mod_config[logins.dashlane_label]=Dashlane
+        _login_all_order=(npm github)
+        _mod_config[logins.npm_label]=npm
         _mod_config[logins.github_label]="GitHub CLI"
-        _login_state[dashlane]=skipped
-        _login_detail[dashlane]="not selected"
+        _login_state[npm]=skipped
+        _login_detail[npm]="not selected"
         _login_state[github]=failed
         _login_detail[github]=failed
         engine::_render_login_summary
     '
     assert_success
-    assert_output --partial "Dashlane"
+    assert_output --partial "npm"
     assert_output --partial "not selected"
     assert_output --partial "GitHub CLI"
     assert_output --partial "failed"

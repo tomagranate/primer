@@ -213,15 +213,11 @@ EOF
         [[ "${_mod_deps[mac-app-store]}" == "homebrew" ]] || { echo "wrong mac app store dep"; exit 1; }
         [[ "${_mod_deps[xcode]}" == "mac-app-store" ]] || { echo "wrong xcode dep"; exit 1; }
         [[ "${_mod_config[mac-app-store.mas]}" == *"Xcode:497799835"* ]] || { echo "missing xcode app store item"; exit 1; }
-        [[ "${_login_order[*]}" == "xcode-cli-terms helium-google dashlane github" ]] || { echo "missing configured logins"; exit 1; }
-        [[ "${_mod_config[logins.xcode-cli-terms_depends_on]}" == "xcode-cli-tools" ]] || { echo "missing xcode terms dep"; exit 1; }
-        [[ "${_mod_config[logins.xcode-cli-terms_command]}" == "sudo xcodebuild -license" ]] || { echo "missing xcode terms command"; exit 1; }
-        [[ "${_mod_config[logins.xcode-cli-terms_done_detail]}" == "accepted" ]] || { echo "missing xcode terms done detail"; exit 1; }
+        [[ "${_login_order[*]}" == "github" ]] || { echo "missing configured logins"; exit 1; }
+        [[ -z "${_mod_config[logins.xcode-cli-terms_command]:-}" ]] || { echo "xcode terms should be handled by xcode module"; exit 1; }
         [[ "${_mod_config[logins.github_default]}" == "yes" ]] || { echo "missing login default"; exit 1; }
         [[ "${_mod_config[logins.github_depends_on]}" == "ssh, homebrew" ]] || { echo "missing login module deps"; exit 1; }
         [[ "${_mod_config[logins.github_command]}" == "gh auth login" ]] || { echo "missing login command"; exit 1; }
-        [[ "${_mod_config[logins.helium-google_command]}" == "open -a Helium https://accounts.google.com/" ]] || { echo "missing helium login command"; exit 1; }
-        [[ "${_mod_config[logins.dashlane_instruction]}" == "Sign in to Dashlane." ]] || { echo "missing dashlane instruction"; exit 1; }
         [[ "${_mod_config[homebrew.taps]}" == *"buildkite/buildkite"* ]] || { echo "missing:buildkite/buildkite"; exit 1; }
         echo "ok"
     '
@@ -238,8 +234,8 @@ order =
 github_label = GitHub CLI
 github_default = yes
 github_command = gh auth login
-helium-google_label = Helium Google profile
-helium-google_command = open -a Helium https://accounts.google.com/
+custom-web_label = Custom web login
+custom-web_command = open https://example.com/login
 npm_label = npm
 npm_default = no
 npm_command = npm login
@@ -252,14 +248,14 @@ EOF
         echo \"modules=\${_mod_order[*]}\"
         echo \"logins=\${_login_order[*]}\"
         echo \"github=\${_mod_config[logins.github_command]}\"
-        echo \"helium=\${_mod_config[logins.helium-google_command]}\"
+        echo \"custom=\${_mod_config[logins.custom-web_command]}\"
         echo \"npm=\${_mod_config[logins.npm_default]}\"
     "
     assert_success
     assert_line "modules=homebrew"
     assert_line "logins=github npm"
     assert_line "github=gh auth login"
-    assert_line "helium=open -a Helium https://accounts.google.com/"
+    assert_line "custom=open https://example.com/login"
     assert_line "npm=no"
 }
 
