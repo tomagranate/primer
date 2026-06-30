@@ -65,7 +65,7 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | **mise** | homebrew | Installs language runtimes (Node, Python, Bun) |
 | **ssh** | xcode-cli-tools | Creates an SSH key and configures macOS keychain-backed agent support |
 | **touchid** | -- | Enables Touch ID for sudo |
-| **scripts** | -- | Installs custom scripts to ~/bin/ |
+| **git** | -- | Configures global Git CLI defaults and installs Git helper scripts to ~/bin/ |
 
 ## Architecture
 
@@ -100,9 +100,9 @@ Each module is a **self-contained folder** that owns its config files, scripts, 
 │   │   └── module.zsh            # Installs tools from config via mise use --global
 │   ├── touchid/
 │   │   └── module.zsh
-│   └── scripts/
+│   └── git/
 │       ├── module.zsh
-│       └── bin/                   # rgf, etc.
+│       └── bin/                   # git-clean, git-uncommit, etc.
 └── bin/
     └── primer                     # CLI entry point
 ```
@@ -188,6 +188,19 @@ tools =
     node:lts
     python:3.12
     bun:latest
+
+[git]
+label = Git CLI
+settings =
+    user.name:Your Name
+    user.email:you@example.com
+    user.useConfigOnly:true
+    pull.rebase:false
+    init.defaultBranch:master
+    push.default:simple
+    fetch.prune:true
+    merge.conflictStyle:zdiff3
+    diff.algorithm:histogram
 ```
 
 Interactive logins are configured in `[logins]` and run after installation
@@ -216,6 +229,7 @@ github_command = gh auth login
 | Starship prompt | `~/.config/starship.toml` |
 | SSH config | `~/.ssh/config` (Primer-managed section) |
 | SSH key | `~/.ssh/id_ed25519` |
+| Git config | `~/.gitconfig` |
 | Custom scripts | `~/bin/` |
 
 ## Development
