@@ -198,6 +198,7 @@ settings =
     pull.rebase:false
     init.defaultBranch:master
     push.default:simple
+    push.autoSetupRemote:true
     fetch.prune:true
     merge.conflictStyle:zdiff3
     diff.algorithm:histogram

@@ -43,6 +43,10 @@ teardown() {
     run git config --global --get init.defaultBranch
     assert_success
     assert_output "master"
+
+    run git config --global --get push.autoSetupRemote
+    assert_success
+    assert_output "true"
 }
 
 @test "git: mod_status fails when global setting drifted" {
