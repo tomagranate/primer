@@ -92,7 +92,10 @@ EOF
         [[ ${_mod_order[(Ie)homebrew]} -eq 0 ]] || { echo "unexpected homebrew"; exit 1; }
         [[ "${_mod_deps[zsh]}" == "apt" ]] || { echo "wrong zsh dep"; exit 1; }
         [[ "${_mod_deps[tailscale]}" == "apt" ]] || { echo "wrong tailscale dep"; exit 1; }
+        [[ "${_login_order[*]}" == "github tailscale" ]] || { echo "wrong login order"; exit 1; }
         [[ "${_mod_config[logins.github_depends_on]}" == "ssh, git, apt" ]] || { echo "wrong login dep"; exit 1; }
+        [[ "${_mod_config[logins.tailscale_depends_on]}" == "tailscale" ]] || { echo "wrong tailscale login dep"; exit 1; }
+        [[ "${_mod_config[logins.tailscale_command]}" == "sudo tailscale up" ]] || { echo "wrong tailscale login command"; exit 1; }
         [[ "${_mod_config[apt.packages]}" == *"docker-compose-v2"* ]] || { echo "missing compose v2"; exit 1; }
         [[ "${_mod_config[apt.packages]}" != *"docker-compose-plugin"* ]] || { echo "unexpected docker plugin package"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" != *"darkbloom"* ]] || { echo "unexpected darkbloom"; exit 1; }
@@ -115,6 +118,9 @@ EOF
         [[ "${_mod_deps[tailscale]}" == "apt" ]] || { echo "wrong tailscale dep"; exit 1; }
         [[ "${_mod_deps[ghostty]}" == "shell-installers" ]] || { echo "wrong ghostty dep"; exit 1; }
         [[ "${_mod_deps[kde-desktop-settings]}" == "apt,ghostty" ]] || { echo "wrong kde-desktop-settings dep"; exit 1; }
+        [[ "${_login_order[*]}" == "github tailscale" ]] || { echo "wrong login order"; exit 1; }
+        [[ "${_mod_config[logins.tailscale_depends_on]}" == "tailscale" ]] || { echo "wrong tailscale login dep"; exit 1; }
+        [[ "${_mod_config[logins.tailscale_status]}" == "tailscale status >/dev/null 2>&1" ]] || { echo "wrong tailscale login status"; exit 1; }
         [[ "${_mod_config[apt.packages]}" == *"ubuntu-desktop-minimal"* ]] || { echo "missing desktop"; exit 1; }
         [[ "${_mod_config[apt.packages]}" == *"keyd"* ]] || { echo "missing keyd"; exit 1; }
         [[ "${_mod_config[apt.packages]}" == *"docker-compose-v2"* ]] || { echo "missing compose v2"; exit 1; }

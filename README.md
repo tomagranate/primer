@@ -248,6 +248,8 @@ Interactive logins are configured in `[logins]` and run after installation
 finishes. `*_depends_on` names Primer modules that must complete first,
 `*_requires` names commands that must exist, `*_status` detects whether the
 account is already logged in, and `*_command` starts the login flow.
+Linux profiles also use this flow for Tailscale, running `sudo tailscale up`
+after the Tailscale module installs the client.
 
 ```ini
 [logins]
