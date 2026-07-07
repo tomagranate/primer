@@ -6,6 +6,8 @@ typeset -gA _shell_installer_url=()
 typeset -gA _shell_installer_command=()
 typeset -gA _shell_installer_check=()
 typeset -gA _shell_installer_args=()
+typeset -gA _shell_installer_shell=()
+typeset -gA _shell_installer_privileged=()
 
 _shell_installers::trim() {
     local value="$1"
@@ -29,6 +31,8 @@ _shell_installers::parse_config() {
     _shell_installer_command=()
     _shell_installer_check=()
     _shell_installer_args=()
+    _shell_installer_shell=()
+    _shell_installer_privileged=()
 
     local line current="" field key value
     while IFS= read -r line; do
@@ -52,8 +56,24 @@ _shell_installers::parse_config() {
             command) _shell_installer_command[$current]="$value" ;;
             check)   _shell_installer_check[$current]="$value" ;;
             args)    _shell_installer_args[$current]="$value" ;;
+            shell)   _shell_installer_shell[$current]="$value" ;;
+            privileged) _shell_installer_privileged[$current]="$value" ;;
         esac
     done <<< "$(mod_config installers)"
+}
+
+_shell_installers::shell_for() {
+    local name="$1"
+    local shell_name="${_shell_installer_shell[$name]:-bash}"
+    case "$shell_name" in
+        bash|sh) print -r -- "$shell_name" ;;
+        *) print -r -- "bash" ;;
+    esac
+}
+
+_shell_installers::is_privileged() {
+    local name="$1"
+    [[ "${_shell_installer_privileged[$name]:l}" == true ]]
 }
 
 _shell_installers::check_command() {
@@ -99,17 +119,20 @@ _shell_installers::install_item() {
         return 1
     fi
 
-    if _shell_installers::check_command "$name"; then
+    if [[ "$DRY_RUN" == true ]]; then
+        local shell_name="$(_shell_installers::shell_for "$name")"
+        local prefix=""
+        _shell_installers::is_privileged "$name" && prefix="sudo -n "
+        if [[ -n "${_shell_installer_args[$name]:-}" ]]; then
+            echo "[dry-run] curl -fsSL $url | ${prefix}${shell_name} -s -- ${_shell_installer_args[$name]}"
+        else
+            echo "[dry-run] curl -fsSL $url | ${prefix}${shell_name}"
+        fi
         primer::parallel_item_result "done"
         return 0
     fi
 
-    if [[ "$DRY_RUN" == true ]]; then
-        if [[ -n "${_shell_installer_args[$name]:-}" ]]; then
-            echo "[dry-run] curl -fsSL $url | bash -s -- ${_shell_installer_args[$name]}"
-        else
-            echo "[dry-run] curl -fsSL $url | bash"
-        fi
+    if _shell_installers::check_command "$name"; then
         primer::parallel_item_result "done"
         return 0
     fi
@@ -120,7 +143,23 @@ _shell_installers::install_item() {
         args=(${(z)arg_line})
     fi
 
-    if ! curl -fsSL "$url" | bash -s -- "${args[@]}"; then
+    local shell_name="$(_shell_installers::shell_for "$name")"
+    local install_rc=0
+    if _shell_installers::is_privileged "$name"; then
+        if (( ${#args[@]} > 0 )); then
+            curl -fsSL "$url" | primer::run_as_root "Shell installer: ${name}" "$shell_name" -s -- "${args[@]}" || install_rc=$?
+        else
+            curl -fsSL "$url" | primer::run_as_root "Shell installer: ${name}" "$shell_name" || install_rc=$?
+        fi
+    else
+        if (( ${#args[@]} > 0 )); then
+            curl -fsSL "$url" | "$shell_name" -s -- "${args[@]}" || install_rc=$?
+        else
+            curl -fsSL "$url" | "$shell_name" || install_rc=$?
+        fi
+    fi
+
+    if (( install_rc != 0 )); then
         primer::parallel_item_result "failed" "installer failed"
         return 1
     fi

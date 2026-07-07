@@ -18,6 +18,7 @@ load 'helpers/common'
     assert_output --partial "docker-compose-v2"
     assert_output --partial "Tailscale"
     assert_output --partial "curl -fsSL https://tailscale.com/install.sh | sudo -n sh"
+    assert_output --partial "curl -fsSL https://starship.rs/install.sh | sh -s -- -y"
     refute_output --partial "docker-compose-plugin"
 }
 
@@ -30,6 +31,8 @@ load 'helpers/common'
     assert_output --partial "docker-compose-v2"
     assert_output --partial "Tailscale"
     assert_output --partial "curl -fsSL https://tailscale.com/install.sh | sudo -n sh"
+    assert_output --partial "curl -fsSL https://starship.rs/install.sh | sh -s -- -y"
+    assert_output --partial "curl -fsSL https://raw.githubusercontent.com/mkasberg/ghostty-ubuntu/HEAD/install.sh | sudo -n bash"
     refute_output --partial "docker-compose-plugin"
     assert_output --partial "Flatpak apps"
 }
@@ -101,6 +104,30 @@ EOF
     assert_success
     assert_output --partial "APT packages"
     refute_output --partial "script should not wrap sudo modules"
+}
+
+@test "primer update does not run privileged shell installers through script" {
+    local fakebin
+    fakebin="$(mktemp -d)"
+    cat > "$fakebin/script" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "--version" ]]; then
+    echo "script from util-linux"
+    exit 0
+fi
+echo "script should not wrap privileged shell installers" >&2
+exit 64
+EOF
+    chmod +x "$fakebin/script"
+
+    export PRIMER_LOCAL="$PRIMER_DIR"
+    PATH="$fakebin:$PATH" run zsh "$PRIMER_DIR/bin/primer" update --dry-run --log --profile ubuntu-desktop --only apt --only shell-installers
+    rm -rf "$fakebin"
+
+    assert_success
+    assert_output --partial "Shell installers"
+    assert_output --partial "sudo -n bash"
+    refute_output --partial "script should not wrap privileged shell installers"
 }
 
 @test "primer status runs without crashing" {

@@ -34,7 +34,7 @@ _login_shell::ensure_shells_entry() {
     if (( EUID == 0 )); then
         print -r -- "$zsh_path" >> "$shells_file"
     elif command -v sudo >/dev/null 2>&1; then
-        print -r -- "$zsh_path" | sudo tee -a "$shells_file" >/dev/null
+        print -r -- "$zsh_path" | primer::run_as_root "Login shell" tee -a "$shells_file" >/dev/null
     else
         return 1
     fi
@@ -55,7 +55,7 @@ mod_update() {
 
     if [[ "$DRY_RUN" == true ]]; then
         echo "[dry-run] ensure $zsh_path is listed in /etc/shells"
-        echo "[dry-run] chsh -s $zsh_path ${USER:-$LOGNAME}"
+        echo "[dry-run] sudo -n chsh -s $zsh_path ${USER:-$LOGNAME}"
         primer::status_msg "shell planned"
         return 0
     fi
@@ -66,7 +66,7 @@ mod_update() {
     fi
 
     _login_shell::ensure_shells_entry "$zsh_path" || true
-    chsh -s "$zsh_path" "${USER:-$LOGNAME}" || {
+    primer::run_as_root "Login shell" chsh -s "$zsh_path" "${USER:-$LOGNAME}" || {
         primer::status_msg "chsh failed"
         return 1
     }

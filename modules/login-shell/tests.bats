@@ -48,10 +48,10 @@ EOF
 
     run_login_shell_module "mod_update"
     assert_success
-    assert_output --partial "chsh -s $MOCK_DIR/zsh primer"
+    assert_output --partial "sudo -n chsh -s $MOCK_DIR/zsh primer"
 }
 
-@test "login-shell: wet run calls chsh when current shell is not zsh" {
+@test "login-shell: wet run calls chsh through sudo when current shell is not zsh" {
     cat > "$MOCK_DIR/getent" <<'EOF'
 #!/bin/sh
 echo "primer:x:1000:1000::/home/primer:/bin/bash"
@@ -63,10 +63,24 @@ echo "chsh $*" >> "$MOCK_LOG"
 exit 0
 EOF
     chmod +x "$MOCK_DIR/chsh"
+    cat > "$MOCK_DIR/sudo" <<'EOF'
+#!/bin/sh
+echo "sudo $*" >> "$MOCK_LOG"
+if [ "$1" = "-n" ] && [ "$2" = "true" ]; then
+    exit 0
+fi
+if [ "$1" = "-n" ]; then
+    shift
+fi
+exec "$@"
+EOF
+    chmod +x "$MOCK_DIR/sudo"
 
     run_login_shell_module "mod_update"
     assert_success
     run grep "chsh -s $MOCK_DIR/zsh primer" "$MOCK_LOG"
+    assert_success
+    run grep "sudo -n chsh -s $MOCK_DIR/zsh primer" "$MOCK_LOG"
     assert_success
     run grep "$MOCK_DIR/zsh" "$TEST_SHELLS_FILE"
     assert_success

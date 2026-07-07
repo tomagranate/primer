@@ -116,6 +116,90 @@ EOF
     assert_output --partial "[dry-run] curl -fsSL https://example.com/install.sh | bash"
 }
 
+@test "shell-installers: supports POSIX sh installer shell" {
+    cat > "$TEST_CONF" <<'EOF'
+[shell-installers]
+installers =
+    - name: starship
+      url: https://starship.rs/install.sh
+      command: starship
+      check: starship --version
+      shell: sh
+      args: -y
+EOF
+    export DRY_RUN=true
+    run_shell_installers_with_conf "mod_update"
+    assert_success
+    assert_output --partial "[dry-run] curl -fsSL https://starship.rs/install.sh | sh -s -- -y"
+}
+
+@test "shell-installers: supports privileged bash installer" {
+    cat > "$TEST_CONF" <<'EOF'
+[shell-installers]
+installers =
+    - name: ghostty
+      url: https://raw.githubusercontent.com/mkasberg/ghostty-ubuntu/HEAD/install.sh
+      command: ghostty
+      check: ghostty --version
+      shell: bash
+      privileged: true
+EOF
+    export DRY_RUN=true
+    run_shell_installers_with_conf "mod_update"
+    assert_success
+    assert_output --partial "[dry-run] curl -fsSL https://raw.githubusercontent.com/mkasberg/ghostty-ubuntu/HEAD/install.sh | sudo -n bash"
+}
+
+@test "shell-installers: wet run pipes privileged installer through sudo" {
+    cat > "$TEST_CONF" <<'EOF'
+[shell-installers]
+installers =
+    - name: ghostty
+      url: https://example.com/ghostty.sh
+      command: ghostty-test
+      check: ghostty-test --version
+      shell: bash
+      privileged: true
+EOF
+    cat > "$MOCK_DIR/curl" <<'EOF'
+#!/bin/sh
+echo "curl $*" >> "$MOCK_LOG"
+cat <<'SCRIPT'
+#!/bin/sh
+mkdir -p "$HOME/bin"
+cat > "$HOME/bin/ghostty-test" <<'GHOSTTY'
+#!/bin/sh
+if [ "$1" = "--version" ]; then
+    echo "1.0.0"
+    exit 0
+fi
+exit 0
+GHOSTTY
+chmod +x "$HOME/bin/ghostty-test"
+SCRIPT
+EOF
+    chmod +x "$MOCK_DIR/curl"
+    cat > "$MOCK_DIR/sudo" <<'EOF'
+#!/bin/sh
+echo "sudo $*" >> "$MOCK_LOG"
+if [ "$1" = "-n" ] && [ "$2" = "true" ]; then
+    exit 0
+fi
+if [ "$1" = "-n" ]; then
+    shift
+fi
+exec "$@"
+EOF
+    chmod +x "$MOCK_DIR/sudo"
+
+    run_shell_installers_with_conf "mod_update"
+    assert_success
+    run grep "curl -fsSL https://example.com/ghostty.sh" "$MOCK_LOG"
+    assert_success
+    run grep "sudo -n bash" "$MOCK_LOG"
+    assert_success
+}
+
 @test "shell-installers: mod_status succeeds when installed" {
     make_darkbloom_mock
     run_shell_installers_with_conf "mod_status"
