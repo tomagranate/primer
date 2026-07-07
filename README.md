@@ -61,6 +61,7 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | --- | --- | --- |
 | **apt** | -- | Installs configured Debian/Ubuntu packages for VPS profiles |
 | **flatpak** | apt | Installs explicitly configured Flatpak apps |
+| **helium-browser** | apt | Installs Helium Browser from the official Linux apt repository |
 | **npm-global** | mise | Installs configured global npm CLIs |
 | **login-shell** | zsh | Changes the user's login shell to zsh when possible |
 | **xcode-cli-tools** | -- | Installs Xcode Command Line Tools and waits for the installer dialog to be accepted |
