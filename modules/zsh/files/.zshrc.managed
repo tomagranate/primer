@@ -36,21 +36,23 @@ export FZF_DEFAULT_COMMAND="rg --files --hidden --glob '!.git'"
 export FZF_DEFAULT_OPTS="--layout=reverse --style=full --border --ansi"
 
 # ---- Aliases ----
-alias ls="eza"
+command -v eza >/dev/null 2>&1 && alias ls="eza"
 alias ll="ls -lah"
-alias du="dust"
-alias df="duf"
-alias top="htop"
+command -v dust >/dev/null 2>&1 && alias du="dust"
+command -v duf >/dev/null 2>&1 && alias df="duf"
+command -v htop >/dev/null 2>&1 && alias top="htop"
 alias docker-kill-all='docker stop $(docker ps -q) && docker rm $(docker ps -aq)'
 port() { lsof -i -P | grep LISTEN | grep "$1" }
 alias editrc="nvim ~/.zshrc"
 
 rgf() {
+  local bat_command="bat"
+  command -v bat >/dev/null 2>&1 || bat_command="batcat"
   rg --color=always --line-number --no-heading --smart-case "${*:-}" |
   fzf --ansi \
       --color "hl:-1:underline,hl+:-1:underline:reverse" \
       --delimiter : \
-      --preview 'bat --color=always {1} --highlight-line {2}' \
+      --preview "${bat_command} --color=always {1} --highlight-line {2}" \
       --preview-window 'right,70%,border-bottom,+{2}+3/3,~3' \
       --bind 'enter:become(code {1})'
 }
@@ -64,20 +66,26 @@ path+=~/.bun/bin
 bindkey '\ew' backward-kill-line  # cmd-backspace
 
 # ---- pnpm ----
-export PNPM_HOME="$HOME/Library/pnpm"
+if [[ "$(uname -s 2>/dev/null)" == Darwin ]]; then
+  export PNPM_HOME="$HOME/Library/pnpm"
+else
+  export PNPM_HOME="$HOME/.local/share/pnpm"
+fi
 case ":$PATH:" in
   *":$PNPM_HOME:"*) ;;
   *) export PATH="$PNPM_HOME:$PATH" ;;
 esac
 
 # ---- Mise ----
-eval "$(mise activate zsh)"
+command -v mise >/dev/null 2>&1 && eval "$(mise activate zsh)"
 
 # ---- bun completions ----
 [ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
 
 # ---- Android dev ----
-export ANDROID_HOME=$HOME/Library/Android/sdk
-path+=$ANDROID_HOME/emulator
-PATH=$PATH:$ANDROID_HOME/platform-tools
+if [[ "$(uname -s 2>/dev/null)" == Darwin ]]; then
+  export ANDROID_HOME=$HOME/Library/Android/sdk
+  path+=$ANDROID_HOME/emulator
+  PATH=$PATH:$ANDROID_HOME/platform-tools
+fi
 # <<< PRIMER MANAGED END (modules/zsh/files/.zshrc.managed) <<<

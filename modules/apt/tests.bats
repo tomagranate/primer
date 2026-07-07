@@ -1,0 +1,77 @@
+#!/usr/bin/env bats
+# modules/apt/tests.bats
+
+load '../../tests/helpers/common'
+
+setup() {
+    export TEST_CONF="$(mktemp)"
+    export TEST_HOME="$(mktemp -d)"
+    export MOCK_DIR="$(mktemp -d)"
+    export MOCK_LOG="$(mktemp)"
+    export MOD_ITEMS_FILE="$(mktemp)"
+    cat > "$TEST_CONF" <<'EOF'
+[apt]
+label = APT packages
+packages =
+    zsh
+    git
+EOF
+}
+
+teardown() {
+    rm -rf "$TEST_CONF" "$TEST_HOME" "$MOCK_DIR" "$MOCK_LOG" "$MOD_ITEMS_FILE"
+}
+
+run_apt_module() {
+    local code="$1"
+    run zsh -c "
+        export PRIMER_DIR='${PRIMER_DIR}'
+        export DRY_RUN='${DRY_RUN:-false}'
+        export MOD_DIR='${PRIMER_DIR}/modules/apt'
+        export MOD_NAME='apt'
+        export MOD_STATUS_FILE='$(mktemp)'
+        export MOD_ITEMS_FILE='${MOD_ITEMS_FILE}'
+        export HOME='${TEST_HOME}'
+        export PATH='${MOCK_DIR}:/usr/bin:/bin:/usr/sbin:/sbin'
+        source \"\$PRIMER_DIR/lib/ui.zsh\"
+        source \"\$PRIMER_DIR/lib/engine.zsh\"
+        engine::load_config '${TEST_CONF}'
+        source \"\$MOD_DIR/module.zsh\"
+        ${code}
+    "
+}
+
+@test "apt: dry-run prints apt update and install" {
+    export DRY_RUN=true
+    run_apt_module "mod_update"
+    assert_success
+    assert_output --partial "sudo apt-get update"
+    assert_output --partial "sudo apt-get install -y zsh git"
+}
+
+@test "apt: wet run calls apt-get through sudo" {
+    cat > "$MOCK_DIR/sudo" <<'EOF'
+#!/bin/sh
+echo "sudo $*" >> "$MOCK_LOG"
+exec "$@"
+EOF
+    chmod +x "$MOCK_DIR/sudo"
+    cat > "$MOCK_DIR/apt-get" <<'EOF'
+#!/bin/sh
+echo "apt-get $*" >> "$MOCK_LOG"
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/apt-get"
+    cat > "$MOCK_DIR/dpkg-query" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/dpkg-query"
+
+    run_apt_module "mod_update"
+    assert_success
+    run grep "apt-get update" "$MOCK_LOG"
+    assert_success
+    run grep "apt-get install -y zsh git" "$MOCK_LOG"
+    assert_success
+}

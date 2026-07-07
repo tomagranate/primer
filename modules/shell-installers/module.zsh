@@ -5,6 +5,7 @@ typeset -ga _shell_installer_names=()
 typeset -gA _shell_installer_url=()
 typeset -gA _shell_installer_command=()
 typeset -gA _shell_installer_check=()
+typeset -gA _shell_installer_args=()
 
 _shell_installers::trim() {
     local value="$1"
@@ -27,6 +28,7 @@ _shell_installers::parse_config() {
     _shell_installer_url=()
     _shell_installer_command=()
     _shell_installer_check=()
+    _shell_installer_args=()
 
     local line current="" field key value
     while IFS= read -r line; do
@@ -49,6 +51,7 @@ _shell_installers::parse_config() {
             url)     _shell_installer_url[$current]="$value" ;;
             command) _shell_installer_command[$current]="$value" ;;
             check)   _shell_installer_check[$current]="$value" ;;
+            args)    _shell_installer_args[$current]="$value" ;;
         esac
     done <<< "$(mod_config installers)"
 }
@@ -102,12 +105,22 @@ _shell_installers::install_item() {
     fi
 
     if [[ "$DRY_RUN" == true ]]; then
-        echo "[dry-run] curl -fsSL $url | bash"
+        if [[ -n "${_shell_installer_args[$name]:-}" ]]; then
+            echo "[dry-run] curl -fsSL $url | bash -s -- ${_shell_installer_args[$name]}"
+        else
+            echo "[dry-run] curl -fsSL $url | bash"
+        fi
         primer::parallel_item_result "done"
         return 0
     fi
 
-    if ! curl -fsSL "$url" | bash; then
+    local -a args=()
+    if [[ -n "${_shell_installer_args[$name]:-}" ]]; then
+        local arg_line="${_shell_installer_args[$name]}"
+        args=(${(z)arg_line})
+    fi
+
+    if ! curl -fsSL "$url" | bash -s -- "${args[@]}"; then
         primer::parallel_item_result "failed" "installer failed"
         return 1
     fi

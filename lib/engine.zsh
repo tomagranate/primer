@@ -41,20 +41,13 @@ typeset -gA _log_offsets=()
 
 # ── Config Parsing (INI format) ──────────────────────────────────────────────
 
-engine::load_config() {
+engine::_load_config_file() {
     local config="$1" section="" key=""
-    _mod_order=()
-    _mod_deps=()
-    _mod_desc=()
-    _mod_config=()
-    _login_order=()
-    _login_all_order=()
-    _login_selected=()
-    _login_state=()
-    _login_detail=()
-    _login_log=()
-    _login_notice_lines=()
-    _login_interrupted=false
+
+    [[ -f "$config" ]] || {
+        print "Missing config file: $config" >&2
+        return 1
+    }
 
     while IFS= read -r line; do
         # Skip comments and blank lines
@@ -64,7 +57,10 @@ engine::load_config() {
         # Section header: [module_name] (allows hyphens)
         if [[ "$line" =~ '^\[([a-z_-]+)\]' ]]; then
             section="${match[1]}"
-            [[ "$section" != "logins" ]] && _mod_order+=("$section")
+            if [[ "$section" != "logins" && -z "${_mod_seen[$section]:-}" ]]; then
+                _mod_order+=("$section")
+                _mod_seen[$section]=true
+            fi
             key=""
             continue
         fi
@@ -84,6 +80,28 @@ engine::load_config() {
             [[ "$key" == "label" ]]      && _mod_desc[$section]="$val"
         fi
     done < "$config"
+    return 0
+}
+
+engine::load_config() {
+    local config
+    _mod_order=()
+    typeset -gA _mod_seen=()
+    _mod_deps=()
+    _mod_desc=()
+    _mod_config=()
+    _login_order=()
+    _login_all_order=()
+    _login_selected=()
+    _login_state=()
+    _login_detail=()
+    _login_log=()
+    _login_notice_lines=()
+    _login_interrupted=false
+
+    for config in "$@"; do
+        engine::_load_config_file "$config" || return 1
+    done
 
     engine::_load_logins
 }

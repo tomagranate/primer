@@ -1,5 +1,5 @@
 #!/bin/zsh
-# modules/ssh -- SSH key generation + macOS keychain-backed agent config
+# modules/ssh -- SSH key generation + user-level agent config
 
 _ssh::config_start_marker() {
     print "# >>> PRIMER MANAGED START (modules/ssh) >>>"
@@ -27,7 +27,23 @@ _ssh::key_path() {
 _ssh::key_comment() {
     local configured="$(mod_config comment | head -1)"
     [[ -n "$configured" ]] && { print "$configured"; return 0; }
-    print "${USER:-primer}@$(hostname -s 2>/dev/null || hostname 2>/dev/null || print mac)"
+    print "${USER:-primer}@$(hostname -s 2>/dev/null || hostname 2>/dev/null || print primer)"
+}
+
+_ssh::os_name() {
+    if [[ -n "${PRIMER_TEST_UNAME:-}" ]]; then
+        print -r -- "$PRIMER_TEST_UNAME"
+    else
+        uname -s 2>/dev/null || print unknown
+    fi
+}
+
+_ssh::uses_macos_keychain() {
+    if [[ -n "${PRIMER_PROFILE:-}" ]]; then
+        [[ "$PRIMER_PROFILE" == mac ]]
+        return $?
+    fi
+    [[ "$(_ssh::os_name)" == Darwin ]]
 }
 
 _ssh::config_block() {
@@ -37,7 +53,7 @@ _ssh::config_block() {
     print "$start_marker"
     print "Host *"
     print "    AddKeysToAgent yes"
-    print "    UseKeychain yes"
+    _ssh::uses_macos_keychain && print "    UseKeychain yes"
     print "    IdentityFile $key_path"
     print "$end_marker"
 }
@@ -136,9 +152,14 @@ _ssh::config_needs_update() {
 
 _ssh::add_key_to_agent() {
     local key_path="$1"
-    ssh-add --apple-use-keychain "$key_path" >/dev/null 2>&1 \
-        || ssh-add -K "$key_path" >/dev/null 2>&1 \
-        || ssh-add "$key_path" >/dev/null 2>&1
+    if _ssh::uses_macos_keychain; then
+        ssh-add --apple-use-keychain "$key_path" >/dev/null 2>&1 \
+            || ssh-add -K "$key_path" >/dev/null 2>&1 \
+            || ssh-add "$key_path" >/dev/null 2>&1
+        return $?
+    fi
+
+    ssh-add "$key_path" >/dev/null 2>&1
 }
 
 mod_update() {
@@ -150,7 +171,11 @@ mod_update() {
     if [[ "$DRY_RUN" == true ]]; then
         [[ -f "$key_path" ]] || echo "[dry-run] ssh-keygen -t ed25519 -C $comment -f $key_path"
         echo "[dry-run] update $HOME/.ssh/config"
-        echo "[dry-run] ssh-add --apple-use-keychain $key_path"
+        if _ssh::uses_macos_keychain; then
+            echo "[dry-run] ssh-add --apple-use-keychain $key_path"
+        else
+            echo "[dry-run] ssh-add $key_path"
+        fi
         primer::status_msg "configured"
         return 0
     fi

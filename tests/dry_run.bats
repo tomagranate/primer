@@ -9,6 +9,23 @@ load 'helpers/common'
     assert_success
 }
 
+@test "primer update --dry-run supports linux-vps profile" {
+    export PRIMER_LOCAL="$PRIMER_DIR"
+    run zsh "$PRIMER_DIR/bin/primer" update --dry-run --log --profile linux-vps
+    assert_success
+    assert_output --partial "APT packages"
+    assert_output --partial "sudo apt-get install -y"
+}
+
+@test "primer update --dry-run supports ubuntu-budgie profile" {
+    export PRIMER_LOCAL="$PRIMER_DIR"
+    run zsh "$PRIMER_DIR/bin/primer" update --dry-run --log --profile ubuntu-budgie
+    assert_success
+    assert_output --partial "APT packages"
+    assert_output --partial "ubuntu-budgie-desktop"
+    assert_output --partial "Flatpak apps"
+}
+
 @test "primer update --log streams plain output without TUI escapes" {
     export PRIMER_LOCAL="$PRIMER_DIR"
     run zsh "$PRIMER_DIR/bin/primer" update --dry-run --log --only ghostty

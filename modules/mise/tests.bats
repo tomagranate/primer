@@ -39,7 +39,7 @@ EOF
 
     zsh_run_module mise "mod_update"
     assert_success
-    assert_output --partial "assuming Homebrew install step provides it"
+    assert_output --partial "assuming package/install step provides it"
     assert_output --partial "mise use --global node@lts"
 }
 

@@ -1,6 +1,6 @@
 # primer
 
-Modular, DAG-based Mac setup. One command to install everything, with parallel execution and a rich terminal UI.
+Modular, DAG-based machine setup for macOS, Ubuntu VPSs, and Ubuntu Budgie desktops. One command to install everything, with parallel execution and a rich terminal UI.
 
 ## Quick Start
 
@@ -31,7 +31,11 @@ primer <command> [options]
 ### Options
 
 - `--dry-run` - preview changes without applying them (valid with `update`)
-- `--skip-app-store` - skip App Store (`mas`) installs (valid with `update`)
+- `--skip <module>` - skip a module by name; repeatable (valid with `update`)
+- `--only <module>` - run only one module; repeatable (valid with `update`)
+- `--profile <name>` - force a profile (`mac`, `linux-vps`, `ubuntu-budgie`)
+- `--tui` - force alternate-screen terminal UI (valid with `update`)
+- `--log` - force plain log output
 - `--help` - show help text
 - `-h` - show help text
 
@@ -40,7 +44,9 @@ primer <command> [options]
 ```sh
 primer update
 primer update --dry-run
-primer update --skip-app-store
+primer update --skip mac-app-store
+primer update --profile linux-vps
+primer update --profile ubuntu-budgie
 primer status
 primer --help
 primer -h
@@ -53,6 +59,9 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 
 | Module | Depends On | What It Does |
 | --- | --- | --- |
+| **apt** | -- | Installs configured Debian/Ubuntu packages for VPS profiles |
+| **flatpak** | apt | Installs explicitly configured Flatpak apps |
+| **login-shell** | zsh | Changes the user's login shell to zsh when possible |
 | **xcode-cli-tools** | -- | Installs Xcode Command Line Tools and waits for the installer dialog to be accepted |
 | **shell-installers** | xcode-cli-tools | Installs configured tools from remote shell installers |
 | **homebrew** | xcode-cli-tools | Installs Homebrew and configured formulae |
@@ -69,11 +78,14 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 
 ## Architecture
 
-Each module is a **self-contained folder** that owns its config files, scripts, and install logic. `primer.conf` is an INI-style config that activates modules and holds their data (brew packages, mise tools, etc.).
+Each module is a **self-contained folder** that owns its config files, scripts, and install logic. Profile config is split into `configs/common.conf` plus `configs/profiles/<profile>.conf`; `primer.conf` remains as a legacy macOS aggregate.
 
 ```
 ├── setup.sh                      # Bootstrap (curl-able, installs primer CLI)
-├── primer.conf                   # INI config (modules + deps + per-module settings)
+├── primer.conf                   # Legacy macOS aggregate config
+├── configs/
+│   ├── common.conf               # Shared user-level config
+│   └── profiles/                 # mac, linux-vps, ubuntu-budgie fragments
 ├── lib/
 │   ├── engine.zsh                # Ready-queue DAG executor + INI parser
 │   └── ui.zsh                    # Terminal UI (spinners, boxes, colors, helpers)
@@ -124,7 +136,7 @@ mod_status() {
 }
 ```
 
-3. Add a section to `primer.conf`:
+3. Add a section to `configs/common.conf` or a profile in `configs/profiles/`:
 
 ```ini
 [name]
@@ -134,11 +146,26 @@ depends_on = homebrew  # optional
 
 ### Complex module (custom logic)
 
-Write `mod_update()` and `mod_status()` with whatever logic you need. Use `mod_config <key>` to read values from `primer.conf`.
+Write `mod_update()` and `mod_status()` with whatever logic you need. Use `mod_config <key>` to read values from the active profile config.
+
+## Profiles
+
+Primer auto-detects the profile when it can:
+
+- `mac` on macOS
+- `linux-vps` on Debian/Ubuntu without a desktop session
+- `ubuntu-budgie` on Ubuntu with a Budgie desktop session
+
+For ambiguous Linux machines, interactive runs prompt and default to `linux-vps`. Non-interactive runs should pass `--profile` or set `PRIMER_PROFILE`.
+
+```sh
+primer update --profile linux-vps
+PRIMER_PROFILE=ubuntu-budgie primer status
+```
 
 ## Configuration
 
-All module settings live in `primer.conf`. Each `[section]` activates a module. Remove a section to disable it. Indented lines continue the previous key's value.
+Module settings live in `configs/common.conf` and `configs/profiles/*.conf`. Each `[section]` activates a module. Remove a section from the selected profile/common config to disable it. Indented lines continue the previous key's value.
 
 ```ini
 [homebrew]

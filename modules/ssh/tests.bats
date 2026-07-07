@@ -84,3 +84,15 @@ teardown() {
     [ ! -f "$TEST_HOME/.ssh/id_ed25519" ]
     [ ! -f "$TEST_HOME/.ssh/config" ]
 }
+
+@test "ssh: linux config omits macOS keychain options" {
+    export PRIMER_PROFILE=linux-vps
+    zsh_run_module ssh "mod_update"
+    assert_success
+    run grep "UseKeychain yes" "$TEST_HOME/.ssh/config"
+    assert_failure
+    run grep "AddKeysToAgent yes" "$TEST_HOME/.ssh/config"
+    assert_success
+    run grep "ssh-add $TEST_HOME/.ssh/id_ed25519" "$MOCK_LOG"
+    assert_success
+}

@@ -1,0 +1,68 @@
+#!/usr/bin/env bats
+# modules/login-shell/tests.bats
+
+load '../../tests/helpers/common'
+
+setup() {
+    export TEST_HOME="$(mktemp -d)"
+    export MOCK_DIR="$(mktemp -d)"
+    export MOCK_LOG="$(mktemp)"
+    cat > "$MOCK_DIR/zsh" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/zsh"
+}
+
+teardown() {
+    rm -rf "$TEST_HOME" "$MOCK_DIR" "$MOCK_LOG"
+}
+
+run_login_shell_module() {
+    local code="$1"
+    run zsh -c "
+        export PRIMER_DIR='${PRIMER_DIR}'
+        export DRY_RUN='${DRY_RUN:-false}'
+        export MOD_DIR='${PRIMER_DIR}/modules/login-shell'
+        export MOD_NAME='login-shell'
+        export MOD_STATUS_FILE='$(mktemp)'
+        export HOME='${TEST_HOME}'
+        export USER='primer'
+        export PATH='${MOCK_DIR}:/usr/bin:/bin:/usr/sbin:/sbin'
+        source \"\$PRIMER_DIR/lib/ui.zsh\"
+        source \"\$MOD_DIR/module.zsh\"
+        ${code}
+    "
+}
+
+@test "login-shell: dry-run prints chsh" {
+    export DRY_RUN=true
+    cat > "$MOCK_DIR/getent" <<'EOF'
+#!/bin/sh
+echo "primer:x:1000:1000::/home/primer:/bin/bash"
+EOF
+    chmod +x "$MOCK_DIR/getent"
+
+    run_login_shell_module "mod_update"
+    assert_success
+    assert_output --partial "chsh -s $MOCK_DIR/zsh primer"
+}
+
+@test "login-shell: wet run calls chsh when current shell is not zsh" {
+    cat > "$MOCK_DIR/getent" <<'EOF'
+#!/bin/sh
+echo "primer:x:1000:1000::/home/primer:/bin/bash"
+EOF
+    chmod +x "$MOCK_DIR/getent"
+    cat > "$MOCK_DIR/chsh" <<'EOF'
+#!/bin/sh
+echo "chsh $*" >> "$MOCK_LOG"
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/chsh"
+
+    run_login_shell_module "mod_update"
+    assert_success
+    run grep "chsh -s $MOCK_DIR/zsh primer" "$MOCK_LOG"
+    assert_success
+}
