@@ -95,6 +95,7 @@ EOF
         [[ "${_mod_config[logins.github_depends_on]}" == "ssh, apt" ]] || { echo "wrong login dep"; exit 1; }
         [[ "${_mod_config[apt.packages]}" == *"docker-compose-v2"* ]] || { echo "missing compose v2"; exit 1; }
         [[ "${_mod_config[apt.packages]}" != *"docker-compose-plugin"* ]] || { echo "unexpected docker plugin package"; exit 1; }
+        [[ "${_mod_config[shell-installers.installers]}" != *"darkbloom"* ]] || { echo "unexpected darkbloom"; exit 1; }
         echo "ok"
     '
     assert_success
@@ -113,6 +114,17 @@ EOF
         [[ "${_mod_config[apt.packages]}" == *"ubuntu-desktop-minimal"* ]] || { echo "missing desktop"; exit 1; }
         [[ "${_mod_config[apt.packages]}" == *"docker-compose-v2"* ]] || { echo "missing compose v2"; exit 1; }
         [[ "${_mod_config[apt.packages]}" != *"docker-compose-plugin"* ]] || { echo "unexpected docker plugin package"; exit 1; }
+        [[ "${_mod_config[shell-installers.installers]}" != *"darkbloom"* ]] || { echo "unexpected darkbloom"; exit 1; }
+        echo "ok"
+    '
+    assert_success
+    assert_output "ok"
+}
+
+@test "profile: mac config includes darkbloom shell installer" {
+    zsh_run '
+        engine::load_config "$PRIMER_DIR/configs/common.conf" "$PRIMER_DIR/configs/profiles/mac.conf"
+        [[ "${_mod_config[shell-installers.installers]}" == *"darkbloom"* ]] || { echo "missing darkbloom"; exit 1; }
         echo "ok"
     '
     assert_success

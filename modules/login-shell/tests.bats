@@ -7,6 +7,8 @@ setup() {
     export TEST_HOME="$(mktemp -d)"
     export MOCK_DIR="$(mktemp -d)"
     export MOCK_LOG="$(mktemp)"
+    export TEST_SHELLS_FILE="$TEST_HOME/shells"
+    echo "/bin/sh" > "$TEST_SHELLS_FILE"
     cat > "$MOCK_DIR/zsh" <<'EOF'
 #!/bin/sh
 exit 0
@@ -28,6 +30,7 @@ run_login_shell_module() {
         export MOD_STATUS_FILE='$(mktemp)'
         export HOME='${TEST_HOME}'
         export USER='primer'
+        export PRIMER_SHELLS_FILE='${TEST_SHELLS_FILE}'
         export PATH='${MOCK_DIR}:/usr/bin:/bin:/usr/sbin:/sbin'
         source \"\$PRIMER_DIR/lib/ui.zsh\"
         source \"\$MOD_DIR/module.zsh\"
@@ -64,5 +67,7 @@ EOF
     run_login_shell_module "mod_update"
     assert_success
     run grep "chsh -s $MOCK_DIR/zsh primer" "$MOCK_LOG"
+    assert_success
+    run grep "$MOCK_DIR/zsh" "$TEST_SHELLS_FILE"
     assert_success
 }

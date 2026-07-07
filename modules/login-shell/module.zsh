@@ -15,6 +15,10 @@ _login_shell::current_shell() {
     print -r -- "${SHELL:-}"
 }
 
+_login_shell::shells_file() {
+    print -r -- "${PRIMER_SHELLS_FILE:-/etc/shells}"
+}
+
 _login_shell::is_current() {
     local zsh_path="$1" current
     current="$(_login_shell::current_shell)"
@@ -23,13 +27,14 @@ _login_shell::is_current() {
 
 _login_shell::ensure_shells_entry() {
     local zsh_path="$1"
-    [[ -f /etc/shells ]] || return 0
-    grep -Fxq "$zsh_path" /etc/shells && return 0
+    local shells_file="$(_login_shell::shells_file)"
+    [[ -f "$shells_file" ]] || return 0
+    grep -Fxq "$zsh_path" "$shells_file" && return 0
 
     if (( EUID == 0 )); then
-        print -r -- "$zsh_path" >> /etc/shells
+        print -r -- "$zsh_path" >> "$shells_file"
     elif command -v sudo >/dev/null 2>&1; then
-        print -r -- "$zsh_path" | sudo tee -a /etc/shells >/dev/null
+        print -r -- "$zsh_path" | sudo tee -a "$shells_file" >/dev/null
     else
         return 1
     fi
