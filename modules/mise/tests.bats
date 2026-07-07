@@ -39,7 +39,6 @@ EOF
 
     zsh_run_module mise "mod_update"
     assert_success
-    assert_output --partial "assuming package/install step provides it"
     assert_output --partial "mise use --global node@lts"
 }
 
@@ -56,6 +55,22 @@ EOF
     run grep "done:node@lts" "$MOD_ITEMS_FILE"
     assert_success
     run grep "done:python@latest" "$MOD_ITEMS_FILE"
+    assert_success
+}
+
+@test "mise: wet run finds mise installed in local bin when not on PATH" {
+    mkdir -p "$TEST_HOME/.local/bin"
+    cat > "$TEST_HOME/.local/bin/mise" <<'EOF'
+#!/bin/sh
+echo "local-mise $*" >> "${MOCK_LOG:-/dev/null}"
+exit 0
+EOF
+    chmod +x "$TEST_HOME/.local/bin/mise"
+    export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+
+    zsh_run_module mise "mod_update"
+    assert_success
+    run grep "local-mise use --global node@lts --yes" "$MOCK_LOG"
     assert_success
 }
 

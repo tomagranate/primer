@@ -97,6 +97,7 @@ EOF
         [[ "${_mod_config[apt.packages]}" != *"docker-compose-plugin"* ]] || { echo "unexpected docker plugin package"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" != *"darkbloom"* ]] || { echo "unexpected darkbloom"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" == *"shell: sh"* ]] || { echo "missing sh installer shell"; exit 1; }
+        [[ "${_mod_config[shell-installers.installers]}" == *"args: -y -b \$HOME/.local/bin"* ]] || { echo "missing user-local starship"; exit 1; }
         echo "ok"
     '
     assert_success
@@ -117,6 +118,7 @@ EOF
         [[ "${_mod_config[apt.packages]}" != *"docker-compose-plugin"* ]] || { echo "unexpected docker plugin package"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" != *"darkbloom"* ]] || { echo "unexpected darkbloom"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" == *"shell: sh"* ]] || { echo "missing sh installer shell"; exit 1; }
+        [[ "${_mod_config[shell-installers.installers]}" == *"args: -y -b \$HOME/.local/bin"* ]] || { echo "missing user-local starship"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" == *"privileged: true"* ]] || { echo "missing privileged installer"; exit 1; }
         echo "ok"
     '

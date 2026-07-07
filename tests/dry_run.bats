@@ -18,7 +18,7 @@ load 'helpers/common'
     assert_output --partial "docker-compose-v2"
     assert_output --partial "Tailscale"
     assert_output --partial "curl -fsSL https://tailscale.com/install.sh | sudo -n sh"
-    assert_output --partial "curl -fsSL https://starship.rs/install.sh | sh -s -- -y"
+    assert_output --partial "curl -fsSL https://starship.rs/install.sh | sh -s -- -y -b $HOME/.local/bin"
     refute_output --partial "docker-compose-plugin"
 }
 
@@ -31,7 +31,7 @@ load 'helpers/common'
     assert_output --partial "docker-compose-v2"
     assert_output --partial "Tailscale"
     assert_output --partial "curl -fsSL https://tailscale.com/install.sh | sudo -n sh"
-    assert_output --partial "curl -fsSL https://starship.rs/install.sh | sh -s -- -y"
+    assert_output --partial "curl -fsSL https://starship.rs/install.sh | sh -s -- -y -b $HOME/.local/bin"
     assert_output --partial "curl -fsSL https://raw.githubusercontent.com/mkasberg/ghostty-ubuntu/HEAD/install.sh | sudo -n bash"
     refute_output --partial "docker-compose-plugin"
     assert_output --partial "Flatpak apps"

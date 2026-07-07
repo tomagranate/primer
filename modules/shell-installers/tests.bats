@@ -125,12 +125,12 @@ installers =
       command: starship
       check: starship --version
       shell: sh
-      args: -y
+      args: -y -b $HOME/.local/bin
 EOF
     export DRY_RUN=true
     run_shell_installers_with_conf "mod_update"
     assert_success
-    assert_output --partial "[dry-run] curl -fsSL https://starship.rs/install.sh | sh -s -- -y"
+    assert_output --partial "[dry-run] curl -fsSL https://starship.rs/install.sh | sh -s -- -y -b $TEST_HOME/.local/bin"
 }
 
 @test "shell-installers: supports privileged bash installer" {

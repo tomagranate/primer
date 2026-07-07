@@ -76,6 +76,17 @@ _shell_installers::is_privileged() {
     [[ "${_shell_installer_privileged[$name]:l}" == true ]]
 }
 
+_shell_installers::args_for() {
+    local name="$1"
+    local arg_line="${_shell_installer_args[$name]:-}"
+    [[ -n "$arg_line" ]] || return 0
+
+    arg_line="${arg_line//\$HOME/$HOME}"
+    arg_line="${arg_line/#\~/$HOME}"
+    local -a args=(${(z)arg_line})
+    print -r -- "${args[@]}"
+}
+
 _shell_installers::check_command() {
     local name="$1"
     local check="${_shell_installer_check[$name]}"
@@ -123,8 +134,9 @@ _shell_installers::install_item() {
         local shell_name="$(_shell_installers::shell_for "$name")"
         local prefix=""
         _shell_installers::is_privileged "$name" && prefix="sudo -n "
-        if [[ -n "${_shell_installer_args[$name]:-}" ]]; then
-            echo "[dry-run] curl -fsSL $url | ${prefix}${shell_name} -s -- ${_shell_installer_args[$name]}"
+        local -a args=($(_shell_installers::args_for "$name"))
+        if (( ${#args[@]} > 0 )); then
+            echo "[dry-run] curl -fsSL $url | ${prefix}${shell_name} -s -- ${args[*]}"
         else
             echo "[dry-run] curl -fsSL $url | ${prefix}${shell_name}"
         fi
@@ -137,11 +149,8 @@ _shell_installers::install_item() {
         return 0
     fi
 
-    local -a args=()
-    if [[ -n "${_shell_installer_args[$name]:-}" ]]; then
-        local arg_line="${_shell_installer_args[$name]}"
-        args=(${(z)arg_line})
-    fi
+    mkdir -p "$HOME/.local/bin"
+    local -a args=($(_shell_installers::args_for "$name"))
 
     local shell_name="$(_shell_installers::shell_for "$name")"
     local install_rc=0

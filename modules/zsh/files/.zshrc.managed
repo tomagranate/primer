@@ -1,4 +1,15 @@
 # >>> PRIMER MANAGED START (modules/zsh/files/.zshrc.managed) >>>
+# ---- Path updates ----
+typeset -U path PATH
+path=(
+  "$HOME/bin"
+  "$HOME/.local/bin"
+  "$HOME/.mise/bin"
+  "$HOME/.local/share/mise/shims"
+  "$HOME/.bun/bin"
+  $path
+)
+
 # ------- Zim Setup -------
 
 # Initialize zim
@@ -56,11 +67,6 @@ rgf() {
       --preview-window 'right,70%,border-bottom,+{2}+3/3,~3' \
       --bind 'enter:become(code {1})'
 }
-
-# ---- Path updates ----
-path+=~/bin
-path+=~/.local/bin
-path+=~/.bun/bin
 
 # ---- Keybindings ----
 bindkey '\ew' backward-kill-line  # cmd-backspace

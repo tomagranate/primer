@@ -196,6 +196,22 @@ EOF
     assert_failure
 }
 
+@test "zsh: managed zshrc adds local bin paths before Zim init" {
+    mkdir -p "$TEST_HOME/.zim"
+    touch "$TEST_HOME/.zim/zimfw.zsh"
+
+    zsh_run_module zsh "mod_update"
+    assert_success
+
+    local local_bin_line zim_init_line
+    local_bin_line="$(grep -n 'HOME/.local/bin' "$TEST_HOME/.zshrc" | head -1 | cut -d: -f1)"
+    zim_init_line="$(grep -n 'source .*ZIM_HOME.*/init.zsh' "$TEST_HOME/.zshrc" | head -1 | cut -d: -f1)"
+
+    [[ -n "$local_bin_line" ]]
+    [[ -n "$zim_init_line" ]]
+    [[ "$local_bin_line" -lt "$zim_init_line" ]]
+}
+
 @test "zsh: docker alias defers command substitution to invocation" {
     mkdir -p "$TEST_HOME/.zim"
     touch "$TEST_HOME/.zim/zimfw.zsh"
