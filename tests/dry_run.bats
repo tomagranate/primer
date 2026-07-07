@@ -16,6 +16,8 @@ load 'helpers/common'
     assert_output --partial "APT packages"
     assert_output --partial "sudo apt-get install -y"
     assert_output --partial "docker-compose-v2"
+    assert_output --partial "Tailscale"
+    assert_output --partial "curl -fsSL https://tailscale.com/install.sh | sudo -n sh"
     refute_output --partial "docker-compose-plugin"
 }
 
@@ -26,8 +28,9 @@ load 'helpers/common'
     assert_output --partial "APT packages"
     assert_output --partial "ubuntu-desktop-minimal"
     assert_output --partial "docker-compose-v2"
+    assert_output --partial "Tailscale"
+    assert_output --partial "curl -fsSL https://tailscale.com/install.sh | sudo -n sh"
     refute_output --partial "docker-compose-plugin"
-    refute_output --partial "tailscale"
     assert_output --partial "Flatpak apps"
 }
 

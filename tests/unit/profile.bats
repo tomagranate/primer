@@ -88,8 +88,10 @@ EOF
         engine::load_config "$PRIMER_DIR/configs/common.conf" "$PRIMER_DIR/configs/profiles/linux-vps.conf"
         [[ ${_mod_order[(Ie)git]} -gt 0 ]] || { echo "missing git"; exit 1; }
         [[ ${_mod_order[(Ie)apt]} -gt 0 ]] || { echo "missing apt"; exit 1; }
+        [[ ${_mod_order[(Ie)tailscale]} -gt 0 ]] || { echo "missing tailscale"; exit 1; }
         [[ ${_mod_order[(Ie)homebrew]} -eq 0 ]] || { echo "unexpected homebrew"; exit 1; }
         [[ "${_mod_deps[zsh]}" == "apt" ]] || { echo "wrong zsh dep"; exit 1; }
+        [[ "${_mod_deps[tailscale]}" == "apt" ]] || { echo "wrong tailscale dep"; exit 1; }
         [[ "${_mod_config[logins.github_depends_on]}" == "ssh, apt" ]] || { echo "wrong login dep"; exit 1; }
         [[ "${_mod_config[apt.packages]}" == *"docker-compose-v2"* ]] || { echo "missing compose v2"; exit 1; }
         [[ "${_mod_config[apt.packages]}" != *"docker-compose-plugin"* ]] || { echo "unexpected docker plugin package"; exit 1; }
@@ -103,13 +105,14 @@ EOF
     zsh_run '
         engine::load_config "$PRIMER_DIR/configs/common.conf" "$PRIMER_DIR/configs/profiles/ubuntu-desktop.conf"
         [[ ${_mod_order[(Ie)apt]} -gt 0 ]] || { echo "missing apt"; exit 1; }
+        [[ ${_mod_order[(Ie)tailscale]} -gt 0 ]] || { echo "missing tailscale"; exit 1; }
         [[ ${_mod_order[(Ie)flatpak]} -gt 0 ]] || { echo "missing flatpak"; exit 1; }
         [[ ${_mod_order[(Ie)macos]} -eq 0 ]] || { echo "unexpected macos"; exit 1; }
+        [[ "${_mod_deps[tailscale]}" == "apt" ]] || { echo "wrong tailscale dep"; exit 1; }
         [[ "${_mod_deps[ghostty]}" == "shell-installers" ]] || { echo "wrong ghostty dep"; exit 1; }
         [[ "${_mod_config[apt.packages]}" == *"ubuntu-desktop-minimal"* ]] || { echo "missing desktop"; exit 1; }
         [[ "${_mod_config[apt.packages]}" == *"docker-compose-v2"* ]] || { echo "missing compose v2"; exit 1; }
         [[ "${_mod_config[apt.packages]}" != *"docker-compose-plugin"* ]] || { echo "unexpected docker plugin package"; exit 1; }
-        [[ "${_mod_config[apt.packages]}" != *"tailscale"* ]] || { echo "unexpected tailscale"; exit 1; }
         echo "ok"
     '
     assert_success

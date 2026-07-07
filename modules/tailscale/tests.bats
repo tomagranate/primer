@@ -1,0 +1,109 @@
+#!/usr/bin/env bats
+# modules/tailscale/tests.bats
+
+load '../../tests/helpers/common'
+
+setup() {
+    export TEST_CONF="$(mktemp)"
+    export TEST_HOME="$(mktemp -d)"
+    export MOCK_DIR="$(mktemp -d)"
+    export MOCK_LOG="$(mktemp)"
+    export MOD_ITEMS_FILE="$(mktemp)"
+    cat > "$TEST_CONF" <<'EOF'
+[tailscale]
+label = Tailscale
+url = https://tailscale.com/install.sh
+EOF
+}
+
+teardown() {
+    rm -rf "$TEST_CONF" "$TEST_HOME" "$MOCK_DIR" "$MOCK_LOG" "$MOD_ITEMS_FILE"
+}
+
+run_tailscale_module() {
+    local code="$1"
+    run zsh -c "
+        export PRIMER_DIR='${PRIMER_DIR}'
+        export DRY_RUN='${DRY_RUN:-false}'
+        export MOD_DIR='${PRIMER_DIR}/modules/tailscale'
+        export MOD_NAME='tailscale'
+        export MOD_STATUS_FILE='$(mktemp)'
+        export MOD_ITEMS_FILE='${MOD_ITEMS_FILE}'
+        export HOME='${TEST_HOME}'
+        export TEST_HOME='${TEST_HOME}'
+        export PATH='${MOCK_DIR}:${TEST_HOME}/bin:/usr/bin:/bin:/usr/sbin:/sbin'
+        source \"\$PRIMER_DIR/lib/ui.zsh\"
+        source \"\$PRIMER_DIR/lib/engine.zsh\"
+        engine::load_config '${TEST_CONF}'
+        source \"\$MOD_DIR/module.zsh\"
+        ${code}
+    "
+}
+
+@test "tailscale: dry-run prints official installer command" {
+    export DRY_RUN=true
+    run_tailscale_module "mod_update"
+    assert_success
+    assert_output --partial "curl -fsSL https://tailscale.com/install.sh | sudo -n sh"
+}
+
+@test "tailscale: wet run pipes official installer through sudo sh" {
+    cat > "$MOCK_DIR/sudo" <<'EOF'
+#!/bin/sh
+echo "sudo $*" >> "$MOCK_LOG"
+if [ "$1" = "-n" ] && [ "$2" = "true" ]; then
+    exit 0
+fi
+if [ "$1" = "-n" ]; then
+    shift
+fi
+exec "$@"
+EOF
+    chmod +x "$MOCK_DIR/sudo"
+    cat > "$MOCK_DIR/curl" <<'EOF'
+#!/bin/sh
+echo "curl $*" >> "$MOCK_LOG"
+cat <<'SCRIPT'
+#!/bin/sh
+mkdir -p "$TEST_HOME/bin"
+cat > "$TEST_HOME/bin/tailscale" <<'TAILSCALE'
+#!/bin/sh
+if [ "$1" = "version" ]; then
+    echo "1.0.0"
+    exit 0
+fi
+exit 0
+TAILSCALE
+chmod +x "$TEST_HOME/bin/tailscale"
+SCRIPT
+EOF
+    chmod +x "$MOCK_DIR/curl"
+
+    run_tailscale_module "mod_update"
+    assert_success
+    run grep "curl -fsSL https://tailscale.com/install.sh" "$MOCK_LOG"
+    assert_success
+    run grep "sudo -n sh" "$MOCK_LOG"
+    assert_success
+}
+
+@test "tailscale: mod_status succeeds when tailscale is installed" {
+    mkdir -p "$MOCK_DIR"
+    cat > "$MOCK_DIR/tailscale" <<'EOF'
+#!/bin/sh
+if [ "$1" = "version" ]; then
+    echo "1.0.0"
+    exit 0
+fi
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/tailscale"
+
+    run_tailscale_module "mod_status"
+    assert_success
+}
+
+@test "tailscale: mod_status fails when tailscale is missing" {
+    run_tailscale_module "mod_status"
+    assert_failure
+}

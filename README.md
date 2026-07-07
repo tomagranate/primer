@@ -163,6 +163,8 @@ primer update --profile linux-vps
 PRIMER_PROFILE=ubuntu-desktop primer status
 ```
 
+Linux profiles install Tailscale through a dedicated `tailscale` module using Tailscale's official Linux installer, because the `tailscale` package is not part of Ubuntu's default apt repositories.
+
 ## Configuration
 
 Module settings live in `configs/common.conf` and `configs/profiles/*.conf`. Each `[section]` activates a module. Remove a section from the selected profile/common config to disable it. Indented lines continue the previous key's value.

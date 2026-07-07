@@ -1436,7 +1436,7 @@ engine::_cleanup_update() {
 
 engine::_module_needs_sudo() {
     case "$1" in
-        apt|flatpak|login-shell|touchid|xcode) return 0 ;;
+        apt|flatpak|login-shell|tailscale|touchid|xcode) return 0 ;;
         *) return 1 ;;
     esac
 }
