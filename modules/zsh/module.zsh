@@ -9,6 +9,13 @@ _zshenv_managed_block_file() {
     print "$MOD_DIR/files/.zshenv.managed"
 }
 
+_zshrc_addendum_block_file() {
+    local profile="${PRIMER_PROFILE:-}"
+    local block_file="$MOD_DIR/files/zshrc-addenda/${profile}.zsh"
+    [[ -n "$profile" && -f "$block_file" ]] || return 1
+    print "$block_file"
+}
+
 _zshrc_start_marker() {
     print "# >>> PRIMER MANAGED START (modules/zsh/files/.zshrc.managed) >>>"
 }
@@ -23,6 +30,16 @@ _zshenv_start_marker() {
 
 _zshenv_end_marker() {
     print "# <<< PRIMER MANAGED END (modules/zsh/files/.zshenv.managed) <<<"
+}
+
+_zshrc_addendum_start_marker() {
+    local profile="${PRIMER_PROFILE:-}"
+    print "# >>> PRIMER MANAGED START (modules/zsh/files/zshrc-addenda/${profile}.zsh) >>>"
+}
+
+_zshrc_addendum_end_marker() {
+    local profile="${PRIMER_PROFILE:-}"
+    print "# <<< PRIMER MANAGED END (modules/zsh/files/zshrc-addenda/${profile}.zsh) <<<"
 }
 
 _zsh::managed_file_needs_update() {
@@ -78,6 +95,16 @@ _zsh::managed_zshenv_needs_update() {
         "$(_zshenv_managed_block_file)" \
         "$(_zshenv_start_marker)" \
         "$(_zshenv_end_marker)"
+}
+
+_zsh::managed_zshrc_addendum_needs_update() {
+    local block_file
+    block_file="$(_zshrc_addendum_block_file)" || return 1
+    _zsh::managed_file_needs_update \
+        "$HOME/.zshrc" \
+        "$block_file" \
+        "$(_zshrc_addendum_start_marker)" \
+        "$(_zshrc_addendum_end_marker)"
 }
 
 _zsh::zim_modules_need_sync() {
@@ -154,15 +181,29 @@ _upsert_managed_zshenv_section() {
         "$(_zshenv_end_marker)"
 }
 
+_upsert_managed_zshrc_addendum_section() {
+    local block_file
+    block_file="$(_zshrc_addendum_block_file)" || return 0
+    _zsh::upsert_managed_section \
+        "$HOME/.zshrc" \
+        "$block_file" \
+        "$(_zshrc_addendum_start_marker)" \
+        "$(_zshrc_addendum_end_marker)"
+}
+
 mod_update() {
     primer::status_msg "updating zsh managed sections..."
     if [[ "$DRY_RUN" == true ]]; then
         echo "[dry-run] update managed section in $HOME/.zshrc"
         echo "[dry-run] update managed section in $HOME/.zshenv"
+        if _zshrc_addendum_block_file >/dev/null; then
+            echo "[dry-run] update profile zshrc addendum in $HOME/.zshrc"
+        fi
         echo "[dry-run] copy $MOD_DIR/files/.zimrc -> $HOME/.zimrc"
     else
         _upsert_managed_zshenv_section
         _upsert_managed_zshrc_section
+        _upsert_managed_zshrc_addendum_section
         cp "$MOD_DIR/files/.zimrc" "$HOME/.zimrc"
     fi
 
@@ -221,6 +262,10 @@ mod_status() {
     local end_marker="$(_zshrc_end_marker)"
     local zshenv_start_marker="$(_zshenv_start_marker)"
     local zshenv_end_marker="$(_zshenv_end_marker)"
+    local zshrc_addendum_block_file
+    zshrc_addendum_block_file="$(_zshrc_addendum_block_file 2>/dev/null || true)"
+    local zshrc_addendum_start_marker="$(_zshrc_addendum_start_marker)"
+    local zshrc_addendum_end_marker="$(_zshrc_addendum_end_marker)"
     local zimrc="$HOME/.zimrc"
     local zimrc_src="$MOD_DIR/files/.zimrc"
     local block_file="$(_zshrc_managed_block_file)"
@@ -239,6 +284,10 @@ mod_status() {
         grep -Fq "$zshenv_start_marker" "$zshenv" || missing=$(( missing + 1 ))
         grep -Fq "$zshenv_end_marker" "$zshenv" || missing=$(( missing + 1 ))
     fi
+    if [[ -n "$zshrc_addendum_block_file" && -f "$zshrc" ]]; then
+        grep -Fq "$zshrc_addendum_start_marker" "$zshrc" || missing=$(( missing + 1 ))
+        grep -Fq "$zshrc_addendum_end_marker" "$zshrc" || missing=$(( missing + 1 ))
+    fi
     if [[ -f "$zimrc" && -f "$zimrc_src" ]] && ! cmp -s "$zimrc_src" "$zimrc"; then
         drifted=$(( drifted + 1 ))
     fi
@@ -246,6 +295,9 @@ mod_status() {
         drifted=$(( drifted + 1 ))
     fi
     if [[ -f "$zshenv_block_file" ]] && _zsh::managed_zshenv_needs_update; then
+        drifted=$(( drifted + 1 ))
+    fi
+    if [[ -n "$zshrc_addendum_block_file" ]] && _zsh::managed_zshrc_addendum_needs_update; then
         drifted=$(( drifted + 1 ))
     fi
     [[ -f "$HOME/.zshenv.zwc" ]] && stale=$(( stale + 1 ))

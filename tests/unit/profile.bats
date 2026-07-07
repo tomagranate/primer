@@ -110,10 +110,13 @@ EOF
         [[ ${_mod_order[(Ie)apt]} -gt 0 ]] || { echo "missing apt"; exit 1; }
         [[ ${_mod_order[(Ie)tailscale]} -gt 0 ]] || { echo "missing tailscale"; exit 1; }
         [[ ${_mod_order[(Ie)flatpak]} -gt 0 ]] || { echo "missing flatpak"; exit 1; }
+        [[ ${_mod_order[(Ie)kde-desktop-settings]} -gt 0 ]] || { echo "missing kde-desktop-settings"; exit 1; }
         [[ ${_mod_order[(Ie)macos]} -eq 0 ]] || { echo "unexpected macos"; exit 1; }
         [[ "${_mod_deps[tailscale]}" == "apt" ]] || { echo "wrong tailscale dep"; exit 1; }
         [[ "${_mod_deps[ghostty]}" == "shell-installers" ]] || { echo "wrong ghostty dep"; exit 1; }
+        [[ "${_mod_deps[kde-desktop-settings]}" == "apt,ghostty" ]] || { echo "wrong kde-desktop-settings dep"; exit 1; }
         [[ "${_mod_config[apt.packages]}" == *"ubuntu-desktop-minimal"* ]] || { echo "missing desktop"; exit 1; }
+        [[ "${_mod_config[apt.packages]}" == *"keyd"* ]] || { echo "missing keyd"; exit 1; }
         [[ "${_mod_config[apt.packages]}" == *"docker-compose-v2"* ]] || { echo "missing compose v2"; exit 1; }
         [[ "${_mod_config[apt.packages]}" != *"docker-compose-plugin"* ]] || { echo "unexpected docker plugin package"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" != *"darkbloom"* ]] || { echo "unexpected darkbloom"; exit 1; }
