@@ -54,6 +54,12 @@ run_flatpak_module() {
     cat > "$MOCK_DIR/sudo" <<'EOF'
 #!/bin/sh
 echo "sudo $*" >> "$MOCK_LOG"
+if [ "$1" = "-n" ] && [ "$2" = "true" ]; then
+    exit 0
+fi
+if [ "$1" = "-n" ]; then
+    shift
+fi
 exec "$@"
 EOF
     chmod +x "$MOCK_DIR/sudo"
@@ -70,4 +76,27 @@ EOF
     assert_success
     run grep "flatpak install -y flathub com.spotify.Client com.discordapp.Discord" "$MOCK_LOG"
     assert_success
+}
+
+@test "flatpak: wet run fails clearly when sudo is not authenticated" {
+    cat > "$MOCK_DIR/sudo" <<'EOF'
+#!/bin/sh
+echo "sudo $*" >> "$MOCK_LOG"
+if [ "$1" = "-n" ] && [ "$2" = "true" ]; then
+    exit 1
+fi
+exit 1
+EOF
+    chmod +x "$MOCK_DIR/sudo"
+    cat > "$MOCK_DIR/flatpak" <<'EOF'
+#!/bin/sh
+echo "flatpak $*" >> "$MOCK_LOG"
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/flatpak"
+
+    run_flatpak_module "mod_update"
+    assert_failure
+    assert_output --partial "sudo authentication is required for Flatpak remotes."
+    assert_output --partial "authenticate first with: sudo -v"
 }

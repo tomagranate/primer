@@ -267,6 +267,58 @@ run() {
     fi
 }
 
+primer::sudo_validate() {
+    local reason="${1:-admin access}"
+
+    (( EUID == 0 )) && return 0
+
+    if ! command -v sudo >/dev/null 2>&1; then
+        print "sudo is required for ${reason}" >&2
+        return 1
+    fi
+
+    sudo -n true 2>/dev/null && return 0
+
+    if [[ -t 0 ]]; then
+        sudo -v && return 0
+        print "sudo authentication failed for ${reason}." >&2
+        return 1
+    fi
+
+    if [[ -e /dev/tty ]]; then
+        sudo -v </dev/tty >/dev/tty 2>/dev/tty && return 0
+        print "sudo authentication failed for ${reason}." >&2
+        return 1
+    fi
+
+    print "sudo authentication is required for ${reason}, but Primer cannot prompt in this context." >&2
+    print "Run Primer from an interactive terminal or authenticate first with: sudo -v" >&2
+    return 1
+}
+
+primer::run_as_root() {
+    local reason="${1:-admin access}"
+    shift
+
+    (( EUID == 0 )) && {
+        "$@"
+        return $?
+    }
+
+    if ! command -v sudo >/dev/null 2>&1; then
+        print "sudo is required for ${reason}" >&2
+        return 1
+    fi
+
+    if ! sudo -n true 2>/dev/null; then
+        print "sudo authentication is required for ${reason}." >&2
+        print "Run Primer from an interactive terminal or authenticate first with: sudo -v" >&2
+        return 1
+    fi
+
+    sudo -n "$@"
+}
+
 # Set the one-line status message displayed next to the module name
 primer::status_msg() {
     [[ -n "$MOD_STATUS_FILE" ]] && print -n "$1" > "$MOD_STATUS_FILE"

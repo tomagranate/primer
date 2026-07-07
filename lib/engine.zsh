@@ -1432,6 +1432,25 @@ engine::_cleanup_update() {
     return "$rc"
 }
 
+engine::_module_needs_sudo() {
+    case "$1" in
+        apt|flatpak|login-shell|touchid|xcode) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+engine::_needs_sudo() {
+    (( EUID == 0 )) && return 1
+
+    local mod
+    for mod in $_mod_order; do
+        [[ "${_state[$mod]}" == "skipped" ]] && continue
+        engine::_module_needs_sudo "$mod" && return 0
+    done
+
+    return 1
+}
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 engine::run_update() {
@@ -1468,19 +1487,11 @@ engine::run_update() {
     ENGINE_REPORT_TITLE="$title"
     ENGINE_REPORT_COLOR="$header_color"
 
-    # Pre-authenticate sudo (needed by touchid module, skip in dry-run)
-    if [[ "$DRY_RUN" != true ]]; then
-        if ! sudo -n true 2>/dev/null; then
-            if [[ -t 0 ]]; then
-                print ""
-                print "  ${C_DIM}Some steps need admin access.${C_RESET}"
-                sudo -v || true
-            elif [[ -e /dev/tty ]]; then
-                print ""
-                print "  ${C_DIM}Some steps need admin access.${C_RESET}"
-                sudo -v </dev/tty 2>/dev/null || true
-            fi
-        fi
+    # Pre-authenticate sudo before modules run in backgrounded subprocesses.
+    if [[ "$DRY_RUN" != true ]] && engine::_needs_sudo; then
+        print ""
+        print "  ${C_DIM}Some steps need admin access.${C_RESET}"
+        primer::sudo_validate "Primer setup" || return 1
     fi
 
     engine::_select_update_mode || return 1

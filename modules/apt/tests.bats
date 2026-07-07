@@ -53,6 +53,12 @@ run_apt_module() {
     cat > "$MOCK_DIR/sudo" <<'EOF'
 #!/bin/sh
 echo "sudo $*" >> "$MOCK_LOG"
+if [ "$1" = "-n" ] && [ "$2" = "true" ]; then
+    exit 0
+fi
+if [ "$1" = "-n" ]; then
+    shift
+fi
 exec "$@"
 EOF
     chmod +x "$MOCK_DIR/sudo"
@@ -74,4 +80,27 @@ EOF
     assert_success
     run grep "apt-get install -y zsh git" "$MOCK_LOG"
     assert_success
+}
+
+@test "apt: wet run fails clearly when sudo is not authenticated" {
+    cat > "$MOCK_DIR/sudo" <<'EOF'
+#!/bin/sh
+echo "sudo $*" >> "$MOCK_LOG"
+if [ "$1" = "-n" ] && [ "$2" = "true" ]; then
+    exit 1
+fi
+exit 1
+EOF
+    chmod +x "$MOCK_DIR/sudo"
+    cat > "$MOCK_DIR/apt-get" <<'EOF'
+#!/bin/sh
+echo "apt-get $*" >> "$MOCK_LOG"
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/apt-get"
+
+    run_apt_module "mod_update"
+    assert_failure
+    assert_output --partial "sudo authentication is required for APT packages."
+    assert_output --partial "authenticate first with: sudo -v"
 }

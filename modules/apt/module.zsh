@@ -6,14 +6,7 @@ _apt::packages() {
 }
 
 _apt::run_as_root() {
-    if (( EUID == 0 )); then
-        "$@"
-    elif command -v sudo >/dev/null 2>&1; then
-        sudo "$@"
-    else
-        print "sudo is required to install packages" >&2
-        return 1
-    fi
+    primer::run_as_root "APT packages" "$@"
 }
 
 _apt::installed() {
