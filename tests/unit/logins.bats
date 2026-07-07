@@ -119,6 +119,70 @@ EOF
     assert_output --partial "remaining=0"
 }
 
+@test "login selection: shell status can require gh auth and ssh protocol" {
+    local fakebin
+    fakebin="$(mktemp -d)"
+    cat > "$fakebin/gh" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  "auth status --hostname github.com") exit 0 ;;
+  "config get git_protocol --host github.com") echo ssh; exit 0 ;;
+esac
+exit 1
+EOF
+    chmod +x "$fakebin/gh"
+
+    PATH="$fakebin:$PATH" zsh_run '
+        DRY_RUN=false
+        _login_order=(github)
+        _mod_config[logins.github_label]="GitHub CLI"
+        _mod_config[logins.github_requires]=gh
+        _mod_config[logins.github_status]="gh auth status --hostname github.com && test \"$(gh config get git_protocol --host github.com 2>/dev/null)\" = ssh"
+        engine::_select_interactive_logins
+        echo "remaining=${#_login_order[@]}"
+    '
+    rm -rf "$fakebin"
+
+    assert_success
+    assert_output --partial "GitHub CLI already logged in"
+    assert_output --partial "remaining=0"
+}
+
+@test "login selection: shell status can require registered GitHub SSH key" {
+    local fakebin test_home
+    fakebin="$(mktemp -d)"
+    test_home="$(mktemp -d)"
+    mkdir -p "$test_home/.ssh"
+    cat > "$test_home/.ssh/id_ed25519.pub" <<'EOF'
+ssh-ed25519 AAAATESTKEY primer-test
+EOF
+    cat > "$fakebin/gh" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  "auth status --hostname github.com") exit 0 ;;
+  "config get git_protocol --host github.com") echo ssh; exit 0 ;;
+  "ssh-key list") echo "primer-test AAAATESTKEY"; exit 0 ;;
+esac
+exit 1
+EOF
+    chmod +x "$fakebin/gh"
+
+    PATH="$fakebin:$PATH" HOME="$test_home" zsh_run '
+        DRY_RUN=false
+        _login_order=(github)
+        _mod_config[logins.github_label]="GitHub CLI"
+        _mod_config[logins.github_requires]=gh
+        _mod_config[logins.github_status]="gh auth status --hostname github.com && test \"$(gh config get git_protocol --host github.com 2>/dev/null)\" = ssh && key_body=\"$(awk '\''NF >= 2 { print $2; exit }'\'' \"$HOME/.ssh/id_ed25519.pub\")\" && gh ssh-key list | grep -F \"$key_body\""
+        engine::_select_interactive_logins
+        echo "remaining=${#_login_order[@]}"
+    '
+    rm -rf "$fakebin" "$test_home"
+
+    assert_success
+    assert_output --partial "GitHub CLI already logged in"
+    assert_output --partial "remaining=0"
+}
+
 @test "login summary: includes already logged in targets" {
     zsh_run '
         DRY_RUN=false
@@ -141,12 +205,12 @@ EOF
         _state[ssh]=done
         _state[homebrew]=failed
         _mod_config[logins.github_label]="GitHub CLI"
-        _mod_config[logins.github_depends_on]="ssh, homebrew"
+        _mod_config[logins.github_depends_on]="ssh, git, homebrew"
         engine::_select_interactive_logins
         echo "remaining=${#_login_order[@]}"
     '
     assert_success
-    assert_output --partial "GitHub CLI unavailable (waiting on: homebrew)"
+    assert_output --partial "GitHub CLI unavailable (waiting on: git, homebrew)"
     assert_output --partial "remaining=0"
 }
 
@@ -179,13 +243,62 @@ EOF
         _mod_config[logins.github_label]="GitHub CLI"
         _mod_config[logins.github_requires]=gh
         _mod_config[logins.github_status]="gh auth status"
-        _mod_config[logins.github_command]="gh auth login"
+        _mod_config[logins.github_command]="gh auth login --hostname github.com --git-protocol ssh"
         engine::_run_interactive_logins
     '
     rm -rf "$fakebin"
 
     assert_success
     assert_output --partial "GitHub CLI already logged in"
+}
+
+@test "login runner: shell command can refresh scope and add GitHub SSH key" {
+    local fakebin test_home mock_log
+    fakebin="$(mktemp -d)"
+    test_home="$(mktemp -d)"
+    mock_log="$(mktemp)"
+    mkdir -p "$test_home/.ssh"
+    cat > "$test_home/.ssh/id_ed25519.pub" <<'EOF'
+ssh-ed25519 AAAATESTKEY primer-test
+EOF
+    cat > "$fakebin/gh" <<'EOF'
+#!/usr/bin/env bash
+echo "gh $*" >> "${MOCK_LOG:-/dev/null}"
+case "$*" in
+  "auth status --hostname github.com") exit 0 ;;
+  "auth refresh --hostname github.com --scopes admin:public_key") exit 0 ;;
+  "config set git_protocol ssh --host github.com") exit 0 ;;
+  "ssh-key list") exit 1 ;;
+  "ssh-key add "*"--title "*) exit 0 ;;
+esac
+exit 1
+EOF
+    chmod +x "$fakebin/gh"
+
+    PATH="$fakebin:$PATH" HOME="$test_home" MOCK_LOG="$mock_log" zsh_run '
+        DRY_RUN=false
+        PRIMER_TMPDIR="$(mktemp -d)"
+        _login_order=(github)
+        _login_selected[github]=true
+        _state[ssh]=done
+        _state[git]=done
+        _mod_config[logins.github_label]="GitHub CLI"
+        _mod_config[logins.github_depends_on]="ssh git"
+        _mod_config[logins.github_requires]=gh
+        _mod_config[logins.github_command]="(gh auth status --hostname github.com >/dev/null 2>&1 && gh auth refresh --hostname github.com --scopes admin:public_key || gh auth login --hostname github.com --git-protocol ssh --scopes admin:public_key) && gh config set git_protocol ssh --host github.com && key_body=\"$(awk '\''NF >= 2 { print $2; exit }'\'' \"$HOME/.ssh/id_ed25519.pub\")\" && if gh ssh-key list | grep -F \"$key_body\" >/dev/null; then echo \"SSH key already registered with GitHub.\"; else gh ssh-key add \"$HOME/.ssh/id_ed25519.pub\" --title \"$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo primer)\"; fi"
+        engine::_run_interactive_logins
+        rc=$?
+        rm -rf "$PRIMER_TMPDIR"
+        exit $rc
+    '
+    assert_success
+    run grep -q "gh auth refresh --hostname github.com --scopes admin:public_key" "$mock_log"
+    assert_success
+    run grep -q "gh config set git_protocol ssh --host github.com" "$mock_log"
+    assert_success
+    run grep -q "gh ssh-key add $test_home/.ssh/id_ed25519.pub --title" "$mock_log"
+    assert_success
+    rm -rf "$fakebin" "$test_home" "$mock_log"
 }
 
 @test "login runner: reports missing requirements" {

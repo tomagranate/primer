@@ -92,7 +92,7 @@ EOF
         [[ ${_mod_order[(Ie)homebrew]} -eq 0 ]] || { echo "unexpected homebrew"; exit 1; }
         [[ "${_mod_deps[zsh]}" == "apt" ]] || { echo "wrong zsh dep"; exit 1; }
         [[ "${_mod_deps[tailscale]}" == "apt" ]] || { echo "wrong tailscale dep"; exit 1; }
-        [[ "${_mod_config[logins.github_depends_on]}" == "ssh, apt" ]] || { echo "wrong login dep"; exit 1; }
+        [[ "${_mod_config[logins.github_depends_on]}" == "ssh, git, apt" ]] || { echo "wrong login dep"; exit 1; }
         [[ "${_mod_config[apt.packages]}" == *"docker-compose-v2"* ]] || { echo "missing compose v2"; exit 1; }
         [[ "${_mod_config[apt.packages]}" != *"docker-compose-plugin"* ]] || { echo "unexpected docker plugin package"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" != *"darkbloom"* ]] || { echo "unexpected darkbloom"; exit 1; }

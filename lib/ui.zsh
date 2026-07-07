@@ -322,6 +322,7 @@ primer::run_as_root() {
 # Set the one-line status message displayed next to the module name
 primer::status_msg() {
     [[ -n "$MOD_STATUS_FILE" ]] && print -n "$1" > "$MOD_STATUS_FILE"
+    return 0
 }
 
 # Initialise the sub-items list with every name in "pending" state.

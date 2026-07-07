@@ -259,7 +259,7 @@ engine::_missing_login_module_deps() {
 engine::_login_already_done() {
     local status_cmd="$1"
     [[ -z "$status_cmd" ]] && return 1
-    ${(z)status_cmd} >/dev/null 2>&1
+    zsh -c "$status_cmd" >/dev/null 2>&1
 }
 
 engine::_render_login_picker() {
@@ -631,19 +631,17 @@ engine::_run_login_command() {
     : > "$logfile"
     _login_log[$name]="$logfile"
 
-    local -a command_parts
-    command_parts=("${(z)command_line}")
     if [[ -t 0 ]]; then
-        "${command_parts[@]}" > >(tee "$logfile") 2> >(tee -a "$logfile" >&2)
+        zsh -c "$command_line" > >(tee "$logfile") 2> >(tee -a "$logfile" >&2)
         return $?
     fi
 
     if engine::_has_prompt_tty; then
-        "${command_parts[@]}" </dev/tty > >(tee "$logfile" >/dev/tty) 2> >(tee -a "$logfile" >/dev/tty)
+        zsh -c "$command_line" </dev/tty > >(tee "$logfile" >/dev/tty) 2> >(tee -a "$logfile" >/dev/tty)
         return $?
     fi
 
-    "${command_parts[@]}" >>"$logfile" 2>&1
+    zsh -c "$command_line" >>"$logfile" 2>&1
 }
 
 engine::_render_login_error_output() {

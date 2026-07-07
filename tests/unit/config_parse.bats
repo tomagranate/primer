@@ -216,8 +216,14 @@ EOF
         [[ "${_login_order[*]}" == "github" ]] || { echo "missing configured logins"; exit 1; }
         [[ -z "${_mod_config[logins.xcode-cli-terms_command]:-}" ]] || { echo "xcode terms should be handled by xcode module"; exit 1; }
         [[ "${_mod_config[logins.github_default]}" == "yes" ]] || { echo "missing login default"; exit 1; }
-        [[ "${_mod_config[logins.github_depends_on]}" == "ssh, homebrew" ]] || { echo "missing login module deps"; exit 1; }
-        [[ "${_mod_config[logins.github_command]}" == "gh auth login" ]] || { echo "missing login command"; exit 1; }
+        [[ "${_mod_config[logins.github_depends_on]}" == "ssh, git, homebrew" ]] || { echo "missing login module deps"; exit 1; }
+        [[ "${_mod_config[logins.github_requires]}" == "gh" ]] || { echo "missing login requirements"; exit 1; }
+        [[ "${_mod_config[logins.github_status]}" == *"gh auth status --hostname github.com"* ]] || { echo "missing login status"; exit 1; }
+        [[ "${_mod_config[logins.github_status]}" == *"git_protocol"* ]] || { echo "missing ssh protocol status"; exit 1; }
+        [[ "${_mod_config[logins.github_status]}" == *"gh ssh-key list"* ]] || { echo "missing ssh key status"; exit 1; }
+        [[ "${_mod_config[logins.github_command]}" == *"gh auth refresh --hostname github.com --scopes admin:public_key"* ]] || { echo "missing login refresh"; exit 1; }
+        [[ "${_mod_config[logins.github_command]}" == *"gh auth login --hostname github.com --git-protocol ssh --scopes admin:public_key"* ]] || { echo "missing login command"; exit 1; }
+        [[ "${_mod_config[logins.github_command]}" == *"gh ssh-key add"* ]] || { echo "missing ssh key add"; exit 1; }
         [[ "${_mod_config[homebrew.taps]}" == *"buildkite/buildkite"* ]] || { echo "missing:buildkite/buildkite"; exit 1; }
         echo "ok"
     '
