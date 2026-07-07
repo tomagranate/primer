@@ -26,6 +26,7 @@ teardown() {
     zsh_run_module zsh "mod_update"
     assert_output --partial "update managed section"
     assert_output --partial ".zshrc"
+    assert_output --partial ".zshenv"
 }
 
 @test "zsh: dry-run plans creating hushlogin" {
@@ -39,10 +40,11 @@ teardown() {
 @test "zsh: update removes stale compiled managed configs in HOME" {
     mkdir -p "$TEST_HOME/.zim"
     touch "$TEST_HOME/.zim/zimfw.zsh"
-    touch "$TEST_HOME/.zshrc.zwc" "$TEST_HOME/.zimrc.zwc"
+    touch "$TEST_HOME/.zshenv.zwc" "$TEST_HOME/.zshrc.zwc" "$TEST_HOME/.zimrc.zwc"
 
     zsh_run_module zsh "mod_update"
     assert_success
+    [ ! -e "$TEST_HOME/.zshenv.zwc" ]
     [ ! -e "$TEST_HOME/.zshrc.zwc" ]
     [ ! -e "$TEST_HOME/.zimrc.zwc" ]
 }
@@ -55,8 +57,13 @@ teardown() {
     zsh_run_module zsh "mod_update"
     assert_success
     [ -f "$TEST_HOME/.zshrc" ]
+    [ -f "$TEST_HOME/.zshenv" ]
     [ -f "$TEST_HOME/.zimrc" ]
     run grep -q "PRIMER MANAGED START (modules/zsh/files/.zshrc.managed)" "$TEST_HOME/.zshrc"
+    assert_success
+    run grep -q "PRIMER MANAGED START (modules/zsh/files/.zshenv.managed)" "$TEST_HOME/.zshenv"
+    assert_success
+    run grep -q "^skip_global_compinit=1$" "$TEST_HOME/.zshenv"
     assert_success
 }
 
@@ -81,6 +88,29 @@ EOF
     assert_failure
 }
 
+@test "zsh: update preserves user zshenv lines outside managed section" {
+    mkdir -p "$TEST_HOME/.zim"
+    touch "$TEST_HOME/.zim/zimfw.zsh"
+    cat > "$TEST_HOME/.zshenv" <<'EOF'
+export USER_ZSHENV_VALUE=1
+# >>> PRIMER MANAGED START (modules/zsh/files/.zshenv.managed) >>>
+old content should be replaced
+# <<< PRIMER MANAGED END (modules/zsh/files/.zshenv.managed) <<<
+export USER_ZSHENV_AFTER=1
+EOF
+
+    zsh_run_module zsh "mod_update"
+    assert_success
+    run grep -q "^export USER_ZSHENV_VALUE=1$" "$TEST_HOME/.zshenv"
+    assert_success
+    run grep -q "^export USER_ZSHENV_AFTER=1$" "$TEST_HOME/.zshenv"
+    assert_success
+    run grep -q "^skip_global_compinit=1$" "$TEST_HOME/.zshenv"
+    assert_success
+    run grep -q "old content should be replaced" "$TEST_HOME/.zshenv"
+    assert_failure
+}
+
 @test "zsh: mod_status reports not installed when Zim is missing" {
     zsh_run_module zsh "mod_status"
     assert_failure
@@ -102,6 +132,27 @@ EOF
         { print }
     ' "$TEST_HOME/.zshrc" > "$TEST_HOME/.zshrc.tmp"
     mv "$TEST_HOME/.zshrc.tmp" "$TEST_HOME/.zshrc"
+
+    zsh_run_module zsh "mod_status"
+    assert_failure
+}
+
+@test "zsh: mod_status fails when managed zshenv section is drifted" {
+    mkdir -p "$TEST_HOME/.zim"
+    touch "$TEST_HOME/.zim/zimfw.zsh"
+    zsh_run_module zsh "mod_update"
+    assert_success
+
+    awk '
+        /PRIMER MANAGED START/ && !inserted {
+            print
+            print "# drifted line"
+            inserted=1
+            next
+        }
+        { print }
+    ' "$TEST_HOME/.zshenv" > "$TEST_HOME/.zshenv.tmp"
+    mv "$TEST_HOME/.zshenv.tmp" "$TEST_HOME/.zshenv"
 
     zsh_run_module zsh "mod_status"
     assert_failure
