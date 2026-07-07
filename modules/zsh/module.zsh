@@ -5,6 +5,10 @@ _zshrc_managed_block_file() {
     print "$MOD_DIR/files/.zshrc.managed"
 }
 
+_zshenv_managed_block_file() {
+    print "$MOD_DIR/files/.zshenv.managed"
+}
+
 _zshrc_start_marker() {
     print "# >>> PRIMER MANAGED START (modules/zsh/files/.zshrc.managed) >>>"
 }
@@ -13,16 +17,24 @@ _zshrc_end_marker() {
     print "# <<< PRIMER MANAGED END (modules/zsh/files/.zshrc.managed) <<<"
 }
 
-_zsh::managed_zshrc_needs_update() {
-    local zshrc="$HOME/.zshrc"
-    local block_file="$(_zshrc_managed_block_file)"
-    local start_marker="$(_zshrc_start_marker)"
-    local end_marker="$(_zshrc_end_marker)"
+_zshenv_start_marker() {
+    print "# >>> PRIMER MANAGED START (modules/zsh/files/.zshenv.managed) >>>"
+}
+
+_zshenv_end_marker() {
+    print "# <<< PRIMER MANAGED END (modules/zsh/files/.zshenv.managed) <<<"
+}
+
+_zsh::managed_file_needs_update() {
+    local target="$1"
+    local block_file="$2"
+    local start_marker="$3"
+    local end_marker="$4"
     local extracted
     extracted="$(mktemp)"
 
     # Missing files definitely need an update.
-    if [[ ! -f "$zshrc" || ! -f "$block_file" ]]; then
+    if [[ ! -f "$target" || ! -f "$block_file" ]]; then
         rm -f "$extracted"
         return 0
     fi
@@ -37,7 +49,7 @@ _zsh::managed_zshrc_needs_update() {
         END {
             if (!(saw_start && saw_end)) exit 2
         }
-    ' "$zshrc" > "$extracted" 2>/dev/null
+    ' "$target" > "$extracted" 2>/dev/null
     local awk_rc=$?
     if (( awk_rc != 0 )); then
         rm -f "$extracted"
@@ -52,6 +64,22 @@ _zsh::managed_zshrc_needs_update() {
     return 0
 }
 
+_zsh::managed_zshrc_needs_update() {
+    _zsh::managed_file_needs_update \
+        "$HOME/.zshrc" \
+        "$(_zshrc_managed_block_file)" \
+        "$(_zshrc_start_marker)" \
+        "$(_zshrc_end_marker)"
+}
+
+_zsh::managed_zshenv_needs_update() {
+    _zsh::managed_file_needs_update \
+        "$HOME/.zshenv" \
+        "$(_zshenv_managed_block_file)" \
+        "$(_zshenv_start_marker)" \
+        "$(_zshenv_end_marker)"
+}
+
 _zsh::zim_modules_need_sync() {
     local zim_home="$HOME/.zim"
     [[ -f "$zim_home/zimfw.zsh" ]] || return 0
@@ -62,15 +90,15 @@ _zsh::zim_modules_need_sync() {
     return 0
 }
 
-_upsert_managed_zshrc_section() {
-    local zshrc="$HOME/.zshrc"
-    local block_file="$(_zshrc_managed_block_file)"
-    local start_marker="$(_zshrc_start_marker)"
-    local end_marker="$(_zshrc_end_marker)"
-    local tmp="${zshrc}.tmp.$$"
+_zsh::upsert_managed_section() {
+    local target="$1"
+    local block_file="$2"
+    local start_marker="$3"
+    local end_marker="$4"
+    local tmp="${target}.tmp.$$"
 
-    if [[ ! -f "$zshrc" ]]; then
-        cp "$block_file" "$zshrc"
+    if [[ ! -f "$target" ]]; then
+        cp "$block_file" "$target"
         return 0
     fi
 
@@ -106,23 +134,41 @@ _upsert_managed_zshrc_section() {
                 printf "%s", block
             }
         }
-    ' "$zshrc" > "$tmp"
-    mv "$tmp" "$zshrc"
+    ' "$target" > "$tmp"
+    mv "$tmp" "$target"
+}
+
+_upsert_managed_zshrc_section() {
+    _zsh::upsert_managed_section \
+        "$HOME/.zshrc" \
+        "$(_zshrc_managed_block_file)" \
+        "$(_zshrc_start_marker)" \
+        "$(_zshrc_end_marker)"
+}
+
+_upsert_managed_zshenv_section() {
+    _zsh::upsert_managed_section \
+        "$HOME/.zshenv" \
+        "$(_zshenv_managed_block_file)" \
+        "$(_zshenv_start_marker)" \
+        "$(_zshenv_end_marker)"
 }
 
 mod_update() {
-    primer::status_msg "updating ~/.zshrc managed section..."
+    primer::status_msg "updating zsh managed sections..."
     if [[ "$DRY_RUN" == true ]]; then
         echo "[dry-run] update managed section in $HOME/.zshrc"
+        echo "[dry-run] update managed section in $HOME/.zshenv"
         echo "[dry-run] copy $MOD_DIR/files/.zimrc -> $HOME/.zimrc"
     else
+        _upsert_managed_zshenv_section
         _upsert_managed_zshrc_section
         cp "$MOD_DIR/files/.zimrc" "$HOME/.zimrc"
     fi
 
     # Remove stale compiled managed configs so zsh reads fresh source files.
     local stale_zwc
-    for stale_zwc in "$HOME/.zshrc.zwc" "$HOME/.zimrc.zwc"; do
+    for stale_zwc in "$HOME/.zshenv.zwc" "$HOME/.zshrc.zwc" "$HOME/.zimrc.zwc"; do
         if [[ "$DRY_RUN" == true ]]; then
             echo "[dry-run] rm -f $stale_zwc"
         else
@@ -163,24 +209,35 @@ mod_update() {
         fi
         primer::status_msg "installed"
     fi
+
+    return 0
 }
 
 mod_status() {
     local missing=0 drifted=0 stale=0
     local zshrc="$HOME/.zshrc"
+    local zshenv="$HOME/.zshenv"
     local start_marker="$(_zshrc_start_marker)"
     local end_marker="$(_zshrc_end_marker)"
+    local zshenv_start_marker="$(_zshenv_start_marker)"
+    local zshenv_end_marker="$(_zshenv_end_marker)"
     local zimrc="$HOME/.zimrc"
     local zimrc_src="$MOD_DIR/files/.zimrc"
     local block_file="$(_zshrc_managed_block_file)"
+    local zshenv_block_file="$(_zshenv_managed_block_file)"
     local hushlogin="$HOME/.hushlogin"
 
     [[ -f "$zimrc" ]] || missing=$(( missing + 1 ))
     [[ -f "$zshrc" ]] || missing=$(( missing + 1 ))
+    [[ -f "$zshenv" ]] || missing=$(( missing + 1 ))
     [[ -f "$hushlogin" ]] || missing=$(( missing + 1 ))
     if [[ -f "$zshrc" ]]; then
         grep -Fq "$start_marker" "$zshrc" || missing=$(( missing + 1 ))
         grep -Fq "$end_marker" "$zshrc" || missing=$(( missing + 1 ))
+    fi
+    if [[ -f "$zshenv" ]]; then
+        grep -Fq "$zshenv_start_marker" "$zshenv" || missing=$(( missing + 1 ))
+        grep -Fq "$zshenv_end_marker" "$zshenv" || missing=$(( missing + 1 ))
     fi
     if [[ -f "$zimrc" && -f "$zimrc_src" ]] && ! cmp -s "$zimrc_src" "$zimrc"; then
         drifted=$(( drifted + 1 ))
@@ -188,6 +245,10 @@ mod_status() {
     if [[ -f "$block_file" ]] && _zsh::managed_zshrc_needs_update; then
         drifted=$(( drifted + 1 ))
     fi
+    if [[ -f "$zshenv_block_file" ]] && _zsh::managed_zshenv_needs_update; then
+        drifted=$(( drifted + 1 ))
+    fi
+    [[ -f "$HOME/.zshenv.zwc" ]] && stale=$(( stale + 1 ))
     [[ -f "$HOME/.zshrc.zwc" ]] && stale=$(( stale + 1 ))
     [[ -f "$HOME/.zimrc.zwc" ]] && stale=$(( stale + 1 ))
 
