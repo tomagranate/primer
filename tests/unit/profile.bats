@@ -101,6 +101,9 @@ EOF
         [[ "${_mod_config[shell-installers.installers]}" != *"darkbloom"* ]] || { echo "unexpected darkbloom"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" == *"shell: sh"* ]] || { echo "missing sh installer shell"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" == *"args: -y -b \$HOME/.local/bin"* ]] || { echo "missing user-local starship"; exit 1; }
+        [[ "${_mod_config[shell-installers.installers]}" == *"name: opencode"* ]] || { echo "missing opencode"; exit 1; }
+        [[ "${_mod_config[shell-installers.installers]}" == *"url: https://opencode.ai/install"* ]] || { echo "missing opencode installer"; exit 1; }
+        [[ "${_mod_config[shell-installers.installers]}" == *"args: --no-modify-path"* ]] || { echo "missing opencode args"; exit 1; }
         echo "ok"
     '
     assert_success
@@ -129,6 +132,9 @@ EOF
         [[ "${_mod_config[shell-installers.installers]}" == *"shell: sh"* ]] || { echo "missing sh installer shell"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" == *"args: -y -b \$HOME/.local/bin"* ]] || { echo "missing user-local starship"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" == *"privileged: true"* ]] || { echo "missing privileged installer"; exit 1; }
+        [[ "${_mod_config[shell-installers.installers]}" == *"name: opencode"* ]] || { echo "missing opencode"; exit 1; }
+        [[ "${_mod_config[shell-installers.installers]}" == *"check: opencode --version"* ]] || { echo "missing opencode check"; exit 1; }
+        [[ "${_mod_config[shell-installers.installers]}" == *"args: --no-modify-path"* ]] || { echo "missing opencode args"; exit 1; }
         echo "ok"
     '
     assert_success
