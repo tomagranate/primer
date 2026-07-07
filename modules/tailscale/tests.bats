@@ -48,6 +48,11 @@ run_tailscale_module() {
 }
 
 @test "tailscale: wet run pipes official installer through sudo sh" {
+    cat > "$MOCK_DIR/tailscale" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+    chmod +x "$MOCK_DIR/tailscale"
     cat > "$MOCK_DIR/sudo" <<'EOF'
 #!/bin/sh
 echo "sudo $*" >> "$MOCK_LOG"
@@ -65,6 +70,7 @@ EOF
 echo "curl $*" >> "$MOCK_LOG"
 cat <<'SCRIPT'
 #!/bin/sh
+rm -f "$MOCK_DIR/tailscale"
 mkdir -p "$TEST_HOME/bin"
 cat > "$TEST_HOME/bin/tailscale" <<'TAILSCALE'
 #!/bin/sh
@@ -104,6 +110,12 @@ EOF
 }
 
 @test "tailscale: mod_status fails when tailscale is missing" {
+    cat > "$MOCK_DIR/tailscale" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+    chmod +x "$MOCK_DIR/tailscale"
+
     run_tailscale_module "mod_status"
     assert_failure
 }

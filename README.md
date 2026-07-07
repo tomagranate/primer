@@ -61,6 +61,7 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | --- | --- | --- |
 | **apt** | -- | Installs configured Debian/Ubuntu packages for VPS profiles |
 | **flatpak** | apt | Installs explicitly configured Flatpak apps |
+| **npm-global** | mise | Installs configured global npm CLIs |
 | **login-shell** | zsh | Changes the user's login shell to zsh when possible |
 | **xcode-cli-tools** | -- | Installs Xcode Command Line Tools and waits for the installer dialog to be accepted |
 | **shell-installers** | xcode-cli-tools | Installs configured tools from remote shell installers |
@@ -217,6 +218,15 @@ tools =
     node:lts
     python:3.12
     bun:latest
+
+[npm-global]
+label = Global npm CLIs
+depends_on = mise
+packages =
+    - name: t3
+      package: t3@latest
+      command: t3
+      check: t3 --version
 
 [git]
 label = Git CLI
