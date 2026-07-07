@@ -15,6 +15,8 @@ load 'helpers/common'
     assert_success
     assert_output --partial "APT packages"
     assert_output --partial "sudo apt-get install -y"
+    assert_output --partial "docker-compose-v2"
+    refute_output --partial "docker-compose-plugin"
 }
 
 @test "primer update --dry-run supports ubuntu-desktop profile" {
@@ -23,6 +25,9 @@ load 'helpers/common'
     assert_success
     assert_output --partial "APT packages"
     assert_output --partial "ubuntu-desktop-minimal"
+    assert_output --partial "docker-compose-v2"
+    refute_output --partial "docker-compose-plugin"
+    refute_output --partial "tailscale"
     assert_output --partial "Flatpak apps"
 }
 
