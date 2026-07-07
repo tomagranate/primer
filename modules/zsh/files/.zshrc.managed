@@ -68,9 +68,6 @@ rgf() {
       --bind 'enter:become(code {1})'
 }
 
-# ---- Keybindings ----
-bindkey '\ew' backward-kill-line  # cmd-backspace
-
 # ---- pnpm ----
 if [[ "$(uname -s 2>/dev/null)" == Darwin ]]; then
   export PNPM_HOME="$HOME/Library/pnpm"

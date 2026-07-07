@@ -12,6 +12,7 @@ setup() {
 }
 
 teardown() {
+    unset PRIMER_PROFILE
     rm -rf "$TEST_HOME" "$MOCK_LOG"
 }
 
@@ -108,6 +109,53 @@ EOF
     run grep -q "^skip_global_compinit=1$" "$TEST_HOME/.zshenv"
     assert_success
     run grep -q "old content should be replaced" "$TEST_HOME/.zshenv"
+    assert_failure
+}
+
+@test "zsh: ubuntu-desktop profile writes zshrc addendum" {
+    export PRIMER_PROFILE=ubuntu-desktop
+    mkdir -p "$TEST_HOME/.zim"
+    touch "$TEST_HOME/.zim/zimfw.zsh"
+
+    zsh_run_module zsh "mod_update"
+    assert_success
+
+    run grep -q "PRIMER MANAGED START (modules/zsh/files/zshrc-addenda/ubuntu-desktop.zsh)" "$TEST_HOME/.zshrc"
+    assert_success
+    run grep -q "bindkey '\\^W' backward-kill-word" "$TEST_HOME/.zshrc"
+    assert_success
+    run grep -q "bindkey '\\\\ew' backward-kill-line" "$TEST_HOME/.zshrc"
+    assert_failure
+}
+
+@test "zsh: mac profile writes only mac zshrc addendum" {
+    export PRIMER_PROFILE=mac
+    mkdir -p "$TEST_HOME/.zim"
+    touch "$TEST_HOME/.zim/zimfw.zsh"
+
+    zsh_run_module zsh "mod_update"
+    assert_success
+
+    run grep -q "PRIMER MANAGED START (modules/zsh/files/zshrc-addenda/mac.zsh)" "$TEST_HOME/.zshrc"
+    assert_success
+    run grep -q "zshrc-addenda/ubuntu-desktop.zsh" "$TEST_HOME/.zshrc"
+    assert_failure
+    run grep -q "bindkey '\\^W' backward-kill-word" "$TEST_HOME/.zshrc"
+    assert_failure
+    run grep -q "bindkey '\\\\ew' backward-kill-line" "$TEST_HOME/.zshrc"
+    assert_success
+}
+
+@test "zsh: mod_status fails when profile zshrc addendum is drifted" {
+    export PRIMER_PROFILE=ubuntu-desktop
+    mkdir -p "$TEST_HOME/.zim"
+    touch "$TEST_HOME/.zim/zimfw.zsh"
+    zsh_run_module zsh "mod_update"
+    assert_success
+
+    sed -i 's/backward-kill-word/backward-delete-char/' "$TEST_HOME/.zshrc"
+
+    zsh_run_module zsh "mod_status"
     assert_failure
 }
 
