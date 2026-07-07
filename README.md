@@ -1,6 +1,6 @@
 # primer
 
-Modular, DAG-based machine setup for macOS, Ubuntu VPSs, and Ubuntu Budgie desktops. One command to install everything, with parallel execution and a rich terminal UI.
+Modular, DAG-based machine setup for macOS, Ubuntu VPSs, and Ubuntu desktops. One command to install everything, with parallel execution and a rich terminal UI.
 
 ## Quick Start
 
@@ -33,7 +33,7 @@ primer <command> [options]
 - `--dry-run` - preview changes without applying them (valid with `update`)
 - `--skip <module>` - skip a module by name; repeatable (valid with `update`)
 - `--only <module>` - run only one module; repeatable (valid with `update`)
-- `--profile <name>` - force a profile (`mac`, `linux-vps`, `ubuntu-budgie`)
+- `--profile <name>` - force a profile (`mac`, `linux-vps`, `ubuntu-desktop`)
 - `--tui` - force alternate-screen terminal UI (valid with `update`)
 - `--log` - force plain log output
 - `--help` - show help text
@@ -46,7 +46,7 @@ primer update
 primer update --dry-run
 primer update --skip mac-app-store
 primer update --profile linux-vps
-primer update --profile ubuntu-budgie
+primer update --profile ubuntu-desktop
 primer status
 primer --help
 primer -h
@@ -85,7 +85,7 @@ Each module is a **self-contained folder** that owns its config files, scripts, 
 ├── primer.conf                   # Legacy macOS aggregate config
 ├── configs/
 │   ├── common.conf               # Shared user-level config
-│   └── profiles/                 # mac, linux-vps, ubuntu-budgie fragments
+│   └── profiles/                 # mac, linux-vps, ubuntu-desktop fragments
 ├── lib/
 │   ├── engine.zsh                # Ready-queue DAG executor + INI parser
 │   └── ui.zsh                    # Terminal UI (spinners, boxes, colors, helpers)
@@ -154,13 +154,13 @@ Primer auto-detects the profile when it can:
 
 - `mac` on macOS
 - `linux-vps` on Debian/Ubuntu without a desktop session
-- `ubuntu-budgie` on Ubuntu with a Budgie desktop session
+- `ubuntu-desktop` on Ubuntu with a desktop session
 
 For ambiguous Linux machines, interactive runs prompt and default to `linux-vps`. Non-interactive runs should pass `--profile` or set `PRIMER_PROFILE`.
 
 ```sh
 primer update --profile linux-vps
-PRIMER_PROFILE=ubuntu-budgie primer status
+PRIMER_PROFILE=ubuntu-desktop primer status
 ```
 
 ## Configuration

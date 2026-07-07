@@ -17,12 +17,12 @@ load 'helpers/common'
     assert_output --partial "sudo apt-get install -y"
 }
 
-@test "primer update --dry-run supports ubuntu-budgie profile" {
+@test "primer update --dry-run supports ubuntu-desktop profile" {
     export PRIMER_LOCAL="$PRIMER_DIR"
-    run zsh "$PRIMER_DIR/bin/primer" update --dry-run --log --profile ubuntu-budgie
+    run zsh "$PRIMER_DIR/bin/primer" update --dry-run --log --profile ubuntu-desktop
     assert_success
     assert_output --partial "APT packages"
-    assert_output --partial "ubuntu-budgie-desktop"
+    assert_output --partial "ubuntu-desktop-minimal"
     assert_output --partial "Flatpak apps"
 }
 

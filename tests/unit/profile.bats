@@ -49,7 +49,7 @@ EOF
     assert_output "linux-vps"
 }
 
-@test "profile: Ubuntu Budgie detects ubuntu-budgie" {
+@test "profile: Ubuntu desktop detects ubuntu-desktop" {
     cat > "$TEST_OS_RELEASE" <<'EOF'
 ID=ubuntu
 ID_LIKE=debian
@@ -58,12 +58,12 @@ EOF
         export PRIMER_SOURCE_ONLY=1
         export PRIMER_TEST_UNAME=Linux
         export PRIMER_OS_RELEASE_FILE='$TEST_OS_RELEASE'
-        export XDG_CURRENT_DESKTOP=Budgie:GNOME
+        export XDG_CURRENT_DESKTOP=ubuntu:GNOME
         source '$PRIMER_DIR/bin/primer'
         primer::detect_profile
     "
     assert_success
-    assert_output "ubuntu-budgie"
+    assert_output "ubuntu-desktop"
 }
 
 @test "profile: ambiguous non-interactive Linux fails clearly" {
@@ -97,14 +97,14 @@ EOF
     assert_output "ok"
 }
 
-@test "profile: ubuntu-budgie config includes apt and desktop app modules" {
+@test "profile: ubuntu-desktop config includes apt and desktop app modules" {
     zsh_run '
-        engine::load_config "$PRIMER_DIR/configs/common.conf" "$PRIMER_DIR/configs/profiles/ubuntu-budgie.conf"
+        engine::load_config "$PRIMER_DIR/configs/common.conf" "$PRIMER_DIR/configs/profiles/ubuntu-desktop.conf"
         [[ ${_mod_order[(Ie)apt]} -gt 0 ]] || { echo "missing apt"; exit 1; }
         [[ ${_mod_order[(Ie)flatpak]} -gt 0 ]] || { echo "missing flatpak"; exit 1; }
         [[ ${_mod_order[(Ie)macos]} -eq 0 ]] || { echo "unexpected macos"; exit 1; }
         [[ "${_mod_deps[ghostty]}" == "shell-installers" ]] || { echo "wrong ghostty dep"; exit 1; }
-        [[ "${_mod_config[apt.packages]}" == *"ubuntu-budgie-desktop"* ]] || { echo "missing budgie desktop"; exit 1; }
+        [[ "${_mod_config[apt.packages]}" == *"ubuntu-desktop-minimal"* ]] || { echo "missing desktop"; exit 1; }
         echo "ok"
     '
     assert_success

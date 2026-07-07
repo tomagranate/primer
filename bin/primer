@@ -85,7 +85,7 @@ Flags:
   --dry-run         Preview changes without applying them (update only)
   --skip <module>   Skip a module by name; repeatable (update only)
   --only <module>   Run only this module; repeatable (update only)
-  --profile <name>  Force profile: mac, linux-vps, ubuntu-budgie
+  --profile <name>  Force profile: mac, linux-vps, ubuntu-desktop
   --tui             Force alternate-screen terminal UI (update only)
   --log             Force plain log output
   --help            Show this help message
@@ -109,7 +109,7 @@ EOF
 
 primer::profile_valid() {
     case "$1" in
-        mac|linux-vps|ubuntu-budgie) return 0 ;;
+        mac|linux-vps|ubuntu-desktop) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -145,9 +145,9 @@ primer::os_release_value() {
     ' "$file"
 }
 
-primer::linux_budgie_desktop() {
+primer::linux_desktop() {
     local desktop="${XDG_CURRENT_DESKTOP:-${DESKTOP_SESSION:-}}"
-    [[ "${desktop:l}" == *budgie* ]]
+    [[ -n "$desktop" ]]
 }
 
 primer::linux_vps_signal() {
@@ -175,7 +175,7 @@ primer::prompt_linux_profile() {
     answer="${answer:l}"
     case "$answer" in
         ""|y|yes) print linux-vps ;;
-        n|no) print ubuntu-budgie ;;
+        n|no) print ubuntu-desktop ;;
         *) print linux-vps ;;
     esac
 }
@@ -187,7 +187,7 @@ primer::detect_profile() {
             return 0
         fi
         print "Unknown profile: $PRIMER_PROFILE" >&2
-        print "Valid profiles: mac, linux-vps, ubuntu-budgie" >&2
+        print "Valid profiles: mac, linux-vps, ubuntu-desktop" >&2
         return 1
     fi
 
@@ -201,8 +201,8 @@ primer::detect_profile() {
         Linux)
             id="$(primer::os_release_value ID 2>/dev/null || true)"
             id_like="$(primer::os_release_value ID_LIKE 2>/dev/null || true)"
-            if [[ "${id:l}" == ubuntu ]] && primer::linux_budgie_desktop; then
-                print ubuntu-budgie
+            if [[ "${id:l}" == ubuntu ]] && primer::linux_desktop; then
+                print ubuntu-desktop
                 return 0
             fi
             if primer::linux_vps_signal "$id" "$id_like"; then
@@ -214,7 +214,7 @@ primer::detect_profile() {
                 return 0
             fi
             print "Could not infer Linux profile non-interactively." >&2
-            print "Run with --profile linux-vps or --profile ubuntu-budgie." >&2
+            print "Run with --profile linux-vps or --profile ubuntu-desktop." >&2
             return 1
             ;;
         *)
