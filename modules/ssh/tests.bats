@@ -38,6 +38,7 @@ teardown() {
 }
 
 @test "ssh: mod_update creates key and configures keychain-backed ssh config" {
+    export PRIMER_PROFILE=mac
     zsh_run_module ssh "mod_update"
     assert_success
     [ -f "$TEST_HOME/.ssh/id_ed25519" ]

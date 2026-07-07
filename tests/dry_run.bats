@@ -28,7 +28,7 @@ load 'helpers/common'
 
 @test "primer update --log streams plain output without TUI escapes" {
     export PRIMER_LOCAL="$PRIMER_DIR"
-    run zsh "$PRIMER_DIR/bin/primer" update --dry-run --log --only ghostty
+    run zsh "$PRIMER_DIR/bin/primer" update --dry-run --log --profile mac --only ghostty
     assert_success
     assert_output --partial "Streaming setup logs"
     assert_output --partial "==> Ghostty terminal"
@@ -66,7 +66,7 @@ EOF
     chmod +x "$fakebin/script"
 
     export PRIMER_LOCAL="$PRIMER_DIR"
-    PATH="$fakebin:$PATH" run zsh "$PRIMER_DIR/bin/primer" update --dry-run --only ghostty
+    PATH="$fakebin:$PATH" run zsh "$PRIMER_DIR/bin/primer" update --dry-run --profile mac --only ghostty
     rm -rf "$fakebin"
 
     assert_success
