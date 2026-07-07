@@ -72,6 +72,29 @@ EOF
     assert_success
 }
 
+@test "primer update does not run sudo modules through script" {
+    local fakebin
+    fakebin="$(mktemp -d)"
+    cat > "$fakebin/script" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "--version" ]]; then
+    echo "script from util-linux"
+    exit 0
+fi
+echo "script should not wrap sudo modules" >&2
+exit 64
+EOF
+    chmod +x "$fakebin/script"
+
+    export PRIMER_LOCAL="$PRIMER_DIR"
+    PATH="$fakebin:$PATH" run zsh "$PRIMER_DIR/bin/primer" update --dry-run --log --profile linux-vps --only apt
+    rm -rf "$fakebin"
+
+    assert_success
+    assert_output --partial "APT packages"
+    refute_output --partial "script should not wrap sudo modules"
+}
+
 @test "primer status runs without crashing" {
     export PRIMER_LOCAL="$PRIMER_DIR"
     run zsh "$PRIMER_DIR/bin/primer" status

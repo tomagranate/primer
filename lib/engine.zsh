@@ -846,7 +846,9 @@ EOF
         export HOMEBREW_NO_ENV_HINTS=1
         export NONINTERACTIVE=1
 
-        if command -v script >/dev/null 2>&1; then
+        if engine::_module_needs_sudo "$mod"; then
+            zsh "$runner" >"$logfile" 2>&1
+        elif command -v script >/dev/null 2>&1; then
             if script --version >/dev/null 2>&1; then
                 script -q -e -c "zsh ${(q)runner}" "$logfile" </dev/null >/dev/null 2>&1
             else
