@@ -14,6 +14,21 @@ _apt::installed() {
     dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -q "install ok installed"
 }
 
+_apt::satisfied() {
+    local package="$1"
+    _apt::installed "$package" && return 0
+
+    # Docker's upstream compose plugin and Ubuntu's compose v2 package install
+    # the same Docker CLI plugin path. Either package provides `docker compose`.
+    if [[ "$package" == "docker-compose-v2" ]] &&
+        _apt::installed docker-compose-plugin &&
+        docker compose version >/dev/null 2>&1; then
+        return 0
+    fi
+
+    return 1
+}
+
 mod_update() {
     local packages=($(_apt::packages))
     primer::items_init "${packages[@]}"
@@ -41,11 +56,23 @@ mod_update() {
     primer::status_msg "updating package index..."
     _apt::run_as_root apt-get update || return 1
 
-    primer::status_msg "installing packages..."
-    if _apt::run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages[@]}"; then
-        local package
+    local install_packages=() package
+    for package in "${packages[@]}"; do
+        _apt::satisfied "$package" || install_packages+=("$package")
+    done
+
+    if (( ${#install_packages[@]} == 0 )); then
         for package in "${packages[@]}"; do
-            if _apt::installed "$package"; then
+            primer::item_update "$package" "done"
+        done
+        primer::status_msg "packages installed"
+        return 0
+    fi
+
+    primer::status_msg "installing packages..."
+    if _apt::run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y "${install_packages[@]}"; then
+        for package in "${packages[@]}"; do
+            if _apt::satisfied "$package"; then
                 primer::item_update "$package" "done"
             else
                 primer::item_update "$package" "failed" "not installed"
@@ -67,7 +94,7 @@ mod_status() {
 
     local missing=0 package
     for package in $(_apt::packages); do
-        _apt::installed "$package" || missing=$(( missing + 1 ))
+        _apt::satisfied "$package" || missing=$(( missing + 1 ))
     done
 
     if (( missing == 0 )); then

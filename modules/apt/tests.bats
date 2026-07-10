@@ -70,7 +70,7 @@ EOF
     chmod +x "$MOCK_DIR/apt-get"
     cat > "$MOCK_DIR/dpkg-query" <<'EOF'
 #!/bin/sh
-exit 0
+exit 1
 EOF
     chmod +x "$MOCK_DIR/dpkg-query"
 
@@ -80,6 +80,92 @@ EOF
     assert_success
     run grep "apt-get install -y zsh git" "$MOCK_LOG"
     assert_success
+}
+
+@test "apt: wet run skips packages already satisfied" {
+    cat > "$MOCK_DIR/sudo" <<'EOF'
+#!/bin/sh
+echo "sudo $*" >> "$MOCK_LOG"
+if [ "$1" = "-n" ] && [ "$2" = "true" ]; then
+    exit 0
+fi
+if [ "$1" = "-n" ]; then
+    shift
+fi
+exec "$@"
+EOF
+    chmod +x "$MOCK_DIR/sudo"
+    cat > "$MOCK_DIR/apt-get" <<'EOF'
+#!/bin/sh
+echo "apt-get $*" >> "$MOCK_LOG"
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/apt-get"
+    cat > "$MOCK_DIR/dpkg-query" <<'EOF'
+#!/bin/sh
+echo "install ok installed"
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/dpkg-query"
+
+    run_apt_module "mod_update"
+    assert_success
+    run grep "apt-get update" "$MOCK_LOG"
+    assert_success
+    run grep "apt-get install" "$MOCK_LOG"
+    assert_failure
+}
+
+@test "apt: docker compose plugin satisfies Ubuntu compose v2 package" {
+    cat > "$TEST_CONF" <<'EOF'
+[apt]
+label = APT packages
+packages =
+    docker.io
+    docker-compose-v2
+EOF
+    cat > "$MOCK_DIR/sudo" <<'EOF'
+#!/bin/sh
+echo "sudo $*" >> "$MOCK_LOG"
+if [ "$1" = "-n" ] && [ "$2" = "true" ]; then
+    exit 0
+fi
+if [ "$1" = "-n" ]; then
+    shift
+fi
+exec "$@"
+EOF
+    chmod +x "$MOCK_DIR/sudo"
+    cat > "$MOCK_DIR/apt-get" <<'EOF'
+#!/bin/sh
+echo "apt-get $*" >> "$MOCK_LOG"
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/apt-get"
+    cat > "$MOCK_DIR/dpkg-query" <<'EOF'
+#!/bin/sh
+case "$*" in
+    *docker.io*|*docker-compose-plugin*)
+        echo "install ok installed"
+        exit 0
+        ;;
+    *) exit 1 ;;
+esac
+EOF
+    chmod +x "$MOCK_DIR/dpkg-query"
+    cat > "$MOCK_DIR/docker" <<'EOF'
+#!/bin/sh
+if [ "$1" = "compose" ] && [ "$2" = "version" ]; then
+    exit 0
+fi
+exit 1
+EOF
+    chmod +x "$MOCK_DIR/docker"
+
+    run_apt_module "mod_update"
+    assert_success
+    run grep "apt-get install" "$MOCK_LOG"
+    assert_failure
 }
 
 @test "apt: wet run fails clearly when sudo is not authenticated" {
