@@ -88,15 +88,25 @@ EOF
         engine::load_config "$PRIMER_DIR/configs/common.conf" "$PRIMER_DIR/configs/profiles/linux-vps.conf"
         [[ ${_mod_order[(Ie)git]} -gt 0 ]] || { echo "missing git"; exit 1; }
         [[ ${_mod_order[(Ie)apt]} -gt 0 ]] || { echo "missing apt"; exit 1; }
+        [[ ${_mod_order[(Ie)github-cli]} -gt 0 ]] || { echo "missing github-cli"; exit 1; }
         [[ ${_mod_order[(Ie)tailscale]} -gt 0 ]] || { echo "missing tailscale"; exit 1; }
+        [[ ${_mod_order[(Ie)managed-settings]} -gt 0 ]] || { echo "missing managed-settings"; exit 1; }
         [[ ${_mod_order[(Ie)homebrew]} -eq 0 ]] || { echo "unexpected homebrew"; exit 1; }
         [[ "${_mod_deps[zsh]}" == "apt" ]] || { echo "wrong zsh dep"; exit 1; }
         [[ "${_mod_deps[tailscale]}" == "apt" ]] || { echo "wrong tailscale dep"; exit 1; }
+        [[ "${_mod_deps[github-cli]}" == "apt" ]] || { echo "wrong github-cli dep"; exit 1; }
+        [[ "${_mod_deps[managed-settings]}" == "shell-installers" ]] || { echo "wrong managed-settings dep"; exit 1; }
         [[ "${_login_order[*]}" == "github tailscale" ]] || { echo "wrong login order"; exit 1; }
-        [[ "${_mod_config[logins.github_depends_on]}" == "ssh, git, apt" ]] || { echo "wrong login dep"; exit 1; }
+        [[ "${_mod_config[logins.github_depends_on]}" == "ssh, git, github-cli" ]] || { echo "wrong github login dep"; exit 1; }
         [[ "${_mod_config[logins.tailscale_depends_on]}" == "tailscale" ]] || { echo "wrong tailscale login dep"; exit 1; }
-        [[ "${_mod_config[logins.tailscale_command]}" == "sudo tailscale up" ]] || { echo "wrong tailscale login command"; exit 1; }
+        [[ "${_mod_config[logins.tailscale_requires]}" == "tailscale jq" ]] || { echo "wrong tailscale requirements"; exit 1; }
+        [[ "${_mod_config[logins.tailscale_status]}" == *"OperatorUser"* ]] || { echo "missing tailscale operator status"; exit 1; }
+        [[ "${_mod_config[logins.tailscale_command]}" == *"sudo tailscale set --operator"* ]] || { echo "wrong tailscale login command"; exit 1; }
+        [[ "${_mod_config[managed-settings.json]}" == *"permissions.defaultMode"* ]] || { echo "missing claude settings"; exit 1; }
+        [[ "${_mod_config[managed-settings.toml]}" == *"sandbox_mode|\"danger-full-access\""* ]] || { echo "missing codex settings"; exit 1; }
         [[ "${_mod_config[apt.packages]}" == *"docker-compose-v2"* ]] || { echo "missing compose v2"; exit 1; }
+        apt_packages=($=_mod_config[apt.packages])
+        [[ ${apt_packages[(Ie)gh]} -eq 0 ]] || { echo "unexpected distro gh package"; exit 1; }
         [[ "${_mod_config[apt.packages]}" != *"docker-compose-plugin"* ]] || { echo "unexpected docker plugin package"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" != *"darkbloom"* ]] || { echo "unexpected darkbloom"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" == *"shell: sh"* ]] || { echo "missing sh installer shell"; exit 1; }
@@ -114,19 +124,29 @@ EOF
     zsh_run '
         engine::load_config "$PRIMER_DIR/configs/common.conf" "$PRIMER_DIR/configs/profiles/ubuntu-desktop.conf"
         [[ ${_mod_order[(Ie)apt]} -gt 0 ]] || { echo "missing apt"; exit 1; }
+        [[ ${_mod_order[(Ie)github-cli]} -gt 0 ]] || { echo "missing github-cli"; exit 1; }
         [[ ${_mod_order[(Ie)tailscale]} -gt 0 ]] || { echo "missing tailscale"; exit 1; }
         [[ ${_mod_order[(Ie)flatpak]} -gt 0 ]] || { echo "missing flatpak"; exit 1; }
+        [[ ${_mod_order[(Ie)managed-settings]} -gt 0 ]] || { echo "missing managed-settings"; exit 1; }
         [[ ${_mod_order[(Ie)kde-desktop-settings]} -gt 0 ]] || { echo "missing kde-desktop-settings"; exit 1; }
         [[ ${_mod_order[(Ie)macos]} -eq 0 ]] || { echo "unexpected macos"; exit 1; }
         [[ "${_mod_deps[tailscale]}" == "apt" ]] || { echo "wrong tailscale dep"; exit 1; }
+        [[ "${_mod_deps[github-cli]}" == "apt" ]] || { echo "wrong github-cli dep"; exit 1; }
         [[ "${_mod_deps[ghostty]}" == "shell-installers" ]] || { echo "wrong ghostty dep"; exit 1; }
+        [[ "${_mod_deps[managed-settings]}" == "shell-installers" ]] || { echo "wrong managed-settings dep"; exit 1; }
         [[ "${_mod_deps[kde-desktop-settings]}" == "apt,ghostty" ]] || { echo "wrong kde-desktop-settings dep"; exit 1; }
         [[ "${_login_order[*]}" == "github tailscale" ]] || { echo "wrong login order"; exit 1; }
+        [[ "${_mod_config[logins.github_depends_on]}" == "ssh, git, github-cli" ]] || { echo "wrong github login dep"; exit 1; }
         [[ "${_mod_config[logins.tailscale_depends_on]}" == "tailscale" ]] || { echo "wrong tailscale login dep"; exit 1; }
-        [[ "${_mod_config[logins.tailscale_status]}" == "tailscale status >/dev/null 2>&1" ]] || { echo "wrong tailscale login status"; exit 1; }
+        [[ "${_mod_config[logins.tailscale_requires]}" == "tailscale jq" ]] || { echo "wrong tailscale requirements"; exit 1; }
+        [[ "${_mod_config[logins.tailscale_status]}" == *"OperatorUser"* ]] || { echo "wrong tailscale login status"; exit 1; }
+        [[ "${_mod_config[logins.tailscale_command]}" == *"sudo tailscale set --operator"* ]] || { echo "wrong tailscale login command"; exit 1; }
+        [[ "${_mod_config[managed-settings.json]}" == *"opencode/opencode.jsonc|permission|\"allow\""* ]] || { echo "missing opencode settings"; exit 1; }
         [[ "${_mod_config[apt.packages]}" == *"ubuntu-desktop-minimal"* ]] || { echo "missing desktop"; exit 1; }
         [[ "${_mod_config[apt.packages]}" == *"keyd"* ]] || { echo "missing keyd"; exit 1; }
         [[ "${_mod_config[apt.packages]}" == *"docker-compose-v2"* ]] || { echo "missing compose v2"; exit 1; }
+        apt_packages=($=_mod_config[apt.packages])
+        [[ ${apt_packages[(Ie)gh]} -eq 0 ]] || { echo "unexpected distro gh package"; exit 1; }
         [[ "${_mod_config[apt.packages]}" != *"docker-compose-plugin"* ]] || { echo "unexpected docker plugin package"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" != *"darkbloom"* ]] || { echo "unexpected darkbloom"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" == *"shell: sh"* ]] || { echo "missing sh installer shell"; exit 1; }
@@ -145,6 +165,8 @@ EOF
     zsh_run '
         engine::load_config "$PRIMER_DIR/configs/common.conf" "$PRIMER_DIR/configs/profiles/mac.conf"
         [[ "${_mod_config[shell-installers.installers]}" == *"darkbloom"* ]] || { echo "missing darkbloom"; exit 1; }
+        [[ ${_mod_order[(Ie)managed-settings]} -gt 0 ]] || { echo "missing managed-settings"; exit 1; }
+        [[ "${_mod_deps[managed-settings]}" == "homebrew-apps" ]] || { echo "wrong managed-settings dep"; exit 1; }
         echo "ok"
     '
     assert_success

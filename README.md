@@ -62,7 +62,9 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | **apt** | -- | Installs configured Debian/Ubuntu packages for VPS profiles |
 | **flatpak** | apt | Installs explicitly configured Flatpak apps |
 | **helium-browser** | apt | Installs Helium Browser from the official Linux apt repository |
+| **github-cli** | apt | Installs GitHub CLI from GitHub's official apt repository |
 | **npm-global** | mise | Installs configured global npm CLIs |
+| **managed-settings** | shell-installers/homebrew-apps | Applies configured JSON/TOML user settings, including AI CLI permission defaults |
 | **login-shell** | zsh | Changes the user's login shell to zsh when possible |
 | **xcode-cli-tools** | -- | Installs Xcode Command Line Tools and waits for the installer dialog to be accepted |
 | **shell-installers** | xcode-cli-tools | Installs configured tools from remote shell installers |
@@ -165,7 +167,7 @@ primer update --profile linux-vps
 PRIMER_PROFILE=ubuntu-desktop primer status
 ```
 
-Linux profiles install Tailscale through a dedicated `tailscale` module using Tailscale's official Linux installer, because the `tailscale` package is not part of Ubuntu's default apt repositories.
+Linux profiles install Tailscale through a dedicated `tailscale` module using Tailscale's official Linux installer, because the `tailscale` package is not part of Ubuntu's default apt repositories. They also install GitHub CLI through the `github-cli` module using GitHub's official apt repository, because the Ubuntu `gh` package can lag current CLI features.
 
 ## Configuration
 
@@ -248,8 +250,10 @@ Interactive logins are configured in `[logins]` and run after installation
 finishes. `*_depends_on` names Primer modules that must complete first,
 `*_requires` names commands that must exist, `*_status` detects whether the
 account is already logged in, and `*_command` starts the login flow.
-Linux profiles also use this flow for Tailscale, running `sudo tailscale up`
-after the Tailscale module installs the client.
+Linux profiles also use this flow for Tailscale. After the Tailscale module
+installs the client, Primer runs `sudo tailscale up` when the machine is not
+connected and then `sudo tailscale set --operator="$USER"` so local tools such
+as T3 Code can configure Tailscale Serve without requiring sudo.
 
 ```ini
 [logins]
