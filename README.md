@@ -75,6 +75,7 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | **macos** | homebrew-apps | Applies macOS defaults and configures the Dock |
 | **zsh** | homebrew | Updates managed section in ~/.zshrc, manages ~/.zimrc, installs Zim |
 | **starship** | homebrew | Deploys starship.toml to ~/.config/ |
+| **agents** | homebrew / apt | Installs `agents` CLI, clones/pulls private `agents-home` into ~/.agents, runs `agents sync` |
 | **mise** | homebrew | Installs language runtimes (Node, Python, Bun) |
 | **ssh** | xcode-cli-tools | Creates an SSH key and configures macOS keychain-backed agent support |
 | **touchid** | -- | Enables Touch ID for sudo |
@@ -112,6 +113,8 @@ Each module is a **self-contained folder** that owns its config files, scripts, 
 │   ├── starship/
 │   │   ├── module.zsh
 │   │   └── files/                # starship.toml
+│   ├── agents/
+│   │   └── module.zsh            # agents CLI + private agents-home (~/.agents)
 │   ├── mise/
 │   │   └── module.zsh            # Installs tools from config via mise use --global
 │   ├── touchid/
