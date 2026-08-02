@@ -6,7 +6,7 @@ set -eo pipefail
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 export REPO_URL="https://github.com/tomagranate/primer"
-export REPO_RAW="https://raw.githubusercontent.com/tomagranate/primer/main"
+export REPO_RAW="https://raw.githubusercontent.com/tomagranate/primer/master"
 export CONFIG_DIR="$HOME/.config"
 export ZSH_CONFIG_DIR="$CONFIG_DIR/zsh"
 export BIN_DIR="$HOME/bin"
@@ -22,14 +22,50 @@ typeset -g PRIMER_PROFILE="${PRIMER_PROFILE:-}"
 
 primer::download_framework() {
     local cache="$HOME/.cache/primer"
-    mkdir -p "$cache"
+    local staging previous=""
+
+    mkdir -p "${cache:h}"
+
+    # Extract into a fresh directory. This drops files deleted upstream.
+    if ! staging="$(mktemp -d "${cache}.new.XXXXXX" 2>/dev/null)"; then
+        print "  ✗  Failed to download primer framework" >&2
+        print "     Could not create a staging directory in ${cache:h}." >&2
+        return 1
+    fi
 
     # Download the entire repo as a tarball and extract
-    if ! curl -fsSL "$REPO_URL/archive/refs/heads/main.tar.gz" \
-        | tar -xzf - -C "$cache" --strip-components=1 2>/dev/null; then
+    if ! curl -fsSL "$REPO_URL/archive/refs/heads/master.tar.gz" \
+        | tar -xzf - -C "$staging" --strip-components=1 2>/dev/null; then
+        rm -rf "$staging"
         print "  ✗  Failed to download primer framework" >&2
         print "     Check your internet connection and try again." >&2
         return 1
+    fi
+
+    # Swap the new copy in. Keep the old copy until the swap succeeds.
+    if [[ -e "$cache" ]]; then
+        previous="${cache}.old.$$"
+        rm -rf "$previous"
+        if ! mv "$cache" "$previous"; then
+            rm -rf "$staging"
+            print "  ✗  Failed to download primer framework" >&2
+            print "     Could not replace: $cache" >&2
+            return 1
+        fi
+    fi
+
+    if ! mv "$staging" "$cache"; then
+        if [[ -n "$previous" ]]; then
+            mv "$previous" "$cache" 2>/dev/null || true
+        fi
+        rm -rf "$staging"
+        print "  ✗  Failed to download primer framework" >&2
+        print "     Could not replace: $cache" >&2
+        return 1
+    fi
+
+    if [[ -n "$previous" ]]; then
+        rm -rf "$previous"
     fi
 
     PRIMER_DIR="$cache"

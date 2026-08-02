@@ -5,13 +5,13 @@ Modular, DAG-based machine setup for macOS, Ubuntu VPSs, and Ubuntu desktops. On
 ## Quick Start
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/tomagranate/primer/main/setup.sh | sh
+curl -fsSL https://raw.githubusercontent.com/tomagranate/primer/master/setup.sh | sh
 ```
 
 Preview what would happen without making changes:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/tomagranate/primer/main/setup.sh | sh -s -- --dry-run
+curl -fsSL https://raw.githubusercontent.com/tomagranate/primer/master/setup.sh | sh -s -- --dry-run
 ```
 
 ## Commands and Options
@@ -356,7 +356,7 @@ PRIMER_LOCAL=$PWD zsh ./bin/primer status
 To test the published bootstrap flow instead of your local changes:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/tomagranate/primer/main/setup.sh | sh
+curl -fsSL https://raw.githubusercontent.com/tomagranate/primer/master/setup.sh | sh
 ```
 
 Reset to a clean slate with `tart delete primer-test` and re-clone.
