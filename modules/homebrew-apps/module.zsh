@@ -32,6 +32,16 @@ _homebrew_apps::is_lock_error() {
     [[ "$output" == *"has already locked"* || "$output" == *"Another active Homebrew process"* ]]
 }
 
+_homebrew_apps::is_recoverable_cask_error() {
+    local output="$1"
+    [[ "$output" == *"It seems there is already an App at"* \
+        || "$output" == *"Failed to unquarantine"* \
+        || "$output" == *"failed to unquarantine"* \
+        || "$output" == *"Failed to remove attr"* \
+        || "$output" == *"remove attr due to error"* \
+        || "$output" == *"already an application at"* ]]
+}
+
 _homebrew_apps::run_with_lock_retry() {
     local output_var="$1"
     shift
@@ -58,43 +68,94 @@ _homebrew_apps::run_with_lock_retry() {
     done
 }
 
+# Resolve app path inside the worker (subshell-safe; does not rely on parent locals).
+_homebrew_apps::resolved_app_path() {
+    local item="$1"
+    local applications_dir="${PRIMER_APPLICATIONS_DIR:-/Applications}"
+    local map_entry cask_key app_path
+
+    while IFS= read -r map_entry; do
+        [[ -z "$map_entry" ]] && continue
+        cask_key="${map_entry%%:*}"
+        app_path="${map_entry#*:}"
+        [[ "$cask_key" == "$item" ]] || continue
+        if [[ "$app_path" == /* ]]; then
+            print -r -- "$app_path"
+        else
+            print -r -- "${applications_dir}/${app_path}"
+        fi
+        return 0
+    done <<< "$(mod_config app_paths)"
+
+    print -r -- "${applications_dir}/$(_homebrew_apps::guess_app_bundle_name "$item")"
+}
+
+_homebrew_apps::app_present() {
+    local item="$1"
+    local path
+    path="$(_homebrew_apps::resolved_app_path "$item")"
+    [[ -d "$path" ]]
+}
+
 _homebrew_apps::install_cask_item() {
     local item="$1"
+    local resolved_app_path
+    resolved_app_path="$(_homebrew_apps::resolved_app_path "$item")"
+
     if [[ "$DRY_RUN" == true ]]; then
-        echo "[dry-run] brew install --cask $item"
+        echo "[dry-run] brew install --cask --no-quarantine $item"
         primer::parallel_item_result "done"
-    elif ! (( ${installed_casks[(I)$item]} )); then
-        local guessed_bundle="$(_homebrew_apps::guess_app_bundle_name "$item")"
-        local resolved_app_path="${cask_app_path[$item]:-${applications_dir}/${guessed_bundle}}"
+        return 0
+    fi
+
+    # Prefer explicit path check over brew list — covers manual installs and
+    # partial cask installs that left the .app in /Applications.
+    if ! brew list --cask "$item" >/dev/null 2>&1; then
         if [[ -d "$resolved_app_path" ]]; then
             primer::parallel_item_result "skipped" "already installed outside brew cask"
             return 0
         fi
 
         local install_output=""
-        if HOMEBREW_NO_COLOR=1 _homebrew_apps::run_with_lock_retry install_output brew install --quiet --cask "$item"; then
+        # --no-quarantine avoids Gatekeeper attr races that break some installers
+        # (e.g. Private Internet Access vpn-installer.sh unquarantine step).
+        if HOMEBREW_NO_COLOR=1 _homebrew_apps::run_with_lock_retry install_output \
+            brew install --quiet --cask --no-quarantine "$item"; then
             primer::parallel_item_result "done"
-        else
-            print -r -- "$install_output"
-            if [[ "$install_output" == *"It seems there is already an App at"* ]]; then
-                primer::parallel_item_result "skipped" "already installed outside brew cask"
-            else
-                primer::parallel_item_result "failed" "$(_homebrew_apps::first_line "$install_output")"
-                return 1
+            return 0
+        fi
+
+        print -r -- "$install_output"
+
+        # Installer may have copied the app before failing (quarantine/unquarantine).
+        if [[ -d "$resolved_app_path" ]] || _homebrew_apps::is_recoverable_cask_error "$install_output"; then
+            if [[ -d "$resolved_app_path" ]]; then
+                primer::parallel_item_result "skipped" "app present after install error"
+                return 0
             fi
         fi
-    elif (( ${outdated_casks[(I)$item]} )); then
-        local upgrade_output=""
-        if HOMEBREW_NO_COLOR=1 _homebrew_apps::run_with_lock_retry upgrade_output brew upgrade --quiet --cask "$item"; then
-            primer::parallel_item_result "done"
-        else
-            print -r -- "$upgrade_output"
-            primer::parallel_item_result "failed" "$(_homebrew_apps::first_line "$upgrade_output")"
-            return 1
-        fi
-    else
-        primer::parallel_item_result "done"
+
+        primer::parallel_item_result "failed" "$(_homebrew_apps::first_line "$install_output")"
+        return 1
     fi
+
+    if brew outdated --cask --quiet "$item" 2>/dev/null | grep -qx "$item"; then
+        local upgrade_output=""
+        if HOMEBREW_NO_COLOR=1 _homebrew_apps::run_with_lock_retry upgrade_output \
+            brew upgrade --quiet --cask --no-quarantine "$item"; then
+            primer::parallel_item_result "done"
+            return 0
+        fi
+        print -r -- "$upgrade_output"
+        if [[ -d "$resolved_app_path" ]]; then
+            primer::parallel_item_result "skipped" "app present; upgrade failed"
+            return 0
+        fi
+        primer::parallel_item_result "failed" "$(_homebrew_apps::first_line "$upgrade_output")"
+        return 1
+    fi
+
+    primer::parallel_item_result "done"
 }
 
 mod_update() {
@@ -104,32 +165,13 @@ mod_update() {
     primer::items_init "${casks[@]}"
     local applications_dir="${PRIMER_APPLICATIONS_DIR:-/Applications}"
 
-    # Batch-query installed/outdated state upfront — much faster than per-item brew calls
-    local installed_casks=()
-    local outdated_casks=()
-    local -A cask_app_path
-    local map_entry cask_key app_path
-    while IFS= read -r map_entry; do
-        [[ -z "$map_entry" ]] && continue
-        cask_key="${map_entry%%:*}"
-        app_path="${map_entry#*:}"
-        [[ -z "$cask_key" || -z "$app_path" ]] && continue
-        if [[ "$app_path" == /* ]]; then
-            cask_app_path[$cask_key]="$app_path"
-        else
-            cask_app_path[$cask_key]="${applications_dir}/${app_path}"
-        fi
-    done <<< "$(mod_config app_paths)"
-    if [[ "$DRY_RUN" != true ]]; then
-        primer::status_msg "checking apps..."
-        installed_casks=( $(brew list --cask 2>/dev/null) )
-        outdated_casks=(  $(brew outdated --cask --quiet 2>/dev/null) )
-    fi
-
+    # Workers resolve app paths themselves (subshell-safe). Avoid relying on
+    # parent locals inside primer::parallel_items.
     local any_failed=false
     local any_warnings=false
     local warning_count=0
     local cask_jobs="${PRIMER_MAC_APPS_JOBS:-2}"
+    primer::status_msg "installing apps..."
     primer::parallel_items "$cask_jobs" "installing apps" _homebrew_apps::install_cask_item "${casks[@]}" \
         || any_failed=true
 
