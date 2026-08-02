@@ -175,7 +175,7 @@ mod_update() {
     primer::parallel_items "$cask_jobs" "installing apps" _homebrew_apps::install_cask_item "${casks[@]}" \
         || any_failed=true
 
-    warning_count=$(grep -c '^skipped:' "$MOD_ITEMS_FILE" 2>/dev/null || true)
+    warning_count=$(grep -c $'^skipped\t' "$MOD_ITEMS_FILE" 2>/dev/null || true)
     (( warning_count > 0 )) && any_warnings=true
 
     if $any_failed; then

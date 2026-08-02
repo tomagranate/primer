@@ -122,7 +122,7 @@ EOF
     export PRIMER_HOMEBREW_LOCK_RETRY_DELAY=0.01
     run_homebrew_with_conf "mod_update"
     assert_success
-    run grep "done:alpha" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\talpha')" "$MOD_ITEMS_FILE"
     assert_success
 }
 
@@ -131,7 +131,7 @@ EOF
     export MOCK_BREW_LOCK_STATE_DIR="$TEST_HOME/trust"
     run_homebrew_with_conf "mod_update"
     assert_success
-    run grep "done:alpha" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\talpha')" "$MOD_ITEMS_FILE"
     assert_success
     run grep -c "brew trust owner/tap" "$MOCK_LOG"
     assert_success
@@ -157,11 +157,11 @@ EOF
 @test "homebrew: items file contains all packages as done after wet run" {
     run_homebrew_with_conf "mod_update"
     assert_success
-    run grep "done:alpha" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\talpha')" "$MOD_ITEMS_FILE"
     assert_success
-    run grep "done:bravo" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\tbravo')" "$MOD_ITEMS_FILE"
     assert_success
-    run grep "done:owner/tap" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\towner/tap')" "$MOD_ITEMS_FILE"
     assert_success
 }
 
@@ -201,9 +201,9 @@ EOF
     export MOCK_BREW_INSTALLED_FORMULAE="alpha bravo"
     run_homebrew_with_conf "mod_update"
     assert_success
-    run grep "done:alpha" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\talpha')" "$MOD_ITEMS_FILE"
     assert_success
-    run grep "done:bravo" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\tbravo')" "$MOD_ITEMS_FILE"
     assert_success
 }
 
@@ -256,7 +256,7 @@ EOF
     export MOCK_BREW_FAIL_OUTPUT="Warning: brew reported failure after installing alpha"
     run_homebrew_with_conf "mod_update"
     assert_success
-    run grep "done:alpha" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\talpha')" "$MOD_ITEMS_FILE"
     assert_success
     refute_output --partial "Warning: brew reported failure after installing alpha"
 }
@@ -265,7 +265,7 @@ EOF
     export MOCK_BREW_FAIL_PACKAGES="alpha"
     run_homebrew_with_conf "mod_update"
     assert_failure
-    run grep "failed:alpha" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'failed\talpha')" "$MOD_ITEMS_FILE"
     assert_success
 }
 
@@ -275,7 +275,7 @@ EOF
     export MOCK_BREW_FAIL_PACKAGES="alpha"
     run_homebrew_with_conf "mod_update"
     assert_failure
-    run grep "failed:alpha" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'failed\talpha')" "$MOD_ITEMS_FILE"
     assert_success
 }
 

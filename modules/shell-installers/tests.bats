@@ -79,7 +79,7 @@ run_shell_installers_with_conf() {
     assert_failure
     run grep "curl -fsSL https://api.darkbloom.dev/install.sh" "$MOCK_LOG"
     assert_success
-    run grep "failed:darkbloom:check failed" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'failed\tdarkbloom\tcheck failed')" "$MOD_ITEMS_FILE"
     assert_success
 }
 

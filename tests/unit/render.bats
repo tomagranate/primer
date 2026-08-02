@@ -34,7 +34,7 @@ _render_with_items() {
 }
 
 @test "render: active modules show pending sub-items" {
-    _render_with_items $'pending:waiting-pkg\nrunning:active-pkg\n'
+    _render_with_items $'pending\twaiting-pkg\nrunning\tactive-pkg\n'
     assert_success
     [[ "$output" == *"active-pkg"* ]] || {
         echo "Expected active-pkg in output: $output"; false
@@ -45,7 +45,7 @@ _render_with_items() {
 }
 
 @test "render: active modules show done sub-items" {
-    _render_with_items $'done:finished-pkg\nrunning:active-pkg\n'
+    _render_with_items $'done\tfinished-pkg\nrunning\tactive-pkg\n'
     assert_success
     [[ "$output" == *"active-pkg"* ]] || {
         echo "Expected active-pkg in output: $output"; false
@@ -56,7 +56,7 @@ _render_with_items() {
 }
 
 @test "render: failed sub-items are shown in frame" {
-    _render_with_items $'failed:broken-pkg\nrunning:active-pkg\n'
+    _render_with_items $'failed\tbroken-pkg\nrunning\tactive-pkg\n'
     assert_success
     [[ "$output" == *"broken-pkg"* ]] || {
         echo "Expected broken-pkg in output: $output"; false
@@ -67,7 +67,7 @@ _render_with_items() {
 }
 
 @test "render: done modules hide sub-items before final render" {
-    printf 'done:some-pkg\npending:waiting-pkg\nskipped:warn-pkg:already installed outside brew cask\n' > "${TEST_ITEMS_DIR}/fake-mod.items"
+    printf 'done\tsome-pkg\npending\twaiting-pkg\nskipped\twarn-pkg\talready installed outside brew cask\n' > "${TEST_ITEMS_DIR}/fake-mod.items"
 
     run zsh -c "
         export PRIMER_DIR='${PRIMER_DIR}'
@@ -95,11 +95,11 @@ _render_with_items() {
 
 @test "render: live active sub-items are clipped to viewport" {
     {
-        printf 'running:item-01\n'
-        printf 'pending:item-02\n'
-        printf 'pending:item-03\n'
-        printf 'pending:item-04\n'
-        printf 'pending:item-05\n'
+        printf 'running\titem-01\n'
+        printf 'pending\titem-02\n'
+        printf 'pending\titem-03\n'
+        printf 'pending\titem-04\n'
+        printf 'pending\titem-05\n'
     } > "${TEST_ITEMS_DIR}/fake-mod.items"
 
     run zsh -c "
@@ -149,11 +149,11 @@ _render_with_items() {
 
 @test "render: clipped live sub-items prioritize running items" {
     {
-        printf 'pending:item-01\n'
-        printf 'pending:item-02\n'
-        printf 'done:item-03\n'
-        printf 'running:item-04\n'
-        printf 'pending:item-05\n'
+        printf 'pending\titem-01\n'
+        printf 'pending\titem-02\n'
+        printf 'done\titem-03\n'
+        printf 'running\titem-04\n'
+        printf 'pending\titem-05\n'
     } > "${TEST_ITEMS_DIR}/fake-mod.items"
 
     run zsh -c "
@@ -183,7 +183,7 @@ _render_with_items() {
 }
 
 @test "render: final render shows resolved sub-items for completed modules" {
-    printf 'done:some-pkg\npending:waiting-pkg\nskipped:warn-pkg:already installed outside brew cask\n' > "${TEST_ITEMS_DIR}/fake-mod.items"
+    printf 'done\tsome-pkg\npending\twaiting-pkg\nskipped\twarn-pkg\talready installed outside brew cask\n' > "${TEST_ITEMS_DIR}/fake-mod.items"
 
     run zsh -c "
         export PRIMER_DIR='${PRIMER_DIR}'
@@ -225,7 +225,7 @@ _render_with_items() {
         _start[fake-mod]=\$EPOCHREALTIME
 
         _state[fake-mod]=running
-        printf 'running:one\npending:two\npending:three\n' > '${TEST_ITEMS_DIR}/fake-mod.items'
+        printf 'running\tone\npending\ttwo\npending\tthree\n' > '${TEST_ITEMS_DIR}/fake-mod.items'
         engine::_render
 
         _state[fake-mod]=done
@@ -245,8 +245,38 @@ _render_with_items() {
     }
 }
 
+@test "render: item names and details may contain colons" {
+    # The items protocol uses tabs, so a colon is ordinary text. Write the file
+    # through the public helpers, then render it, to cover writer and reader.
+    run zsh -c "
+        export PRIMER_DIR='${PRIMER_DIR}'
+        export COLUMNS=80
+        export MOD_ITEMS_FILE='${TEST_ITEMS_DIR}/fake-mod.items'
+        source \"\$PRIMER_DIR/lib/ui.zsh\"
+        source \"\$PRIMER_DIR/lib/engine.zsh\"
+        PRIMER_TMPDIR='${TEST_ITEMS_DIR}'
+        primer::items_init 'node:lts' 'python:3.12'
+        primer::item_update 'node:lts' done 'installed: 22.1'
+        _mod_order=(fake-mod)
+        _mod_desc[fake-mod]='Fake Module'
+        _state[fake-mod]=running
+        _start[fake-mod]=\$EPOCHREALTIME
+        engine::_render
+    "
+    assert_success
+    [[ "$output" == *"node:lts"* ]] || {
+        echo "Expected colon item name in output: $output"; false
+    }
+    [[ "$output" == *"python:3.12"* ]] || {
+        echo "Expected pending colon item name in output: $output"; false
+    }
+    [[ "$output" == *"installed: 22.1"* ]] || {
+        echo "Expected colon detail in output: $output"; false
+    }
+}
+
 @test "render: does not print local declaration noise" {
-    _render_with_items $'running:active-pkg\nfailed:broken-pkg\n'
+    _render_with_items $'running\tactive-pkg\nfailed\tbroken-pkg\n'
     assert_success
     [[ "$output" != *"item_state='"* ]] || {
         echo "Did not expect local declaration output for item_state: $output"; false
@@ -284,7 +314,7 @@ _render_with_items() {
     # Simulate: first render with 1 sub-item (frame N+1 lines), second render
     # with module done and no sub-item (frame N lines). The second render must
     # emit a \e[2K blank-line to erase the orphaned sub-item line.
-    printf 'running:active-pkg\n' > "${TEST_ITEMS_DIR}/fake-mod.items"
+    printf 'running\tactive-pkg\n' > "${TEST_ITEMS_DIR}/fake-mod.items"
 
     run zsh -c "
         export PRIMER_DIR='${PRIMER_DIR}'

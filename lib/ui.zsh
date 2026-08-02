@@ -256,6 +256,15 @@ ui::error_box() {
     printf '  %s%s%s\n' "$color" "$bar" "$C_RESET"
 }
 
+# ── Terminal Checks ───────────────────────────────────────────────────────────
+
+# Can Primer read a key or a prompt answer from a terminal?
+primer::has_prompt_tty() {
+    [[ -t 0 ]] && return 0
+    [[ -e /dev/tty ]] || return 1
+    ( : </dev/tty >/dev/tty ) 2>/dev/null
+}
+
 # ── Module Helpers (available inside module subshells) ────────────────────────
 
 # Execute a command, or print it in dry-run mode
@@ -319,20 +328,39 @@ primer::run_as_root() {
     sudo -n "$@"
 }
 
-# Set the one-line status message displayed next to the module name
+# Set the one-line status message displayed next to the module name.
+# Write a temp file, then move it over the target. A move on one filesystem is
+# atomic, so a concurrent reader always sees the old text or the new text.
+# A plain redirect truncates first, which lets a reader see an empty file.
 primer::status_msg() {
-    [[ -n "$MOD_STATUS_FILE" ]] && print -n "$1" > "$MOD_STATUS_FILE"
+    [[ -z "$MOD_STATUS_FILE" ]] && return 0
+    local tmp="${MOD_STATUS_FILE}.tmp.$$"
+    if print -n "$1" > "$tmp" 2>/dev/null; then
+        mv -f "$tmp" "$MOD_STATUS_FILE" 2>/dev/null || rm -f "$tmp"
+    else
+        rm -f "$tmp"
+    fi
     return 0
 }
+
+# ── Sub-item Protocol ─────────────────────────────────────────────────────────
+#
+# The sub-items file holds one item per line: "state<TAB>name<TAB>detail".
+# The detail field is optional. A tab separates the fields and a newline
+# separates the records, so names and details may contain any other character,
+# including a colon. Writers clean both separators out of every field.
+# engine::_build_module_item_lines in lib/render.zsh reads this format.
 
 # Initialise the sub-items list with every name in "pending" state.
 # Call once before the install loop begins.
 # Usage: primer::items_init name1 name2 ...
 primer::items_init() {
     [[ -z "$MOD_ITEMS_FILE" ]] && return
-    local name
+    local name clean
     for name in "$@"; do
-        printf 'pending:%s\n' "$name"
+        clean="${name//$'\r'/}"
+        clean="${clean//[$'\t\n']/ }"
+        printf 'pending\t%s\n' "$clean"
     done > "$MOD_ITEMS_FILE"
 }
 
@@ -342,32 +370,38 @@ primer::items_init() {
 primer::item_update() {
     [[ -z "$MOD_ITEMS_FILE" || ! -f "$MOD_ITEMS_FILE" ]] && return
     local name="$1" state="$2" detail="${3:-}"
+    # Clean the name the same way items_init did, so the match still works.
+    name="${name//$'\r'/}"
+    name="${name//[$'\t\n']/ }"
+    detail="${detail//$'\r'/}"
+    detail="${detail//[$'\t\n']/ }"
     local tmp="${MOD_ITEMS_FILE}.tmp.$$"
-    while IFS=: read -r s n d; do
+    while IFS=$'\t' read -r s n d; do
         if [[ "$n" == "$name" ]]; then
             if [[ -n "$detail" ]]; then
-                printf '%s:%s:%s\n' "$state" "$name" "$detail"
+                printf '%s\t%s\t%s\n' "$state" "$name" "$detail"
             else
-                printf '%s:%s\n' "$state" "$name"
+                printf '%s\t%s\n' "$state" "$name"
             fi
         else
             if [[ -n "$d" ]]; then
-                printf '%s:%s:%s\n' "$s" "$n" "$d"
+                printf '%s\t%s\t%s\n' "$s" "$n" "$d"
             else
-                printf '%s:%s\n' "$s" "$n"
+                printf '%s\t%s\n' "$s" "$n"
             fi
         fi
     done < "$MOD_ITEMS_FILE" > "$tmp"
     mv "$tmp" "$MOD_ITEMS_FILE"
 }
 
+# Report the outcome of one parallel worker: "state<TAB>detail".
 primer::parallel_item_result() {
     [[ -z "${PRIMER_ITEM_RESULT_FILE:-}" ]] && return 1
     local state="$1" detail="${2:-}"
     detail="${detail//$'\r'/}"
-    detail="${detail//:/ -}"
+    detail="${detail//[$'\t\n']/ }"
     if [[ -n "$detail" ]]; then
-        printf '%s:%s\n' "$state" "$detail" > "$PRIMER_ITEM_RESULT_FILE"
+        printf '%s\t%s\n' "$state" "$detail" > "$PRIMER_ITEM_RESULT_FILE"
     else
         printf '%s\n' "$state" > "$PRIMER_ITEM_RESULT_FILE"
     fi
@@ -440,7 +474,7 @@ primer::parallel_items() {
             state=""
             detail=""
             if [[ -s "$result" ]]; then
-                IFS=: read -r state detail < "$result"
+                IFS=$'\t' read -r state detail < "$result"
             fi
             if [[ -z "$state" ]]; then
                 state="failed"
@@ -483,7 +517,12 @@ ensure_brew() {
 # Usage: mod_config <key>
 mod_config() {
     local raw="${_mod_config[${MOD_NAME}.$1]}"
-    print "$raw" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$'
+    local line
+    while IFS= read -r line; do
+        line="${line#"${line%%[![:space:]]*}"}"
+        line="${line%"${line##*[![:space:]]}"}"
+        [[ -n "$line" ]] && print -r -- "$line"
+    done <<< "$raw"
 }
 
 # ── File Deployment Helpers ──────────────────────────────────────────────────

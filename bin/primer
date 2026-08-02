@@ -143,11 +143,19 @@ EOF
 
 # ── Profile Detection ────────────────────────────────────────────────────────
 
+# List the profile names that have a config file on disk.
+primer::available_profiles() {
+    local file
+    for file in "$PRIMER_DIR"/configs/profiles/*.conf(N); do
+        print -r -- "${${file:t}%.conf}"
+    done
+}
+
+# A profile is valid when configs/profiles/<name>.conf exists.
 primer::profile_valid() {
-    case "$1" in
-        mac|linux-vps|ubuntu-desktop) return 0 ;;
-        *) return 1 ;;
-    esac
+    local name="$1"
+    [[ -n "$name" && "$name" != *"/"* && "$name" != .* ]] || return 1
+    [[ -f "$PRIMER_DIR/configs/profiles/${name}.conf" ]]
 }
 
 primer::uname() {
@@ -194,12 +202,6 @@ primer::linux_vps_signal() {
     return 1
 }
 
-primer::has_prompt_tty() {
-    [[ -t 0 ]] && return 0
-    [[ -e /dev/tty ]] || return 1
-    ( : </dev/tty >/dev/tty ) 2>/dev/null
-}
-
 primer::prompt_linux_profile() {
     local input="/dev/stdin" answer
     [[ ! -t 0 ]] && input="/dev/tty"
@@ -222,8 +224,15 @@ primer::detect_profile() {
             print -r -- "$PRIMER_PROFILE"
             return 0
         fi
+        local -a available
+        available=("${(@f)$(primer::available_profiles)}")
+        available=("${(@)available:#}")
         print "Unknown profile: $PRIMER_PROFILE" >&2
-        print "Valid profiles: mac, linux-vps, ubuntu-desktop" >&2
+        if (( ${#available} )); then
+            print "Valid profiles: ${(j:, :)available}" >&2
+        else
+            print "No profile configs found in: $PRIMER_DIR/configs/profiles" >&2
+        fi
         return 1
     fi
 

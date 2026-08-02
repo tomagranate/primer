@@ -52,9 +52,9 @@ EOF
 @test "mise: wet run writes each tool to items file as done" {
     zsh_run_module mise "mod_update"
     assert_success
-    run grep "done:node@lts" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\tnode@lts')" "$MOD_ITEMS_FILE"
     assert_success
-    run grep "done:python@latest" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\tpython@latest')" "$MOD_ITEMS_FILE"
     assert_success
 }
 
@@ -94,7 +94,7 @@ EOF
         export PATH='${PATH}'
         source \"\$PRIMER_DIR/lib/ui.zsh\"
         source \"\$PRIMER_DIR/lib/engine.zsh\"
-        engine::load_config \"\$PRIMER_DIR/primer.conf\"
+        engine::load_config \"\$PRIMER_DIR/configs/common.conf\" \"\$PRIMER_DIR/configs/profiles/mac.conf\"
         source \"\$MOD_DIR/module.zsh\"
         mod_status
     "

@@ -100,6 +100,19 @@ load '../helpers/common'
     assert_output --partial "only valid with 'update'"
 }
 
+@test "cli: --profile without argument exits 1" {
+    run zsh "$PRIMER_DIR/bin/primer" update --profile
+    assert_failure
+    assert_output --partial "Missing argument for --profile"
+}
+
+@test "cli: unknown --profile lists the profiles found on disk" {
+    run env PRIMER_LOCAL="$PRIMER_DIR" zsh "$PRIMER_DIR/bin/primer" update --dry-run --profile bogus
+    assert_failure
+    assert_output --partial "Unknown profile: bogus"
+    assert_output --partial "Valid profiles: linux-vps, mac, ubuntu-desktop"
+}
+
 @test "cli: --log is accepted without a command and shows help" {
     run zsh "$PRIMER_DIR/bin/primer" --log
     assert_success

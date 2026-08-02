@@ -33,7 +33,7 @@ primer <command> [options]
 - `--dry-run` - preview changes without applying them (valid with `update`)
 - `--skip <module>` - skip a module by name; repeatable (valid with `update`)
 - `--only <module>` - run only one module; repeatable (valid with `update`)
-- `--profile <name>` - force a profile (`mac`, `linux-vps`, `ubuntu-desktop`)
+- `--profile <name>` - force a profile; any name with a file in `configs/profiles/`, such as `mac`, `linux-vps`, or `ubuntu-desktop`
 - `--tui` - force alternate-screen terminal UI (valid with `update`)
 - `--log` - force plain log output
 - `--help` - show help text
@@ -85,13 +85,19 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 
 Each module is a **self-contained folder** that owns its config files, scripts, and install logic. Profile config is split into `configs/common.conf` plus `configs/profiles/<profile>.conf`. Primer loads the common file first, then the profile file. A profile file holds only the keys that differ from the common file.
 
+The engine is split by topic. `lib/engine.zsh` sources the other `lib/` files, then defines the two public entry points. Source `lib/engine.zsh` to get the whole engine.
+
 ```
 ├── setup.sh                      # Bootstrap (curl-able, installs primer CLI)
 ├── configs/
 │   ├── common.conf               # Shared user-level config
 │   └── profiles/                 # mac, linux-vps, ubuntu-desktop fragments
 ├── lib/
-│   ├── engine.zsh                # Ready-queue DAG executor + INI parser
+│   ├── engine.zsh                # Facade: loads the parts below, holds run_update/run_status
+│   ├── config.zsh                # Global registries + INI config parser
+│   ├── dag.zsh                   # Dependency checks, filters, module lifecycle
+│   ├── logins.zsh                # Interactive login gates, pickers, reports
+│   ├── render.zsh                # Frame rendering, TUI drawing, run report
 │   └── ui.zsh                    # Terminal UI (spinners, boxes, colors, helpers)
 ├── modules/
 │   ├── xcode-cli-tools/
@@ -149,13 +155,23 @@ mod_status() {
 label = Display Name
 depends_on = homebrew  # optional module deps
 depends_on_logins = github  # optional login deps
+needs_sudo = true  # optional; ask for sudo before the run
 ```
+
+Set `needs_sudo = true` when the module runs `sudo`. Primer then asks for the
+password once, before it starts any module. Primer also sets this flag for you
+when a config value of the module contains a `privileged: true` line, such as a
+privileged entry in `installers`.
 
 ### Complex module (custom logic)
 
 Write `mod_update()` and `mod_status()` with whatever logic you need. Use `mod_config <key>` to read values from the active profile config.
 
 ## Profiles
+
+A profile is a config file in `configs/profiles/`. Primer accepts any profile
+name that has a `configs/profiles/<name>.conf` file. Add a file to add a
+profile. Primer ships three profiles.
 
 Primer auto-detects the profile when it can:
 
@@ -213,6 +229,7 @@ mas =
 [xcode]
 label = Xcode app
 depends_on = mac-app-store
+needs_sudo = true
 app_path = /Applications/Xcode.app
 simulator_platforms =
     iOS

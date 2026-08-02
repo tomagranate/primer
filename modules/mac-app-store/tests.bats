@@ -72,9 +72,9 @@ run_mac_app_store_with_conf() {
 @test "mac-app-store: items file contains app names as done after wet run" {
     run_mac_app_store_with_conf "mod_update"
     assert_success
-    run grep "done:FakeApp" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\tFakeApp')" "$MOD_ITEMS_FILE"
     assert_success
-    run grep "done:OtherApp" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\tOtherApp')" "$MOD_ITEMS_FILE"
     assert_success
 }
 

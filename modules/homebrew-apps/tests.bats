@@ -97,9 +97,9 @@ EOF
 @test "homebrew-apps: items file contains all casks as done after wet run" {
     run_homebrew_apps_with_conf "mod_update"
     assert_success
-    run grep "done:fake-app" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\tfake-app')" "$MOD_ITEMS_FILE"
     assert_success
-    run grep "done:another-app" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\tanother-app')" "$MOD_ITEMS_FILE"
     assert_success
 }
 
@@ -139,9 +139,9 @@ EOF
     export MOCK_BREW_INSTALLED_CASKS="fake-app another-app"
     run_homebrew_apps_with_conf "mod_update"
     assert_success
-    run grep "done:fake-app" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\tfake-app')" "$MOD_ITEMS_FILE"
     assert_success
-    run grep "done:another-app" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\tanother-app')" "$MOD_ITEMS_FILE"
     assert_success
 }
 
@@ -151,9 +151,9 @@ EOF
     export MOCK_BREW_EXISTING_APP_PACKAGES="fake-app"
     run_homebrew_apps_with_conf "mod_update"
     assert_success
-    run grep "skipped:fake-app" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'skipped\tfake-app')" "$MOD_ITEMS_FILE"
     assert_success
-    run grep "done:another-app" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\tanother-app')" "$MOD_ITEMS_FILE"
     assert_success
 }
 
@@ -170,7 +170,7 @@ EOF
     mkdir -p "$PRIMER_APPLICATIONS_DIR/Fake App.app"
     run_homebrew_apps_with_conf "mod_update"
     assert_success
-    run grep "skipped:fake-app" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'skipped\tfake-app')" "$MOD_ITEMS_FILE"
     assert_success
     run grep "brew install .* fake-app" "$MOCK_LOG"
     assert_failure
@@ -188,7 +188,7 @@ app_paths =
 EOF
     run_homebrew_apps_with_conf "mod_update"
     assert_success
-    run grep "skipped:fake-app" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'skipped\tfake-app')" "$MOD_ITEMS_FILE"
     assert_success
     run grep "brew install .* fake-app" "$MOCK_LOG"
     assert_failure
@@ -206,7 +206,7 @@ EOF
     export MOCK_BREW_FAIL_PACKAGES="fake-app"
     run_homebrew_apps_with_conf "mod_update"
     assert_failure
-    run grep "failed:fake-app" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'failed\tfake-app')" "$MOD_ITEMS_FILE"
     assert_success
 }
 
@@ -216,7 +216,7 @@ EOF
     export MOCK_BREW_FAIL_PACKAGES="fake-app"
     run_homebrew_apps_with_conf "mod_update"
     assert_failure
-    run grep "failed:fake-app" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'failed\tfake-app')" "$MOD_ITEMS_FILE"
     assert_success
 }
 
