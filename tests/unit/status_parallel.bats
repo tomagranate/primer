@@ -12,9 +12,7 @@ load '../helpers/common'
         local fake_root
         fake_root=\"\$(mktemp -d)\"
         mkdir -p \"\$fake_root/lib\" \"\$fake_root/modules/one\" \"\$fake_root/modules/two\"
-        cp \"${PRIMER_DIR}/lib/ui.zsh\" \"\$fake_root/lib/ui.zsh\"
-        cp \"${PRIMER_DIR}/lib/engine.zsh\" \"\$fake_root/lib/engine.zsh\"
-        cp \"${PRIMER_DIR}/lib/engine.zsh\" \"\$fake_root/lib/engine.zsh\"
+        cp \"${PRIMER_DIR}\"/lib/*.zsh \"\$fake_root/lib/\"
 
         cat > \"\$fake_root/primer.conf\" <<'EOF'
 [one]
@@ -55,6 +53,43 @@ EOF
     awk -v t="$output" 'BEGIN { exit !(t < 0.65) }'
 }
 
+@test "status_msg: a concurrent reader never sees an empty status file" {
+    # primer::status_msg must swap the file with a move. A plain redirect
+    # truncates first, so a reader can catch the file while it holds no text.
+    run zsh -c "
+        export PRIMER_DIR='${PRIMER_DIR}'
+        source \"\$PRIMER_DIR/lib/ui.zsh\"
+        export MOD_STATUS_FILE=\"\$(mktemp)\"
+        primer::status_msg 'seed'
+
+        (
+            local i
+            for (( i = 0; i < 600; i++ )); do
+                primer::status_msg \"working \$i...\"
+            done
+        ) &
+        local writer=\$!
+
+        local reads=0 empty=0 text
+        while kill -0 \$writer 2>/dev/null; do
+            text=\"\$(cat \"\$MOD_STATUS_FILE\" 2>/dev/null)\"
+            reads=\$(( reads + 1 ))
+            [[ -z \"\$text\" ]] && empty=\$(( empty + 1 ))
+        done
+        wait \$writer
+        rm -f \"\$MOD_STATUS_FILE\"
+        print \"reads=\$reads empty=\$empty\"
+    "
+    assert_success
+    assert_output --partial "empty=0"
+    # The probe is only meaningful when it read the file while writes ran.
+    local reads="${output#*reads=}"
+    reads="${reads%% *}"
+    (( reads > 0 )) || {
+        echo "Expected the reader loop to run at least once: $output"; false
+    }
+}
+
 @test "run_status: uses up to date fallback on empty success detail" {
     run zsh -c "
         export PRIMER_DIR='${PRIMER_DIR}'
@@ -64,8 +99,7 @@ EOF
         local fake_root
         fake_root=\"\$(mktemp -d)\"
         mkdir -p \"\$fake_root/lib\" \"\$fake_root/modules/one\"
-        cp \"${PRIMER_DIR}/lib/ui.zsh\" \"\$fake_root/lib/ui.zsh\"
-        cp \"${PRIMER_DIR}/lib/engine.zsh\" \"\$fake_root/lib/engine.zsh\"
+        cp \"${PRIMER_DIR}\"/lib/*.zsh \"\$fake_root/lib/\"
 
         cat > \"\$fake_root/primer.conf\" <<'EOF'
 [one]
@@ -100,8 +134,7 @@ EOF
         local fake_root
         fake_root=\"\$(mktemp -d)\"
         mkdir -p \"\$fake_root/lib\" \"\$fake_root/modules/one\" \"\$fake_root/modules/two\"
-        cp \"${PRIMER_DIR}/lib/ui.zsh\" \"\$fake_root/lib/ui.zsh\"
-        cp \"${PRIMER_DIR}/lib/engine.zsh\" \"\$fake_root/lib/engine.zsh\"
+        cp \"${PRIMER_DIR}\"/lib/*.zsh \"\$fake_root/lib/\"
 
         cat > \"\$fake_root/primer.conf\" <<'EOF'
 [one]
@@ -148,8 +181,7 @@ EOF
         local fake_root
         fake_root=\"\$(mktemp -d)\"
         mkdir -p \"\$fake_root/lib\" \"\$fake_root/modules/one\"
-        cp \"${PRIMER_DIR}/lib/ui.zsh\" \"\$fake_root/lib/ui.zsh\"
-        cp \"${PRIMER_DIR}/lib/engine.zsh\" \"\$fake_root/lib/engine.zsh\"
+        cp \"${PRIMER_DIR}\"/lib/*.zsh \"\$fake_root/lib/\"
 
         cat > \"\$fake_root/primer.conf\" <<'EOF'
 [one]

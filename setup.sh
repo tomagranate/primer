@@ -4,11 +4,11 @@
 # Bootstrap: installs the primer CLI, then runs `primer update`.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/tomagranate/primer/main/setup.sh | sh
-#   curl -fsSL https://raw.githubusercontent.com/tomagranate/primer/main/setup.sh | sh -s -- --dry-run
+#   curl -fsSL https://raw.githubusercontent.com/tomagranate/primer/master/setup.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/tomagranate/primer/master/setup.sh | sh -s -- --dry-run
 set -e
 
-REPO_RAW="https://raw.githubusercontent.com/tomagranate/primer/main"
+REPO_RAW="https://raw.githubusercontent.com/tomagranate/primer/master"
 BIN_DIR="$HOME/bin"
 
 run_as_root() {

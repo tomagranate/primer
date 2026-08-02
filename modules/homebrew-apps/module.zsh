@@ -128,11 +128,16 @@ _homebrew_apps::install_cask_item() {
         print -r -- "$install_output"
 
         # Installer may have copied the app before failing (quarantine/unquarantine).
-        if [[ -d "$resolved_app_path" ]] || _homebrew_apps::is_recoverable_cask_error "$install_output"; then
-            if [[ -d "$resolved_app_path" ]]; then
-                primer::parallel_item_result "skipped" "app present after install error"
-                return 0
-            fi
+        if [[ -d "$resolved_app_path" ]]; then
+            primer::parallel_item_result "skipped" "app present after install error"
+            return 0
+        fi
+
+        # A recoverable error proves an app is already present, even when it is
+        # not at the path we guessed.
+        if _homebrew_apps::is_recoverable_cask_error "$install_output"; then
+            primer::parallel_item_result "skipped" "already installed outside brew cask"
+            return 0
         fi
 
         primer::parallel_item_result "failed" "$(_homebrew_apps::first_line "$install_output")"
@@ -175,7 +180,7 @@ mod_update() {
     primer::parallel_items "$cask_jobs" "installing apps" _homebrew_apps::install_cask_item "${casks[@]}" \
         || any_failed=true
 
-    warning_count=$(grep -c '^skipped:' "$MOD_ITEMS_FILE" 2>/dev/null || true)
+    warning_count=$(grep -c $'^skipped\t' "$MOD_ITEMS_FILE" 2>/dev/null || true)
     (( warning_count > 0 )) && any_warnings=true
 
     if $any_failed; then

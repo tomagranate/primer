@@ -23,18 +23,18 @@ items_run() {
 @test "items_init: writes all names as pending" {
     items_run "primer::items_init alpha bravo charlie"
     assert_success
-    run grep "pending:alpha" "$ITEMS_FILE"
+    run grep "$(printf 'pending\talpha')" "$ITEMS_FILE"
     assert_success
-    run grep "pending:bravo" "$ITEMS_FILE"
+    run grep "$(printf 'pending\tbravo')" "$ITEMS_FILE"
     assert_success
-    run grep "pending:charlie" "$ITEMS_FILE"
+    run grep "$(printf 'pending\tcharlie')" "$ITEMS_FILE"
     assert_success
 }
 
 @test "items_init: preserves insertion order" {
     items_run "primer::items_init first second third"
     assert_success
-    run awk -F: '{print $2}' "$ITEMS_FILE"
+    run awk -F'\t' '{print $2}' "$ITEMS_FILE"
     assert_success
     assert_output "$(printf 'first\nsecond\nthird')"
 }
@@ -42,26 +42,26 @@ items_run() {
 @test "item_update: changes state of the named item" {
     items_run "primer::items_init alpha bravo && primer::item_update alpha running"
     assert_success
-    run grep "running:alpha" "$ITEMS_FILE"
+    run grep "$(printf 'running\talpha')" "$ITEMS_FILE"
     assert_success
     # bravo remains pending
-    run grep "pending:bravo" "$ITEMS_FILE"
+    run grep "$(printf 'pending\tbravo')" "$ITEMS_FILE"
     assert_success
 }
 
 @test "item_update: can mark item as done" {
     items_run "primer::items_init alpha && primer::item_update alpha done"
     assert_success
-    run grep "done:alpha" "$ITEMS_FILE"
+    run grep "$(printf 'done\talpha')" "$ITEMS_FILE"
     assert_success
 }
 
 @test "item_update: can mark item as failed" {
     items_run "primer::items_init alpha && primer::item_update alpha failed"
     assert_success
-    run grep "failed:alpha" "$ITEMS_FILE"
+    run grep "$(printf 'failed\talpha')" "$ITEMS_FILE"
     assert_success
-    refute_output --partial "pending:alpha"
+    refute_output --partial "$(printf 'pending\talpha')"
 }
 
 @test "item_update: does not duplicate lines" {
@@ -76,7 +76,7 @@ items_run() {
 @test "item_update: stores optional detail text" {
     items_run "primer::items_init alpha && primer::item_update alpha skipped 'already installed outside brew cask'"
     assert_success
-    run grep "skipped:alpha:already installed outside brew cask" "$ITEMS_FILE"
+    run grep "$(printf 'skipped\talpha\talready installed outside brew cask')" "$ITEMS_FILE"
     assert_success
 }
 

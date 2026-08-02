@@ -5,16 +5,21 @@ load '../helpers/common'
 
 setup() {
     TEST_OS_RELEASE="$(mktemp)"
+    TEST_ROOT="$(mktemp -d)"
+    mkdir -p "$TEST_ROOT/configs/profiles"
 }
 
 teardown() {
     rm -f "$TEST_OS_RELEASE"
+    rm -rf "$TEST_ROOT"
 }
 
 @test "profile: explicit profile wins" {
     run zsh -c "
         export PRIMER_SOURCE_ONLY=1
+        source '$PRIMER_DIR/lib/ui.zsh'
         source '$PRIMER_DIR/bin/primer'
+        PRIMER_DIR='$PRIMER_DIR'
         PRIMER_PROFILE=linux-vps
         primer::detect_profile
     "
@@ -22,10 +27,69 @@ teardown() {
     assert_output "linux-vps"
 }
 
+@test "profile: a new profile config on disk is accepted" {
+    touch "$TEST_ROOT/configs/profiles/acme.conf"
+    run zsh -c "
+        export PRIMER_SOURCE_ONLY=1
+        source '$PRIMER_DIR/lib/ui.zsh'
+        source '$PRIMER_DIR/bin/primer'
+        PRIMER_DIR='$TEST_ROOT'
+        PRIMER_PROFILE=acme
+        primer::detect_profile
+    "
+    assert_success
+    assert_output "acme"
+}
+
+@test "profile: unknown profile lists the profiles found on disk" {
+    touch "$TEST_ROOT/configs/profiles/acme.conf"
+    touch "$TEST_ROOT/configs/profiles/zeta.conf"
+    run zsh -c "
+        export PRIMER_SOURCE_ONLY=1
+        source '$PRIMER_DIR/lib/ui.zsh'
+        source '$PRIMER_DIR/bin/primer'
+        PRIMER_DIR='$TEST_ROOT'
+        PRIMER_PROFILE=bogus
+        primer::detect_profile
+    "
+    assert_failure
+    assert_output --partial "Unknown profile: bogus"
+    assert_output --partial "Valid profiles: acme, zeta"
+}
+
+@test "profile: repo profiles are all valid" {
+    run zsh -c "
+        export PRIMER_SOURCE_ONLY=1
+        source '$PRIMER_DIR/lib/ui.zsh'
+        source '$PRIMER_DIR/bin/primer'
+        PRIMER_DIR='$PRIMER_DIR'
+        for p in mac linux-vps ubuntu-desktop; do
+            primer::profile_valid \$p || { echo \"invalid: \$p\"; exit 1; }
+        done
+        primer::available_profiles
+    "
+    assert_success
+    assert_line "mac"
+    assert_line "linux-vps"
+    assert_line "ubuntu-desktop"
+}
+
+@test "profile: path-like profile names are rejected" {
+    run zsh -c "
+        export PRIMER_SOURCE_ONLY=1
+        source '$PRIMER_DIR/lib/ui.zsh'
+        source '$PRIMER_DIR/bin/primer'
+        PRIMER_DIR='$PRIMER_DIR'
+        primer::profile_valid '../common' && echo YES || echo NO
+    "
+    assert_output "NO"
+}
+
 @test "profile: macOS detects mac" {
     run zsh -c "
         export PRIMER_SOURCE_ONLY=1
         export PRIMER_TEST_UNAME=Darwin
+        source '$PRIMER_DIR/lib/ui.zsh'
         source '$PRIMER_DIR/bin/primer'
         primer::detect_profile
     "
@@ -42,6 +106,7 @@ EOF
         export PRIMER_SOURCE_ONLY=1
         export PRIMER_TEST_UNAME=Linux
         export PRIMER_OS_RELEASE_FILE='$TEST_OS_RELEASE'
+        source '$PRIMER_DIR/lib/ui.zsh'
         source '$PRIMER_DIR/bin/primer'
         primer::detect_profile
     "
@@ -59,6 +124,7 @@ EOF
         export PRIMER_TEST_UNAME=Linux
         export PRIMER_OS_RELEASE_FILE='$TEST_OS_RELEASE'
         export XDG_CURRENT_DESKTOP=ubuntu:GNOME
+        source '$PRIMER_DIR/lib/ui.zsh'
         source '$PRIMER_DIR/bin/primer'
         primer::detect_profile
     "
@@ -75,6 +141,7 @@ EOF
         export PRIMER_SOURCE_ONLY=1
         export PRIMER_TEST_UNAME=Linux
         export PRIMER_OS_RELEASE_FILE='$TEST_OS_RELEASE'
+        source '$PRIMER_DIR/lib/ui.zsh'
         source '$PRIMER_DIR/bin/primer'
         primer::detect_profile
     "

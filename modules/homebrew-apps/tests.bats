@@ -52,8 +52,8 @@ run_homebrew_apps_with_conf() {
     export DRY_RUN=true
     run_homebrew_apps_with_conf "mod_update"
     assert_success
-    assert_output --partial 'brew install --cask fake-app'
-    assert_output --partial 'brew install --cask another-app'
+    assert_output --partial 'brew install --cask --no-quarantine fake-app'
+    assert_output --partial 'brew install --cask --no-quarantine another-app'
 }
 
 @test "homebrew-apps: dry-run does not use brew bundle" {
@@ -68,9 +68,9 @@ run_homebrew_apps_with_conf() {
 @test "homebrew-apps: wet run calls brew install --cask for each app" {
     run_homebrew_apps_with_conf "mod_update"
     assert_success
-    run grep "brew install --quiet --cask fake-app" "$MOCK_LOG"
+    run grep "brew install --quiet --cask --no-quarantine fake-app" "$MOCK_LOG"
     assert_success
-    run grep "brew install --quiet --cask another-app" "$MOCK_LOG"
+    run grep "brew install --quiet --cask --no-quarantine another-app" "$MOCK_LOG"
     assert_success
 }
 
@@ -97,9 +97,9 @@ EOF
 @test "homebrew-apps: items file contains all casks as done after wet run" {
     run_homebrew_apps_with_conf "mod_update"
     assert_success
-    run grep "done:fake-app" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\tfake-app')" "$MOD_ITEMS_FILE"
     assert_success
-    run grep "done:another-app" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\tanother-app')" "$MOD_ITEMS_FILE"
     assert_success
 }
 
@@ -110,7 +110,7 @@ EOF
     export MOCK_BREW_OUTDATED_CASKS="fake-app"
     run_homebrew_apps_with_conf "mod_update"
     assert_success
-    run grep "brew upgrade --quiet --cask fake-app" "$MOCK_LOG"
+    run grep "brew upgrade --quiet --cask --no-quarantine fake-app" "$MOCK_LOG"
     assert_success
 }
 
@@ -139,9 +139,9 @@ EOF
     export MOCK_BREW_INSTALLED_CASKS="fake-app another-app"
     run_homebrew_apps_with_conf "mod_update"
     assert_success
-    run grep "done:fake-app" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\tfake-app')" "$MOD_ITEMS_FILE"
     assert_success
-    run grep "done:another-app" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\tanother-app')" "$MOD_ITEMS_FILE"
     assert_success
 }
 
@@ -151,9 +151,9 @@ EOF
     export MOCK_BREW_EXISTING_APP_PACKAGES="fake-app"
     run_homebrew_apps_with_conf "mod_update"
     assert_success
-    run grep "skipped:fake-app" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'skipped\tfake-app')" "$MOD_ITEMS_FILE"
     assert_success
-    run grep "done:another-app" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'done\tanother-app')" "$MOD_ITEMS_FILE"
     assert_success
 }
 
@@ -170,7 +170,7 @@ EOF
     mkdir -p "$PRIMER_APPLICATIONS_DIR/Fake App.app"
     run_homebrew_apps_with_conf "mod_update"
     assert_success
-    run grep "skipped:fake-app" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'skipped\tfake-app')" "$MOD_ITEMS_FILE"
     assert_success
     run grep "brew install .* fake-app" "$MOCK_LOG"
     assert_failure
@@ -188,7 +188,7 @@ app_paths =
 EOF
     run_homebrew_apps_with_conf "mod_update"
     assert_success
-    run grep "skipped:fake-app" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'skipped\tfake-app')" "$MOD_ITEMS_FILE"
     assert_success
     run grep "brew install .* fake-app" "$MOCK_LOG"
     assert_failure
@@ -206,7 +206,7 @@ EOF
     export MOCK_BREW_FAIL_PACKAGES="fake-app"
     run_homebrew_apps_with_conf "mod_update"
     assert_failure
-    run grep "failed:fake-app" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'failed\tfake-app')" "$MOD_ITEMS_FILE"
     assert_success
 }
 
@@ -216,7 +216,7 @@ EOF
     export MOCK_BREW_FAIL_PACKAGES="fake-app"
     run_homebrew_apps_with_conf "mod_update"
     assert_failure
-    run grep "failed:fake-app" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'failed\tfake-app')" "$MOD_ITEMS_FILE"
     assert_success
 }
 

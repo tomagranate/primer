@@ -71,6 +71,23 @@ EOF
     assert_output "deps="
 }
 
+@test "load_config: parses depends_on_logins into _mod_login_deps" {
+    cat > "$TEST_CONF" <<'EOF'
+[logins]
+order =
+    github
+
+[agents]
+depends_on = homebrew
+depends_on_logins = github
+EOF
+    zsh_run "
+        engine::load_config '$TEST_CONF'
+        echo \"\${_mod_login_deps[agents]}\"
+    "
+    assert_output "github"
+}
+
 # ── Labels ───────────────────────────────────────────────────────────────────
 
 @test "load_config: parses label into _mod_desc" {
@@ -190,9 +207,9 @@ EOF
 
 # ── Real config sanity check ─────────────────────────────────────────────────
 
-@test "load_config: real primer.conf is parseable and has required keys" {
+@test "load_config: real mac profile config is parseable and has required keys" {
     zsh_run '
-        engine::load_config "$PRIMER_DIR/primer.conf"
+        engine::load_config "$PRIMER_DIR/configs/common.conf" "$PRIMER_DIR/configs/profiles/mac.conf"
         [[ ${_mod_order[(Ie)logins]} -eq 0 ]] || { echo "logins should not be a module"; exit 1; }
         [[ ${_mod_order[(Ie)xcode-cli-tools]} -gt 0 ]] || { echo "missing:xcode-cli-tools"; exit 1; }
         [[ ${_mod_order[(Ie)xcode]} -gt 0 ]] || { echo "missing:xcode"; exit 1; }
@@ -208,6 +225,7 @@ EOF
         [[ -n "${_mod_config[ssh.key_path]}" ]] || { echo "missing:ssh.key_path"; exit 1; }
         [[ -n "${_mod_config[mise.tools]}" ]] || { echo "missing:mise.tools"; exit 1; }
         [[ "${_mod_deps[homebrew]}" == "xcode-cli-tools" ]] || { echo "wrong homebrew dep"; exit 1; }
+        [[ "${_mod_login_deps[agents]}" == "github" ]] || { echo "wrong agents login dep"; exit 1; }
         [[ "${_mod_deps[ssh]}" == "xcode-cli-tools" ]] || { echo "wrong ssh dep"; exit 1; }
         [[ "${_mod_deps[shell-installers]}" == "xcode-cli-tools" ]] || { echo "wrong shell installers dep"; exit 1; }
         [[ "${_mod_deps[mac-app-store]}" == "homebrew" ]] || { echo "wrong mac app store dep"; exit 1; }

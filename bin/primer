@@ -6,7 +6,7 @@ set -eo pipefail
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 export REPO_URL="https://github.com/tomagranate/primer"
-export REPO_RAW="https://raw.githubusercontent.com/tomagranate/primer/main"
+export REPO_RAW="https://raw.githubusercontent.com/tomagranate/primer/master"
 export CONFIG_DIR="$HOME/.config"
 export ZSH_CONFIG_DIR="$CONFIG_DIR/zsh"
 export BIN_DIR="$HOME/bin"
@@ -22,14 +22,50 @@ typeset -g PRIMER_PROFILE="${PRIMER_PROFILE:-}"
 
 primer::download_framework() {
     local cache="$HOME/.cache/primer"
-    mkdir -p "$cache"
+    local staging previous=""
+
+    mkdir -p "${cache:h}"
+
+    # Extract into a fresh directory. This drops files deleted upstream.
+    if ! staging="$(mktemp -d "${cache}.new.XXXXXX" 2>/dev/null)"; then
+        print "  ✗  Failed to download primer framework" >&2
+        print "     Could not create a staging directory in ${cache:h}." >&2
+        return 1
+    fi
 
     # Download the entire repo as a tarball and extract
-    if ! curl -fsSL "$REPO_URL/archive/refs/heads/main.tar.gz" \
-        | tar -xzf - -C "$cache" --strip-components=1 2>/dev/null; then
+    if ! curl -fsSL "$REPO_URL/archive/refs/heads/master.tar.gz" \
+        | tar -xzf - -C "$staging" --strip-components=1 2>/dev/null; then
+        rm -rf "$staging"
         print "  ✗  Failed to download primer framework" >&2
         print "     Check your internet connection and try again." >&2
         return 1
+    fi
+
+    # Swap the new copy in. Keep the old copy until the swap succeeds.
+    if [[ -e "$cache" ]]; then
+        previous="${cache}.old.$$"
+        rm -rf "$previous"
+        if ! mv "$cache" "$previous"; then
+            rm -rf "$staging"
+            print "  ✗  Failed to download primer framework" >&2
+            print "     Could not replace: $cache" >&2
+            return 1
+        fi
+    fi
+
+    if ! mv "$staging" "$cache"; then
+        if [[ -n "$previous" ]]; then
+            mv "$previous" "$cache" 2>/dev/null || true
+        fi
+        rm -rf "$staging"
+        print "  ✗  Failed to download primer framework" >&2
+        print "     Could not replace: $cache" >&2
+        return 1
+    fi
+
+    if [[ -n "$previous" ]]; then
+        rm -rf "$previous"
     fi
 
     PRIMER_DIR="$cache"
@@ -107,11 +143,19 @@ EOF
 
 # ── Profile Detection ────────────────────────────────────────────────────────
 
+# List the profile names that have a config file on disk.
+primer::available_profiles() {
+    local file
+    for file in "$PRIMER_DIR"/configs/profiles/*.conf(N); do
+        print -r -- "${${file:t}%.conf}"
+    done
+}
+
+# A profile is valid when configs/profiles/<name>.conf exists.
 primer::profile_valid() {
-    case "$1" in
-        mac|linux-vps|ubuntu-desktop) return 0 ;;
-        *) return 1 ;;
-    esac
+    local name="$1"
+    [[ -n "$name" && "$name" != *"/"* && "$name" != .* ]] || return 1
+    [[ -f "$PRIMER_DIR/configs/profiles/${name}.conf" ]]
 }
 
 primer::uname() {
@@ -158,12 +202,6 @@ primer::linux_vps_signal() {
     return 1
 }
 
-primer::has_prompt_tty() {
-    [[ -t 0 ]] && return 0
-    [[ -e /dev/tty ]] || return 1
-    ( : </dev/tty >/dev/tty ) 2>/dev/null
-}
-
 primer::prompt_linux_profile() {
     local input="/dev/stdin" answer
     [[ ! -t 0 ]] && input="/dev/tty"
@@ -186,8 +224,15 @@ primer::detect_profile() {
             print -r -- "$PRIMER_PROFILE"
             return 0
         fi
+        local -a available
+        available=("${(@f)$(primer::available_profiles)}")
+        available=("${(@)available:#}")
         print "Unknown profile: $PRIMER_PROFILE" >&2
-        print "Valid profiles: mac, linux-vps, ubuntu-desktop" >&2
+        if (( ${#available} )); then
+            print "Valid profiles: ${(j:, :)available}" >&2
+        else
+            print "No profile configs found in: $PRIMER_DIR/configs/profiles" >&2
+        fi
         return 1
     fi
 
@@ -229,19 +274,18 @@ primer::config_files_for_profile() {
     local common="$PRIMER_DIR/configs/common.conf"
     local profile_conf="$PRIMER_DIR/configs/profiles/${profile}.conf"
 
-    if [[ -f "$common" && -f "$profile_conf" ]]; then
-        print -r -- "$common"
-        print -r -- "$profile_conf"
-        return 0
-    fi
+    [[ -f "$common" ]] || {
+        print "Missing config file: $common" >&2
+        return 1
+    }
+    [[ -f "$profile_conf" ]] || {
+        print "Missing config for profile: $profile" >&2
+        return 1
+    }
 
-    if [[ "$profile" == mac && -f "$PRIMER_DIR/primer.conf" ]]; then
-        print -r -- "$PRIMER_DIR/primer.conf"
-        return 0
-    fi
-
-    print "Missing config for profile: $profile" >&2
-    return 1
+    print -r -- "$common"
+    print -r -- "$profile_conf"
+    return 0
 }
 
 # ── Main ──────────────────────────────────────────────────────────────────────
