@@ -265,19 +265,18 @@ primer::config_files_for_profile() {
     local common="$PRIMER_DIR/configs/common.conf"
     local profile_conf="$PRIMER_DIR/configs/profiles/${profile}.conf"
 
-    if [[ -f "$common" && -f "$profile_conf" ]]; then
-        print -r -- "$common"
-        print -r -- "$profile_conf"
-        return 0
-    fi
+    [[ -f "$common" ]] || {
+        print "Missing config file: $common" >&2
+        return 1
+    }
+    [[ -f "$profile_conf" ]] || {
+        print "Missing config for profile: $profile" >&2
+        return 1
+    }
 
-    if [[ "$profile" == mac && -f "$PRIMER_DIR/primer.conf" ]]; then
-        print -r -- "$PRIMER_DIR/primer.conf"
-        return 0
-    fi
-
-    print "Missing config for profile: $profile" >&2
-    return 1
+    print -r -- "$common"
+    print -r -- "$profile_conf"
+    return 0
 }
 
 # ── Main ──────────────────────────────────────────────────────────────────────

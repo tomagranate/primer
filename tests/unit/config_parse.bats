@@ -207,9 +207,9 @@ EOF
 
 # ── Real config sanity check ─────────────────────────────────────────────────
 
-@test "load_config: real primer.conf is parseable and has required keys" {
+@test "load_config: real mac profile config is parseable and has required keys" {
     zsh_run '
-        engine::load_config "$PRIMER_DIR/primer.conf"
+        engine::load_config "$PRIMER_DIR/configs/common.conf" "$PRIMER_DIR/configs/profiles/mac.conf"
         [[ ${_mod_order[(Ie)logins]} -eq 0 ]] || { echo "logins should not be a module"; exit 1; }
         [[ ${_mod_order[(Ie)xcode-cli-tools]} -gt 0 ]] || { echo "missing:xcode-cli-tools"; exit 1; }
         [[ ${_mod_order[(Ie)xcode]} -gt 0 ]] || { echo "missing:xcode"; exit 1; }

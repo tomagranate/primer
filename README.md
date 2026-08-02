@@ -83,11 +83,10 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 
 ## Architecture
 
-Each module is a **self-contained folder** that owns its config files, scripts, and install logic. Profile config is split into `configs/common.conf` plus `configs/profiles/<profile>.conf`; `primer.conf` remains as a legacy macOS aggregate.
+Each module is a **self-contained folder** that owns its config files, scripts, and install logic. Profile config is split into `configs/common.conf` plus `configs/profiles/<profile>.conf`. Primer loads the common file first, then the profile file. A profile file holds only the keys that differ from the common file.
 
 ```
 ├── setup.sh                      # Bootstrap (curl-able, installs primer CLI)
-├── primer.conf                   # Legacy macOS aggregate config
 ├── configs/
 │   ├── common.conf               # Shared user-level config
 │   └── profiles/                 # mac, linux-vps, ubuntu-desktop fragments

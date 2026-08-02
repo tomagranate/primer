@@ -51,7 +51,7 @@ zsh_run_module() {
         export HOME='${TEST_HOME:-$HOME}'
         source \"\$PRIMER_DIR/lib/ui.zsh\"
         source \"\$PRIMER_DIR/lib/engine.zsh\"
-        engine::load_config \"\$PRIMER_DIR/primer.conf\"
+        engine::load_config \"\$PRIMER_DIR/configs/common.conf\" \"\$PRIMER_DIR/configs/profiles/mac.conf\"
         source \"\$MOD_DIR/module.zsh\"
         $1
     "

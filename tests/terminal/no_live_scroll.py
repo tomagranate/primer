@@ -154,6 +154,21 @@ def set_winsize(fd: int, rows: int, cols: int) -> None:
     fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
 
 
+def write_test_config(root: Path, text: str) -> None:
+    """Write a config that every profile resolves to.
+
+    Primer loads configs/common.conf plus configs/profiles/<profile>.conf.
+    The profile files stay empty so the shared config drives the run.
+    """
+    profiles = root / "configs" / "profiles"
+    profiles.mkdir(parents=True, exist_ok=True)
+    (root / "configs" / "common.conf").write_text(text, encoding="utf-8")
+    for profile in ("mac", "linux-vps", "ubuntu-desktop"):
+        (profiles / f"{profile}.conf").write_text(
+            "# Test profile fragment.\n", encoding="utf-8"
+        )
+
+
 def build_stress_repo(repo: Path) -> tempfile.TemporaryDirectory[str]:
     tmp = tempfile.TemporaryDirectory(prefix="primer-terminal-stress-")
     root = Path(tmp.name)
@@ -162,7 +177,8 @@ def build_stress_repo(repo: Path) -> tempfile.TemporaryDirectory[str]:
     (root / "modules" / "many").mkdir(parents=True)
     (root / "modules" / "quick").mkdir(parents=True)
     (root / "modules" / "hostile").mkdir(parents=True)
-    (root / "primer.conf").write_text(
+    write_test_config(
+        root,
         """
 [many]
 label = Many Items
@@ -175,7 +191,6 @@ depends_on = many
 label = Hostile TTY
 depends_on = quick
 """.lstrip(),
-        encoding="utf-8",
     )
     (root / "modules" / "many" / "module.zsh").write_text(
         r'''
@@ -241,7 +256,8 @@ def build_parallel_stress_repo(repo: Path) -> tempfile.TemporaryDirectory[str]:
     shutil.copytree(repo / "lib", root / "lib")
     modules_dir = root / "modules"
     modules_dir.mkdir()
-    (root / "primer.conf").write_text(
+    write_test_config(
+        root,
         """
 [wide-a]
 label = Wide A
@@ -261,7 +277,6 @@ label = Wide E
 [wide-f]
 label = Wide F
 """.lstrip(),
-        encoding="utf-8",
     )
     module_body = r'''
 mod_update() {
@@ -294,12 +309,12 @@ def build_interrupt_repo(repo: Path) -> tempfile.TemporaryDirectory[str]:
     shutil.copytree(repo / "bin", root / "bin")
     shutil.copytree(repo / "lib", root / "lib")
     (root / "modules" / "slow").mkdir(parents=True)
-    (root / "primer.conf").write_text(
+    write_test_config(
+        root,
         """
 [slow]
 label = Slow Module
 """.lstrip(),
-        encoding="utf-8",
     )
     (root / "modules" / "slow" / "module.zsh").write_text(
         r'''
