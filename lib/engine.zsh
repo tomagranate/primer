@@ -7,6 +7,7 @@ zmodload zsh/datetime   # EPOCHREALTIME for sub-second timing
 
 typeset -ga _mod_order=()       # Module names in config order
 typeset -gA _mod_deps=()        # module -> "dep1,dep2,..."
+typeset -gA _mod_login_deps=()  # module -> "login1,login2,..."
 typeset -gA _mod_desc=()        # module -> "Display Label"
 typeset -gA _mod_config=()      # "module.key" -> "value\nvalue..."
 typeset -ga _login_order=()     # Login target names in config order
@@ -17,6 +18,7 @@ typeset -gA _login_detail=()    # login -> summary detail
 typeset -gA _login_log=()       # login -> captured command output
 typeset -ga _login_notice_lines=()
 typeset -g  _login_interrupted=false
+typeset -g  _login_phase="final" # gate|final (picker copy)
 
 # ── Runtime State ─────────────────────────────────────────────────────────────
 
@@ -77,6 +79,7 @@ engine::_load_config_file() {
             local val="${match[2]}"
             _mod_config[${section}.${key}]="$val"
             [[ "$key" == "depends_on" ]] && _mod_deps[$section]="${val// /}"
+            [[ "$key" == "depends_on_logins" ]] && _mod_login_deps[$section]="${val// /}"
             [[ "$key" == "label" ]]      && _mod_desc[$section]="$val"
         fi
     done < "$config"
@@ -88,6 +91,7 @@ engine::load_config() {
     _mod_order=()
     typeset -gA _mod_seen=()
     _mod_deps=()
+    _mod_login_deps=()
     _mod_desc=()
     _mod_config=()
     _login_order=()
@@ -98,6 +102,7 @@ engine::load_config() {
     _login_log=()
     _login_notice_lines=()
     _login_interrupted=false
+    _login_phase="final"
 
     for config in "$@"; do
         engine::_load_config_file "$config" || return 1
@@ -108,8 +113,8 @@ engine::load_config() {
 
 # ── DAG Helpers ───────────────────────────────────────────────────────────────
 
-# Are all dependencies of this module in "done" state?
-engine::_deps_met() {
+# Are all module dependencies of this module in "done" state?
+engine::_module_deps_met() {
     local mod="$1"
     local deps="${_mod_deps[$mod]}"
     [[ -z "$deps" ]] && return 0
@@ -121,8 +126,8 @@ engine::_deps_met() {
     return 0
 }
 
-# Has any dependency of this module failed or been skipped?
-engine::_deps_failed() {
+# Has any module dependency failed, been skipped, or been interrupted?
+engine::_module_deps_failed() {
     local mod="$1"
     local deps="${_mod_deps[$mod]}"
     [[ -z "$deps" ]] && return 1
@@ -132,6 +137,138 @@ engine::_deps_failed() {
         [[ "${_state[$dep]}" == "failed" || "${_state[$dep]}" == "skipped" || "${_state[$dep]}" == "interrupted" ]] && return 0
     done
     return 1
+}
+
+# Are all login dependencies satisfied? Dry-run treats login deps as met.
+engine::_login_deps_met() {
+    local mod="$1"
+    local deps="${_mod_login_deps[$mod]}"
+    [[ -z "$deps" ]] && return 0
+    [[ "$DRY_RUN" == true ]] && return 0
+
+    local dep
+    for dep in ${(s:,:)deps}; do
+        [[ "${_login_state[$dep]:-}" != "done" ]] && return 1
+    done
+    return 0
+}
+
+# Has any login dependency failed or been skipped?
+engine::_login_deps_failed() {
+    local mod="$1"
+    local deps="${_mod_login_deps[$mod]}"
+    [[ -z "$deps" ]] && return 1
+    [[ "$DRY_RUN" == true ]] && return 1
+
+    local dep
+    for dep in ${(s:,:)deps}; do
+        [[ "${_login_state[$dep]:-}" == "failed" || "${_login_state[$dep]:-}" == "skipped" ]] && return 0
+    done
+    return 1
+}
+
+# Are all dependencies of this module in "done" state?
+engine::_deps_met() {
+    local mod="$1"
+    engine::_module_deps_met "$mod" || return 1
+    engine::_login_deps_met "$mod" || return 1
+    return 0
+}
+
+# Has any dependency of this module failed or been skipped?
+engine::_deps_failed() {
+    local mod="$1"
+    engine::_module_deps_failed "$mod" && return 0
+    engine::_login_deps_failed "$mod" && return 0
+    return 1
+}
+
+# Is any module currently running?
+engine::_any_running() {
+    local mod
+    for mod in $_mod_order; do
+        [[ "${_state[$mod]}" == "running" ]] && return 0
+    done
+    return 1
+}
+
+# Can this login run now (its module deps are done)?
+engine::_login_module_deps_met() {
+    local name="$1"
+    local depends_on="${_mod_config[logins.${name}_depends_on]:-}"
+    [[ -z "$depends_on" ]] && return 0
+    local missing
+    missing="$(engine::_missing_login_module_deps "$depends_on")"
+    [[ -z "$missing" ]]
+}
+
+# Logins still pending that block pending modules and can run now.
+engine::_runnable_logins_needed_by_pending() {
+    local mod dep name
+    local -A needed_set=()
+    local -a needed=()
+
+    for mod in $_mod_order; do
+        [[ "${_state[$mod]}" == "pending" ]] || continue
+        engine::_module_deps_met "$mod" || continue
+        engine::_login_deps_failed "$mod" && continue
+        engine::_login_deps_met "$mod" && continue
+
+        local deps="${_mod_login_deps[$mod]}"
+        [[ -z "$deps" ]] && continue
+        for dep in ${(s:,:)deps}; do
+            [[ "${_login_state[$dep]:-}" == "pending" ]] || continue
+            engine::_login_module_deps_met "$dep" || continue
+            needed_set[$dep]=true
+        done
+    done
+
+    for name in $_login_all_order; do
+        [[ "${needed_set[$name]:-}" == true ]] && needed+=("$name")
+    done
+
+    (( ${#needed[@]} > 0 )) || return 1
+    print -l -- "${needed[@]}"
+    return 0
+}
+
+# Rebuild _login_order to unresolved logins for a later pass.
+engine::_reset_login_order_to_pending() {
+    _login_order=()
+    local name
+    for name in $_login_all_order; do
+        [[ "${_login_state[$name]:-}" == "pending" ]] && _login_order+=("$name")
+    done
+}
+
+# Run logins that gate pending modules, then restore remaining optional logins.
+engine::_run_gate_logins() {
+    local -a needed=()
+    local line
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && needed+=("$line")
+    done < <(engine::_runnable_logins_needed_by_pending)
+    (( ${#needed[@]} == 0 )) && return 0
+
+    _login_phase="gate"
+    _login_order=("${needed[@]}")
+
+    engine::_select_interactive_logins || {
+        local rc=$?
+        _login_phase="final"
+        engine::_reset_login_order_to_pending
+        return $rc
+    }
+    engine::_run_interactive_logins || {
+        local rc=$?
+        _login_phase="final"
+        engine::_reset_login_order_to_pending
+        return $rc
+    }
+
+    _login_phase="final"
+    engine::_reset_login_order_to_pending
+    return 0
 }
 
 # Pre-mark modules as skipped based on PRIMER_SKIP / PRIMER_ONLY env vars.
@@ -305,7 +442,11 @@ engine::_prime_login_selection() {
         print ""
         ui::box "login setup" "$C_CYAN"
         print ""
-        print "  ${C_DIM}Installation is complete. Choose the accounts to authenticate now.${C_RESET}"
+        if [[ "${_login_phase:-final}" == "gate" ]]; then
+            print "  ${C_DIM}Some install steps need account access. Choose accounts to authenticate now.${C_RESET}"
+        else
+            print "  ${C_DIM}Installation is complete. Choose the accounts to authenticate now.${C_RESET}"
+        fi
     fi
 
     for name in $_login_order; do
@@ -381,7 +522,11 @@ engine::_render_login_selection_tui() {
     local -a lines=()
     local notice name label marker pointer color i
 
-    lines+=("  ${C_DIM}Choose accounts to authenticate now.${C_RESET}")
+    if [[ "${_login_phase:-final}" == "gate" ]]; then
+        lines+=("  ${C_DIM}Some install steps need account access. Choose accounts now.${C_RESET}")
+    else
+        lines+=("  ${C_DIM}Choose accounts to authenticate now.${C_RESET}")
+    fi
     for notice in "${_login_notice_lines[@]}"; do
         lines+=("$notice")
     done
@@ -1512,13 +1657,31 @@ engine::run_update() {
         print -- "Streaming setup logs..."
     fi
 
-    # ── Ready-queue DAG loop ──────────────────────────────────────────────────
+    # ── Ready-queue DAG loop (modules + mid-run login gates) ──────────────────
+    local login_failed=false
+    local login_rc=0
     while engine::_has_active; do
         engine::_poll_running
         if [[ "$PRIMER_UPDATE_MODE" == "log" ]]; then
             engine::_stream_all_log_deltas
         fi
         engine::_start_ready "update"
+
+        # When install work is idle, run logins that pending modules need.
+        if [[ "$ENGINE_INTERRUPTED" != true ]] && ! engine::_any_running; then
+            if engine::_runnable_logins_needed_by_pending >/dev/null; then
+                trap - INT TERM
+                login_rc=0
+                engine::_run_gate_logins || login_rc=$?
+                trap 'engine::_handle_interrupt' INT TERM
+                if (( login_rc == 130 )); then
+                    engine::_mark_interrupted
+                    break
+                fi
+                (( login_rc != 0 )) && login_failed=true
+                engine::_start_ready "update"
+            fi
+        fi
 
         # Advance spinner
         SPIN_IDX=$(( (SPIN_IDX + 1) % ${#SPINNER[@]} ))
@@ -1539,9 +1702,11 @@ engine::run_update() {
         [[ "${_state[$mod]}" == "interrupted" ]] && any_interrupted=true
     done
 
-    local login_failed=false
+    # Optional logins that no module required (or were not resolved mid-run).
     if [[ "$any_interrupted" != true ]]; then
         trap - INT TERM
+        _login_phase="final"
+        engine::_reset_login_order_to_pending
         engine::_select_interactive_logins || return $?
         engine::_run_interactive_logins || login_failed=true
     fi

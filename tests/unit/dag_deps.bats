@@ -103,6 +103,99 @@ load '../helpers/common'
     assert_output "NO"
 }
 
+# ── Login dependencies ───────────────────────────────────────────────────────
+
+@test "deps_met: false when login dep is still pending" {
+    zsh_run '
+        _mod_deps[agents]=homebrew
+        _mod_login_deps[agents]=github
+        _state[homebrew]=done
+        _login_state[github]=pending
+        DRY_RUN=false
+        engine::_deps_met agents && echo YES || echo NO
+    '
+    assert_output "NO"
+}
+
+@test "deps_met: true when login dep is done" {
+    zsh_run '
+        _mod_deps[agents]=homebrew
+        _mod_login_deps[agents]=github
+        _state[homebrew]=done
+        _login_state[github]=done
+        DRY_RUN=false
+        engine::_deps_met agents && echo YES || echo NO
+    '
+    assert_output "YES"
+}
+
+@test "deps_met: true for login deps during dry run" {
+    zsh_run '
+        _mod_deps[agents]=homebrew
+        _mod_login_deps[agents]=github
+        _state[homebrew]=done
+        _login_state[github]=pending
+        DRY_RUN=true
+        engine::_deps_met agents && echo YES || echo NO
+    '
+    assert_output "YES"
+}
+
+@test "deps_failed: true when login dep is skipped" {
+    zsh_run '
+        _mod_deps[agents]=homebrew
+        _mod_login_deps[agents]=github
+        _state[homebrew]=done
+        _login_state[github]=skipped
+        DRY_RUN=false
+        engine::_deps_failed agents && echo YES || echo NO
+    '
+    assert_output "YES"
+}
+
+@test "deps_failed: true when login dep failed" {
+    zsh_run '
+        _mod_login_deps[agents]=github
+        _login_state[github]=failed
+        DRY_RUN=false
+        engine::_deps_failed agents && echo YES || echo NO
+    '
+    assert_output "YES"
+}
+
+@test "runnable_logins_needed_by_pending: lists gate logins" {
+    zsh_run '
+        _mod_order=(homebrew agents)
+        _mod_deps[agents]=homebrew
+        _mod_login_deps[agents]=github
+        _state[homebrew]=done
+        _state[agents]=pending
+        _login_all_order=(github tailscale)
+        _login_state[github]=pending
+        _login_state[tailscale]=pending
+        _mod_config[logins.github_depends_on]="ssh, git, homebrew"
+        _state[ssh]=done
+        _state[git]=done
+        engine::_runnable_logins_needed_by_pending
+    '
+    assert_success
+    assert_output "github"
+}
+
+@test "runnable_logins_needed_by_pending: waits until login module deps finish" {
+    zsh_run '
+        _mod_order=(agents)
+        _mod_login_deps[agents]=github
+        _state[agents]=pending
+        _login_all_order=(github)
+        _login_state[github]=pending
+        _mod_config[logins.github_depends_on]=homebrew
+        _state[homebrew]=pending
+        engine::_runnable_logins_needed_by_pending && echo YES || echo NO
+    '
+    assert_output "NO"
+}
+
 # ── engine::_has_active ──────────────────────────────────────────────────────
 
 @test "has_active: true when a module is pending" {

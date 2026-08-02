@@ -75,7 +75,7 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | **macos** | homebrew-apps | Applies macOS defaults and configures the Dock |
 | **zsh** | homebrew | Updates managed section in ~/.zshrc, manages ~/.zimrc, installs Zim |
 | **starship** | homebrew | Deploys starship.toml to ~/.config/ |
-| **agents** | homebrew / apt | Installs `agents` CLI, clones/pulls private `agents-home` into ~/.agents, runs `agents sync` |
+| **agents** | homebrew / apt + github login | Installs `agents` CLI, clones/pulls private `agents-home` into ~/.agents, runs `agents sync` |
 | **mise** | homebrew | Installs language runtimes (Node, Python, Bun) |
 | **ssh** | xcode-cli-tools | Creates an SSH key and configures macOS keychain-backed agent support |
 | **touchid** | -- | Enables Touch ID for sudo |
@@ -148,7 +148,8 @@ mod_status() {
 ```ini
 [name]
 label = Display Name
-depends_on = homebrew  # optional
+depends_on = homebrew  # optional module deps
+depends_on_logins = github  # optional login deps
 ```
 
 ### Complex module (custom logic)
@@ -249,10 +250,12 @@ settings =
     diff.algorithm:histogram
 ```
 
-Interactive logins are configured in `[logins]` and run after installation
-finishes. `*_depends_on` names Primer modules that must complete first,
-`*_requires` names commands that must exist, `*_status` detects whether the
-account is already logged in, and `*_command` starts the login flow.
+Interactive logins are configured in `[logins]`. Logins that modules list in
+`depends_on_logins` run as soon as their module deps finish, so later modules
+can use the account. Other logins run after installation finishes.
+`*_depends_on` names Primer modules that must complete first, `*_requires`
+names commands that must exist, `*_status` detects whether the account is
+already logged in, and `*_command` starts the login flow.
 Linux profiles also use this flow for Tailscale. After the Tailscale module
 installs the client, Primer runs `sudo tailscale up` when the machine is not
 connected and then `sudo tailscale set --operator="$USER"` so local tools such
