@@ -1,0 +1,381 @@
+/**
+ * DAG engine: schedules module and interactive nodes as one graph.
+ *
+ * Module nodes spawn zsh with the exact contract lib/dag.zsh used:
+ * MOD_* env vars, a generated config file, logs to a file, status text via
+ * MOD_STATUS_FILE. The module.zsh files do not change.
+ *
+ * Interactive nodes wait for the user (state "needs-user"). The UI answers
+ * them; their command gets the real terminal via the suspend/resume hooks
+ * while other nodes keep running.
+ */
+import { mkdtempSync, rmSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { sanitizeLine } from "./ansi";
+import type { NodeDef } from "./config";
+import { boolDefault } from "./config";
+
+export type NodeState =
+  | "pending"      // waiting on deps
+  | "running"      // module subprocess active
+  | "checking"     // interactive: probing status_cmd / requires
+  | "needs-user"   // interactive: ready, waiting for the user
+  | "interacting"  // interactive: command has the terminal
+  | "done" | "failed" | "skipped";
+
+export interface EngineNode extends NodeDef {
+  state: NodeState;
+  detail: string;
+  logs: string[];
+  start?: number;
+  end?: number;
+  notified: boolean;
+  defaultOn: boolean;   // interactive-step default from config
+}
+
+export interface EngineOptions {
+  primerDir: string;
+  dryRun: boolean;
+  skip: string[];
+  only: string[];
+  /** Hand the terminal to an interactive command and take it back after. */
+  suspendUI?: () => void;
+  resumeUI?: () => void;
+  /** Called when a node needs the user and the terminal may be unfocused. */
+  notify?: (message: string) => void;
+  /** State-change hook (headless mode prints from this). */
+  onEvent?: (node: EngineNode, event: string) => void;
+}
+
+const SETTLED: NodeState[] = ["done", "failed", "skipped"];
+
+export class Engine {
+  nodes: EngineNode[] = [];
+  startedAt = Date.now();
+  interrupted = false;
+  private opts: EngineOptions;
+  private tmp: string;
+  private timer?: ReturnType<typeof setInterval>;
+  private sudoTimer?: ReturnType<typeof setInterval>;
+  private procs = new Map<string, Bun.Subprocess>();
+
+  constructor(defs: NodeDef[], opts: EngineOptions) {
+    this.opts = opts;
+    this.tmp = mkdtempSync(join(tmpdir(), "primer-"));
+    this.nodes = defs.map((d) => ({
+      ...d,
+      state: "pending",
+      detail: "",
+      logs: [],
+      notified: false,
+      defaultOn: d.kind === "interactive" ? boolDefault(d.config["default"]) : true,
+    }));
+    this.applyFilters();
+  }
+
+  node(id: string): EngineNode | undefined {
+    return this.nodes.find((n) => n.id === id);
+  }
+
+  /* ── lifecycle ── */
+
+  async start(): Promise<void> {
+    if (!this.opts.dryRun && this.needsSudo()) await this.sudoPreauth();
+    this.timer = setInterval(() => this.schedule(), 200);
+    this.schedule();
+  }
+
+  /** True when every node reached a settled state. */
+  finished(): boolean {
+    return this.nodes.every((n) => SETTLED.includes(n.state));
+  }
+
+  async waitUntilFinished(): Promise<void> {
+    while (!this.finished()) await Bun.sleep(150);
+    this.stopTimers();
+  }
+
+  stopTimers(): void {
+    if (this.timer) clearInterval(this.timer);
+    if (this.sudoTimer) clearInterval(this.sudoTimer);
+  }
+
+  interrupt(): void {
+    this.interrupted = true;
+    for (const [id, proc] of this.procs) {
+      try { proc.kill(); } catch { /* already gone */ }
+      const n = this.node(id);
+      if (n && !SETTLED.includes(n.state)) this.settle(n, "failed", "interrupted");
+    }
+    for (const n of this.nodes) {
+      if (n.state === "pending" || n.state === "needs-user" || n.state === "checking") {
+        this.settle(n, "skipped", "interrupted");
+      }
+    }
+    this.stopTimers();
+  }
+
+  cleanup(): void {
+    this.stopTimers();
+    try { rmSync(this.tmp, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+
+  exitCode(): number {
+    if (this.interrupted) return 130;
+    return this.nodes.some((n) => n.state === "failed") ? 1 : 0;
+  }
+
+  /* ── filters / sudo ── */
+
+  private applyFilters(): void {
+    const { skip, only } = this.opts;
+    for (const n of this.nodes) {
+      if (n.kind !== "module") continue;
+      if (skip.includes(n.id)) this.settle(n, "skipped", "skipped via --skip");
+      if (only.length && !only.includes(n.id)) this.settle(n, "skipped", "not in --only");
+    }
+  }
+
+  private needsSudo(): boolean {
+    if (process.getuid?.() === 0) return false;
+    return this.nodes.some((n) => n.state !== "skipped" && n.needsSudo);
+  }
+
+  private async sudoPreauth(): Promise<void> {
+    const proc = Bun.spawn(["sudo", "-p", "Primer setup needs admin access. Password: ", "-v"], {
+      stdin: "inherit", stdout: "inherit", stderr: "inherit",
+    });
+    if ((await proc.exited) !== 0) throw new Error("sudo authentication failed");
+    this.sudoTimer = setInterval(() => {
+      Bun.spawn(["sudo", "-n", "true"], { stdout: "ignore", stderr: "ignore" });
+    }, 60_000);
+  }
+
+  /* ── scheduling ── */
+
+  private depState(n: EngineNode): "ready" | "blocked" | "waiting" {
+    let waiting = false;
+    for (const dep of n.deps) {
+      const depNode = this.node(dep) ?? this.node(`interactive:${dep}`);
+      if (!depNode) continue; // dep not in this profile — treat as met
+      // Dry-run treats interactive deps as met (port of engine::_login_deps_met).
+      if (this.opts.dryRun && depNode.kind === "interactive") continue;
+      if (depNode.state === "failed" || depNode.state === "skipped") return "blocked";
+      if (depNode.state !== "done") waiting = true;
+    }
+    return waiting ? "waiting" : "ready";
+  }
+
+  private schedule(): void {
+    if (this.interrupted) return;
+    for (const n of this.nodes) {
+      if (n.state !== "pending") continue;
+      const ds = this.depState(n);
+      if (ds === "blocked") { this.settle(n, "skipped", "dependency failed"); continue; }
+      if (ds !== "ready") continue;
+      if (n.kind === "interactive") {
+        if (this.opts.dryRun) { this.settle(n, "skipped", "dry run"); continue; }
+        void this.prepareInteractive(n);
+      } else {
+        void this.runModule(n);
+      }
+    }
+  }
+
+  private settle(n: EngineNode, state: NodeState, detail: string): void {
+    n.state = state;
+    n.detail = detail;
+    n.end = Date.now();
+    this.opts.onEvent?.(n, state);
+  }
+
+  /* ── module execution (contract port of engine::_start_module) ── */
+
+  private zshQuote(v: string): string {
+    return `"${v.replace(/[\\$"`]/g, (m) => `\\${m}`)}"`;
+  }
+
+  private async runModule(n: EngineNode): Promise<void> {
+    n.state = "running";
+    n.start = Date.now();
+    n.detail = "starting...";
+    this.opts.onEvent?.(n, "start");
+
+    const modDir = join(this.opts.primerDir, "modules", n.id);
+    const statusFile = join(this.tmp, `${n.id}.status`);
+    const configFile = join(this.tmp, `${n.id}.config.zsh`);
+    const runner = join(this.tmp, `${n.id}.runner.zsh`);
+
+    const configLines = ["typeset -gA _mod_config=()"];
+    for (const [k, v] of Object.entries(n.config)) {
+      configLines.push(`_mod_config[${k}]=${this.zshQuote(v)}`);
+    }
+    await writeFile(configFile, configLines.join("\n") + "\n");
+    await writeFile(runner, [
+      "#!/bin/zsh",
+      'source "${PRIMER_DIR}/lib/ui.zsh"',
+      'source "${MOD_CONFIG_FILE}"',
+      'source "${MOD_DIR}/module.zsh" || { echo "Failed to load module: ${MOD_NAME}"; exit 1; }',
+      '"mod_${MOD_ACTION}"',
+      "",
+    ].join("\n"));
+
+    const proc = Bun.spawn(["zsh", runner], {
+      stdin: "ignore", stdout: "pipe", stderr: "pipe",
+      env: {
+        ...process.env,
+        MOD_STATUS_FILE: statusFile,
+        MOD_ITEMS_FILE: join(this.tmp, `${n.id}.items`),
+        MOD_CONFIG_FILE: configFile,
+        MOD_DIR: modDir,
+        MOD_NAME: n.id,
+        MOD_ACTION: "update",
+        PRIMER_DIR: this.opts.primerDir,
+        DRY_RUN: this.opts.dryRun ? "true" : "false",
+        HOMEBREW_NO_COLOR: "1",
+        HOMEBREW_NO_EMOJI: "1",
+        HOMEBREW_NO_ENV_HINTS: "1",
+        NONINTERACTIVE: "1",
+      },
+    });
+    this.procs.set(n.id, proc);
+
+    const pipe = async (stream: ReadableStream<Uint8Array>) => {
+      const dec = new TextDecoder();
+      let buf = "";
+      for await (const chunk of stream) {
+        buf += dec.decode(chunk);
+        const parts = buf.split("\n");
+        buf = parts.pop() ?? "";
+        for (const line of parts) n.logs.push(sanitizeLine(line.replace(/\r$/, "")));
+      }
+      if (buf.trim()) n.logs.push(sanitizeLine(buf));
+    };
+    const statusPoll = setInterval(async () => {
+      try {
+        const text = sanitizeLine((await readFile(statusFile, "utf8")).trim());
+        if (text) n.detail = text;
+      } catch { /* not written yet */ }
+    }, 250);
+
+    const readers = [pipe(proc.stdout as any), pipe(proc.stderr as any)];
+    const code = await proc.exited;
+    await Promise.all(readers);
+    clearInterval(statusPoll);
+    this.procs.delete(n.id);
+    if (this.interrupted && SETTLED.includes(n.state)) return;
+
+    try {
+      const text = sanitizeLine((await readFile(statusFile, "utf8")).trim());
+      if (text) n.detail = text;
+    } catch { /* keep last detail */ }
+    this.settle(n, code === 0 ? "done" : "failed",
+      n.detail || (code === 0 ? "done" : "failed"));
+  }
+
+  /* ── interactive execution ── */
+
+  private interactiveName(n: EngineNode): string {
+    return n.id.replace(/^interactive:/, "");
+  }
+
+  private async prepareInteractive(n: EngineNode): Promise<void> {
+    n.state = "checking";
+    n.start = Date.now();
+    this.opts.onEvent?.(n, "checking");
+
+    const missing = (n.config["requires"] ?? "")
+      .split(/[,\s]+/).filter(Boolean)
+      .filter((cmd) => !Bun.which(cmd));
+    if (missing.length) {
+      this.settle(n, "skipped", `missing: ${missing.join(", ")}`);
+      return;
+    }
+
+    const statusCmd = n.config["status"];
+    if (statusCmd) {
+      const proc = Bun.spawn(["zsh", "-c", statusCmd], { stdout: "ignore", stderr: "ignore" });
+      if ((await proc.exited) === 0) {
+        this.settle(n, "done", `already ${n.config["done_detail"] ?? "logged in"}`);
+        return;
+      }
+    }
+
+    n.state = "needs-user";
+    n.detail = n.defaultOn ? "waiting for you" : "waiting for you (default: skip)";
+    n.notified = true;
+    this.opts.notify?.(`primer: ${n.label} is waiting for your input`);
+    this.opts.onEvent?.(n, "needs-user");
+  }
+
+  /** UI answered: run the interactive command on the real terminal. */
+  async answerInteractive(n: EngineNode): Promise<void> {
+    if (n.state !== "needs-user") return;
+    const command = n.config["command"];
+    if (!command) { this.settle(n, "skipped", "no command configured"); return; }
+
+    n.state = "interacting";
+    n.detail = "signing in";
+    this.opts.onEvent?.(n, "interacting");
+
+    const logFile = join(this.tmp, `interactive-${this.interactiveName(n)}.log`);
+    this.opts.suspendUI?.();
+    let code = 1;
+    try {
+      // Mirror engine::_run_login_command: tee output to a log, keep the tty.
+      const wrapped = `{ ${command} ; } > >(tee ${this.zshQuote(logFile)}) 2> >(tee -a ${this.zshQuote(logFile)} >&2)`;
+      const proc = Bun.spawn(["zsh", "-c", wrapped], {
+        stdin: "inherit", stdout: "inherit", stderr: "inherit",
+        env: { ...process.env },
+      });
+      code = await proc.exited;
+    } finally {
+      this.opts.resumeUI?.();
+    }
+
+    try {
+      const text = await readFile(logFile, "utf8");
+      for (const line of text.split("\n")) {
+        if (line.trim()) n.logs.push(sanitizeLine(line));
+      }
+    } catch { /* no output captured */ }
+
+    if (code === 0) this.settle(n, "done", "complete");
+    else if (code === 130) this.settle(n, "skipped", "interrupted");
+    else this.settle(n, "failed", `exit ${code}`);
+  }
+
+  skipInteractive(n: EngineNode): void {
+    if (n.state === "needs-user") this.settle(n, "skipped", "skipped by user");
+  }
+
+  /* ── summary ── */
+
+  counts() {
+    const c = { done: 0, failed: 0, skipped: 0, running: 0, settled: 0, total: this.nodes.length };
+    for (const n of this.nodes) {
+      if (n.state === "done") c.done++;
+      if (n.state === "failed") c.failed++;
+      if (n.state === "skipped") c.skipped++;
+      if (n.state === "running" || n.state === "interacting") c.running++;
+      if (SETTLED.includes(n.state)) c.settled++;
+    }
+    return c;
+  }
+
+  statusLine(): string {
+    const c = this.counts();
+    const failedNames = this.nodes.filter((n) => n.state === "failed").map((n) => n.label);
+    const mark = this.interrupted ? "!" : c.failed ? "✗" : "✓";
+    const parts = [`${this.nodes.filter((n) => n.state === "done" && n.kind === "module").length} modules done`];
+    const interactiveDone = this.nodes.filter((n) => n.state === "done" && n.kind === "interactive").length;
+    if (interactiveDone) parts.push(`${interactiveDone} interactive step${interactiveDone === 1 ? "" : "s"} done`);
+    if (c.failed) parts.push(`${c.failed} failed (${failedNames.join(", ")})`);
+    if (c.skipped) parts.push(`${c.skipped} skipped`);
+    if (this.interrupted) parts.push("interrupted");
+    const secs = ((Date.now() - this.startedAt) / 1000).toFixed(0);
+    return `${mark} primer: ${parts.join(" · ")} · ${secs}s`;
+  }
+}
