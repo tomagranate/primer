@@ -35,12 +35,12 @@ teardown() {
     assert_failure
 }
 
-@test "agents: mod_status succeeds with git home + AGENTS.md" {
-    mkdir -p "$AGENTS_HOME/skills/foo"
+@test "agents: mod_status succeeds with git home + scoped content" {
+    mkdir -p "$AGENTS_HOME/shared/skills/foo"
     git -C "$AGENTS_HOME" init -b main >/dev/null 2>&1
     git -C "$AGENTS_HOME" remote add origin git@github.com:tomagranate/agents-home.git
-    echo "# test" >"$AGENTS_HOME/AGENTS.md"
-    git -C "$AGENTS_HOME" add AGENTS.md
+    echo "# test" >"$AGENTS_HOME/shared/AGENTS.md"
+    git -C "$AGENTS_HOME" add shared/AGENTS.md
     git -C "$AGENTS_HOME" -c user.email=t@t -c user.name=t commit -m init >/dev/null 2>&1
     zsh_run_module agents "mod_status"
     assert_success

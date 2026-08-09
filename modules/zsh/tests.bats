@@ -38,6 +38,11 @@ teardown() {
     assert_output --partial ".hushlogin"
 }
 
+@test "zsh: managed startup runs the cached agents update check" {
+    run grep -Fq 'agents _shell-check' "$PRIMER_DIR/modules/zsh/files/.zshrc.managed"
+    assert_success
+}
+
 @test "zsh: update removes stale compiled managed configs in HOME" {
     mkdir -p "$TEST_HOME/.zim"
     touch "$TEST_HOME/.zim/zimfw.zsh"
@@ -153,7 +158,8 @@ EOF
     zsh_run_module zsh "mod_update"
     assert_success
 
-    sed -i 's/backward-kill-word/backward-delete-char/' "$TEST_HOME/.zshrc"
+    sed 's/backward-kill-word/backward-delete-char/' "$TEST_HOME/.zshrc" >"$TEST_HOME/.zshrc.tmp"
+    mv "$TEST_HOME/.zshrc.tmp" "$TEST_HOME/.zshrc"
 
     zsh_run_module zsh "mod_status"
     assert_failure
