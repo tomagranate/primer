@@ -101,7 +101,7 @@ _agents::install_cli() {
     }
 }
 
-_agents::clone_or_pull() {
+_agents::ensure_home() {
     local home repo ssh_url https_url
     home="$(_agents::home_path)"
     repo="$(_agents::repo)"
@@ -109,17 +109,14 @@ _agents::clone_or_pull() {
     https_url="https://github.com/${repo}.git"
 
     if [[ "$DRY_RUN" == true ]]; then
-        if [[ -d "$home/.git" ]]; then
-            echo "[dry-run] git -C $home pull --ff-only"
-        else
+        if [[ ! -d "$home/.git" ]]; then
             echo "[dry-run] git clone $ssh_url $home"
         fi
         return 0
     fi
 
     if [[ -d "$home/.git" ]]; then
-        primer::status_msg "pulling agents-home..."
-        git -C "$home" pull --ff-only || return 1
+        primer::status_msg "agents-home present"
         return 0
     fi
 
@@ -151,10 +148,10 @@ mod_update() {
     primer::status_msg "installing CLI..."
     _agents::install_cli || return 1
 
-    primer::status_msg "syncing content..."
-    _agents::clone_or_pull || return 1
+    primer::status_msg "checking agents-home..."
+    _agents::ensure_home || return 1
 
-    primer::status_msg "wiring harnesses..."
+    primer::status_msg "syncing and wiring content..."
     _agents::sync || return 1
 
     primer::status_msg "configured"
@@ -185,9 +182,9 @@ mod_status() {
         parts+=("dirty")
     fi
 
-    # Expect shared AGENTS.md
-    if [[ ! -f "$home/AGENTS.md" ]]; then
-        parts+=("no AGENTS.md")
+    # Expect shared AGENTS.md in the scoped content layout.
+    if [[ ! -f "$home/shared/AGENTS.md" ]]; then
+        parts+=("no shared/AGENTS.md")
     fi
 
     if (( ${#parts} > 0 )); then
@@ -196,8 +193,8 @@ mod_status() {
     fi
 
     local skill_count=0
-    if [[ -d "$home/skills" ]]; then
-        skill_count="$(find "$home/skills" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')"
+    if [[ -d "$home/shared/skills" ]]; then
+        skill_count="$(find "$home/shared/skills" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')"
     fi
     primer::status_msg "ok · ${skill_count} skills"
     return 0

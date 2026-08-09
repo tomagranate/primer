@@ -83,6 +83,9 @@ esac
 # ---- Mise ----
 command -v mise >/dev/null 2>&1 && eval "$(mise activate zsh)"
 
+# ---- agents update check ----
+command -v agents >/dev/null 2>&1 && agents _shell-check
+
 # ---- bun completions ----
 [ -s "$HOME/.bun/_bun" ] && source "$HOME/.bun/_bun"
 
