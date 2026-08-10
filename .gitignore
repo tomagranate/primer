@@ -5,3 +5,8 @@
 # Test library dependencies (cloned, not committed)
 tests/helpers/bats-support/
 tests/helpers/bats-assert/
+
+# TypeScript app + prototypes
+node_modules/
+app/dist/
+prototype/spike/dist/
