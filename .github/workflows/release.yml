@@ -1,0 +1,96 @@
+name: Release binaries
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: primer-rolling-release
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: bun-darwin-arm64
+            asset: primer-darwin-arm64
+          - runner: macos-15-intel
+            target: bun-darwin-x64
+            asset: primer-darwin-x64
+          - runner: ubuntu-24.04-arm
+            target: bun-linux-arm64
+            asset: primer-linux-arm64
+          - runner: ubuntu-24.04
+            target: bun-linux-x64-baseline
+            asset: primer-linux-x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        working-directory: app
+        run: bun install --frozen-lockfile
+
+      - name: Build standalone executable
+        working-directory: app
+        run: bun build --compile --minify --target=${{ matrix.target }} src/index.tsx --outfile dist/${{ matrix.asset }}
+
+      - name: Smoke test executable
+        working-directory: app
+        run: dist/${{ matrix.asset }} --help
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: app/dist/${{ matrix.asset }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish rolling release
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download executables
+        uses: actions/download-artifact@v5
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Prepare checksums and version
+        run: |
+          cd dist
+          chmod +x primer-*
+          for binary in primer-darwin-arm64 primer-darwin-x64 primer-linux-arm64 primer-linux-x64; do
+            sha256sum "$binary" > "$binary.sha256"
+          done
+          printf '%s\n' "$GITHUB_SHA" > primer-version.txt
+
+      - name: Publish rolling latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload latest dist/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create latest dist/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Primer latest" \
+              --notes "Rolling standalone binaries built from master."
+          fi

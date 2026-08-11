@@ -90,10 +90,10 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 
 Each module is a **self-contained folder** that owns its config files, scripts, and install logic. Profile config is split into `configs/common.conf` plus `configs/profiles/<profile>.conf`. Primer loads the common file first, then the profile file. A profile file holds only the keys that differ from the common file.
 
-The TypeScript app in `app/` is the sole command and scheduling engine. On a terminal it renders the OpenTUI sidebar; without a TTY, or with `--log`, the same engine emits plain line output. Zsh remains only at the module boundary: the TypeScript engine runs each `modules/*/module.zsh` with helpers from `lib/ui.zsh`. The older Zsh engine files remain temporarily for module-level compatibility tests but are not reachable from `primer`.
+The compiled TypeScript app in `app/` is the sole command and scheduling engine. CI publishes native standalone executables for macOS and Linux on ARM64 and x64; Bun is a build-time dependency and is not required on managed machines. The launcher downloads and verifies the appropriate release binary. On a terminal it renders the OpenTUI sidebar; without a TTY, or with `--log`, the same engine emits plain line output. Zsh remains only at the module boundary: the TypeScript engine runs each `modules/*/module.zsh` with helpers from `lib/ui.zsh`. The older Zsh engine files remain temporarily for module-level compatibility tests but are not reachable from `primer`.
 
 ```
-├── setup.sh                      # Bootstrap (installs Bun and the primer launcher)
+├── setup.sh                      # Bootstrap (installs the Primer launcher)
 ├── app/
 │   └── src/
 │       ├── index.tsx             # Sole command entry point + TTY/headless selection
