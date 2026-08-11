@@ -68,6 +68,8 @@ teardown() {
     export MOCK_IOS_RUNTIME_MISSING=1
     zsh_run_module xcode "mod_update"
     assert_success
+    run grep "sudo xcodebuild -license accept" "$MOCK_LOG"
+    assert_success
     run grep "sudo xcodebuild -runFirstLaunch -checkForNewerComponents" "$MOCK_LOG"
     assert_success
     run grep "xcodebuild -downloadPlatform iOS" "$MOCK_LOG"
@@ -81,6 +83,7 @@ teardown() {
     export MOCK_IOS_RUNTIME_MISSING=1
     zsh_run_module xcode "mod_update"
     assert_success
+    assert_output --partial "[dry-run] sudo xcodebuild -license accept"
     assert_output --partial "[dry-run] sudo xcodebuild -runFirstLaunch -checkForNewerComponents"
     assert_output --partial "[dry-run] xcodebuild -downloadPlatform iOS"
 }

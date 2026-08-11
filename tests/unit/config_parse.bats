@@ -234,7 +234,8 @@ EOF
         [[ "${_login_order[*]}" == "github" ]] || { echo "missing configured logins"; exit 1; }
         [[ -z "${_mod_config[logins.xcode-cli-terms_command]:-}" ]] || { echo "xcode terms should be handled by xcode module"; exit 1; }
         [[ "${_mod_config[logins.github_default]}" == "yes" ]] || { echo "missing login default"; exit 1; }
-        [[ "${_mod_config[logins.github_depends_on]}" == "ssh, git, homebrew" ]] || { echo "missing login module deps"; exit 1; }
+        [[ "${_mod_config[logins.github_depends_on]}" == "ssh, git, homebrew-apps" ]] || { echo "missing login module deps"; exit 1; }
+        [[ "${_login_order[*]}" == "onepassword github" ]] || { echo "wrong mac login order"; exit 1; }
         [[ "${_mod_config[logins.github_requires]}" == "gh" ]] || { echo "missing login requirements"; exit 1; }
         [[ "${_mod_config[logins.github_status]}" == *"gh auth status --hostname github.com"* ]] || { echo "missing login status"; exit 1; }
         [[ "${_mod_config[logins.github_status]}" == *"git_protocol"* ]] || { echo "missing ssh protocol status"; exit 1; }

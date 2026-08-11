@@ -191,10 +191,20 @@ mod_update() {
         if [[ "$DRY_RUN" == true ]]; then
             echo "[dry-run] Install Homebrew"
         else
-            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+            local install_output=""
+            if ! _homebrew::run_quiet install_output /bin/bash -c \
+                "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"; then
+                _homebrew::print_command_failure "Homebrew installer" "$install_output"
+                return 1
+            fi
         fi
     fi
     ensure_brew
+
+    if [[ "$DRY_RUN" != true ]] && ! command -v brew &>/dev/null; then
+        print -r -- "Homebrew installation finished, but brew is not available on PATH."
+        return 1
+    fi
 
     primer::status_msg "updating Homebrew..."
     local output=""

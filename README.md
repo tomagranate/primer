@@ -196,6 +196,7 @@ Module settings live in `configs/common.conf` and `configs/profiles/*.conf`. Eac
 [homebrew]
 label = Homebrew
 depends_on = xcode-cli-tools
+needs_sudo = true
 taps =
     tomagranate/tap
 formulae =
@@ -233,6 +234,9 @@ needs_sudo = true
 app_path = /Applications/Xcode.app
 simulator_platforms =
     iOS
+
+[git]
+depends_on = xcode-cli-tools
 
 [mise]
 label = Mise languages

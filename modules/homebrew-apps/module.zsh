@@ -103,7 +103,7 @@ _homebrew_apps::install_cask_item() {
     resolved_app_path="$(_homebrew_apps::resolved_app_path "$item")"
 
     if [[ "$DRY_RUN" == true ]]; then
-        echo "[dry-run] brew install --cask --no-quarantine $item"
+        echo "[dry-run] brew install --cask $item"
         primer::parallel_item_result "done"
         return 0
     fi
@@ -117,10 +117,8 @@ _homebrew_apps::install_cask_item() {
         fi
 
         local install_output=""
-        # --no-quarantine avoids Gatekeeper attr races that break some installers
-        # (e.g. Private Internet Access vpn-installer.sh unquarantine step).
         if HOMEBREW_NO_COLOR=1 _homebrew_apps::run_with_lock_retry install_output \
-            brew install --quiet --cask --no-quarantine "$item"; then
+            brew install --quiet --cask "$item"; then
             primer::parallel_item_result "done"
             return 0
         fi
@@ -147,7 +145,7 @@ _homebrew_apps::install_cask_item() {
     if brew outdated --cask --quiet "$item" 2>/dev/null | grep -qx "$item"; then
         local upgrade_output=""
         if HOMEBREW_NO_COLOR=1 _homebrew_apps::run_with_lock_retry upgrade_output \
-            brew upgrade --quiet --cask --no-quarantine "$item"; then
+            brew upgrade --quiet --cask "$item"; then
             primer::parallel_item_result "done"
             return 0
         fi

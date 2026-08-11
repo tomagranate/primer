@@ -46,10 +46,14 @@ _xcode::first_launch_complete() {
 
 _xcode::run_first_launch() {
     if [[ "$DRY_RUN" == true ]]; then
+        # Fresh machines install the full Xcode app after the CLT/Homebrew
+        # stage, so accept its license here as a fallback as well.
+        echo "[dry-run] sudo xcodebuild -license accept"
         echo "[dry-run] sudo xcodebuild -runFirstLaunch -checkForNewerComponents"
         return 0
     fi
 
+    sudo xcodebuild -license accept || return 1
     sudo xcodebuild -runFirstLaunch -checkForNewerComponents
 }
 

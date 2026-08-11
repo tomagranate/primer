@@ -52,8 +52,8 @@ run_homebrew_apps_with_conf() {
     export DRY_RUN=true
     run_homebrew_apps_with_conf "mod_update"
     assert_success
-    assert_output --partial 'brew install --cask --no-quarantine fake-app'
-    assert_output --partial 'brew install --cask --no-quarantine another-app'
+    assert_output --partial 'brew install --cask fake-app'
+    assert_output --partial 'brew install --cask another-app'
 }
 
 @test "homebrew-apps: dry-run does not use brew bundle" {
@@ -68,9 +68,9 @@ run_homebrew_apps_with_conf() {
 @test "homebrew-apps: wet run calls brew install --cask for each app" {
     run_homebrew_apps_with_conf "mod_update"
     assert_success
-    run grep "brew install --quiet --cask --no-quarantine fake-app" "$MOCK_LOG"
+    run grep "brew install --quiet --cask fake-app" "$MOCK_LOG"
     assert_success
-    run grep "brew install --quiet --cask --no-quarantine another-app" "$MOCK_LOG"
+    run grep "brew install --quiet --cask another-app" "$MOCK_LOG"
     assert_success
 }
 
@@ -110,7 +110,7 @@ EOF
     export MOCK_BREW_OUTDATED_CASKS="fake-app"
     run_homebrew_apps_with_conf "mod_update"
     assert_success
-    run grep "brew upgrade --quiet --cask --no-quarantine fake-app" "$MOCK_LOG"
+    run grep "brew upgrade --quiet --cask fake-app" "$MOCK_LOG"
     assert_success
 }
 
