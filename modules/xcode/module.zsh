@@ -44,6 +44,11 @@ _xcode::first_launch_complete() {
     xcodebuild -checkFirstLaunchStatus >/dev/null 2>&1
 }
 
+_xcode::license_accepted() {
+    command -v xcodebuild >/dev/null 2>&1 || return 1
+    xcodebuild -license check >/dev/null 2>&1
+}
+
 _xcode::run_first_launch() {
     if [[ "$DRY_RUN" == true ]]; then
         # Fresh machines install the full Xcode app after the CLT/Homebrew
@@ -96,7 +101,7 @@ mod_update() {
         _xcode::select || return 1
     fi
 
-    if ! _xcode::first_launch_complete; then
+    if ! _xcode::license_accepted || ! _xcode::first_launch_complete; then
         primer::status_msg "running first launch..."
         _xcode::run_first_launch || return 1
     fi
@@ -121,6 +126,7 @@ mod_status() {
         return 1
     fi
 
+    _xcode::license_accepted || drifted=$(( drifted + 1 ))
     _xcode::first_launch_complete || drifted=$(( drifted + 1 ))
 
     while IFS= read -r platform; do

@@ -128,6 +128,29 @@ primer::should_self_update() {
     [[ "$1" == "update" && "$DRY_RUN" != true && -z "$PRIMER_LOCAL" ]]
 }
 
+primer::accept_active_xcode_license() {
+    local command="$1"
+    local developer_dir
+
+    [[ "$command" == "update" && "$DRY_RUN" != true ]] || return 0
+    [[ "$(uname -s 2>/dev/null)" == "Darwin" ]] || return 0
+    command -v xcode-select >/dev/null 2>&1 || return 0
+    command -v xcodebuild >/dev/null 2>&1 || return 0
+    developer_dir="$(xcode-select -p 2>/dev/null)" || return 0
+    [[ "$developer_dir" == *.app/Contents/Developer ]] || return 0
+    xcodebuild -license check >/dev/null 2>&1 && return 0
+
+    print "Full Xcode is active. Primer must accept its license before setup can continue."
+    if [[ "$(id -u)" -eq 0 ]]; then
+        xcodebuild -license accept
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo xcodebuild -license accept
+    else
+        print "sudo is required to accept the Xcode license." >&2
+        return 1
+    fi
+}
+
 primer::self_update() {
     local target="${BIN_DIR}/primer"
     local tmp="${target}.tmp.$$"
@@ -416,6 +439,8 @@ main() {
         [[ "$arg" == "update" || "$arg" == "status" ]] && command="$arg"
         [[ "$arg" == "--dry-run" ]] && DRY_RUN=true
     done
+
+    primer::accept_active_xcode_license "$command" || return 1
 
     if [[ -z "$PRIMER_LOCAL" || "${PRIMER_APP_SOURCE:-0}" != 1 ]]; then
         primer::resolve_release_version || return 1

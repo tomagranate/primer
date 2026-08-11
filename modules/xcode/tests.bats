@@ -16,6 +16,10 @@ setup() {
 #!/bin/sh
 echo "xcodebuild $*" >> "${MOCK_LOG:-/dev/null}"
 case "$1" in
+    -license)
+        [ "$2" = "check" ] && [ "${MOCK_XCODE_LICENSE_NEEDED:-0}" = "1" ] && exit 1
+        exit 0
+        ;;
     -checkFirstLaunchStatus)
         [ "${MOCK_XCODE_FIRST_LAUNCH_NEEDED:-0}" = "1" ] && exit 1
         exit 0
@@ -73,6 +77,15 @@ teardown() {
     run grep "sudo xcodebuild -runFirstLaunch -checkForNewerComponents" "$MOCK_LOG"
     assert_success
     run grep "xcodebuild -downloadPlatform iOS" "$MOCK_LOG"
+    assert_success
+}
+
+@test "xcode: accepts the license when first launch is otherwise complete" {
+    export MOCK_XCODE_FULL=1
+    export MOCK_XCODE_LICENSE_NEEDED=1
+    zsh_run_module xcode "mod_update"
+    assert_success
+    run grep "sudo xcodebuild -license accept" "$MOCK_LOG"
     assert_success
 }
 

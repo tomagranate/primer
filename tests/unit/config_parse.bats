@@ -230,6 +230,8 @@ EOF
         [[ "${_mod_deps[shell-installers]}" == "xcode-cli-tools" ]] || { echo "wrong shell installers dep"; exit 1; }
         [[ "${_mod_deps[mac-app-store]}" == "homebrew" ]] || { echo "wrong mac app store dep"; exit 1; }
         [[ "${_mod_deps[xcode]}" == "mac-app-store" ]] || { echo "wrong xcode dep"; exit 1; }
+        [[ "${_mod_deps[homebrew-apps]}" == "homebrew" ]] || { echo "wrong app dep"; exit 1; }
+        [[ "${_mod_deps[git]}" == "xcode-cli-tools" ]] || { echo "wrong git dep"; exit 1; }
         [[ "${_mod_config[mac-app-store.mas]}" == *"Xcode:497799835"* ]] || { echo "missing xcode app store item"; exit 1; }
         [[ -z "${_mod_config[logins.xcode-cli-terms_command]:-}" ]] || { echo "xcode terms should be handled by xcode module"; exit 1; }
         [[ "${_mod_config[logins.github_default]}" == "yes" ]] || { echo "missing login default"; exit 1; }

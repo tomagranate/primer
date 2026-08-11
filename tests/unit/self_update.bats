@@ -132,3 +132,72 @@ EOF
     assert_success
     refute_output --partial "unexpected download"
 }
+
+@test "xcode guard: accepts the license only for active full Xcode" {
+    local fakebin mock_log
+    fakebin="$(mktemp -d)"
+    mock_log="$(mktemp)"
+
+    cat > "$fakebin/uname" <<'EOF'
+#!/bin/sh
+echo Darwin
+EOF
+    cat > "$fakebin/id" <<'EOF'
+#!/bin/sh
+echo 501
+EOF
+    cat > "$fakebin/xcode-select" <<'EOF'
+#!/bin/sh
+echo /Applications/Xcode.app/Contents/Developer
+EOF
+    cat > "$fakebin/xcodebuild" <<'EOF'
+#!/bin/sh
+[ "$1 $2" = "-license check" ] && exit 1
+echo "xcodebuild $*" >> "$MOCK_LOG"
+EOF
+    cat > "$fakebin/sudo" <<'EOF'
+#!/bin/sh
+echo "sudo $*" >> "$MOCK_LOG"
+EOF
+    chmod +x "$fakebin"/*
+
+    run env PATH="$fakebin:$PATH" MOCK_LOG="$mock_log" zsh -c "
+        export PRIMER_SOURCE_ONLY=1
+        source '$PRIMER_DIR/bin/primer'
+        DRY_RUN=false
+        primer::accept_active_xcode_license update
+    "
+    assert_success
+    run grep "sudo xcodebuild -license accept" "$mock_log"
+    assert_success
+}
+
+@test "xcode guard: leaves Command Line Tools alone" {
+    local fakebin mock_log
+    fakebin="$(mktemp -d)"
+    mock_log="$(mktemp)"
+
+    cat > "$fakebin/uname" <<'EOF'
+#!/bin/sh
+echo Darwin
+EOF
+    cat > "$fakebin/xcode-select" <<'EOF'
+#!/bin/sh
+echo /Library/Developer/CommandLineTools
+EOF
+    cat > "$fakebin/xcodebuild" <<'EOF'
+#!/bin/sh
+echo "unexpected xcodebuild $*" >> "$MOCK_LOG"
+exit 1
+EOF
+    chmod +x "$fakebin"/*
+
+    run env PATH="$fakebin:$PATH" MOCK_LOG="$mock_log" zsh -c "
+        export PRIMER_SOURCE_ONLY=1
+        source '$PRIMER_DIR/bin/primer'
+        DRY_RUN=false
+        primer::accept_active_xcode_license update
+    "
+    assert_success
+    [ ! -s "$mock_log" ]
+}
