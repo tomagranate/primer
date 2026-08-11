@@ -43,6 +43,49 @@ teardown() {
     assert_success
 }
 
+@test "zsh: managed primer wrapper reloads current shell after successful update" {
+    mkdir -p "$TEST_HOME/.zim" "$TEST_HOME/bin"
+    touch "$TEST_HOME/.zim/zimfw.zsh" "$TEST_HOME/.zim/init.zsh"
+    printf '%s\n' 'typeset -gi PRIMER_RELOAD_COUNT=$(( ${PRIMER_RELOAD_COUNT:-0} + 1 ))' > "$TEST_HOME/.zshrc"
+    cat > "$TEST_HOME/bin/primer" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+    chmod +x "$TEST_HOME/bin/primer"
+
+    zsh_run_module zsh "mod_update"
+    assert_success
+    run env HOME="$TEST_HOME" ZDOTDIR="$TEST_HOME" PATH="$TEST_HOME/bin:$PATH" zsh -c '
+        source "$ZDOTDIR/.zshrc"
+        primer update
+        print "$PRIMER_RELOAD_COUNT"
+    '
+    assert_success
+    assert_output --partial "2"
+}
+
+@test "zsh: managed primer wrapper does not reload for dry-run or status" {
+    mkdir -p "$TEST_HOME/.zim" "$TEST_HOME/bin"
+    touch "$TEST_HOME/.zim/zimfw.zsh" "$TEST_HOME/.zim/init.zsh"
+    printf '%s\n' 'typeset -gi PRIMER_RELOAD_COUNT=$(( ${PRIMER_RELOAD_COUNT:-0} + 1 ))' > "$TEST_HOME/.zshrc"
+    cat > "$TEST_HOME/bin/primer" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+    chmod +x "$TEST_HOME/bin/primer"
+
+    zsh_run_module zsh "mod_update"
+    assert_success
+    run env HOME="$TEST_HOME" ZDOTDIR="$TEST_HOME" PATH="$TEST_HOME/bin:$PATH" zsh -c '
+        source "$ZDOTDIR/.zshrc"
+        primer update --dry-run
+        primer status
+        print "$PRIMER_RELOAD_COUNT"
+    '
+    assert_success
+    assert_output --partial "1"
+}
+
 @test "zsh: update removes stale compiled managed configs in HOME" {
     mkdir -p "$TEST_HOME/.zim"
     touch "$TEST_HOME/.zim/zimfw.zsh"

@@ -44,3 +44,28 @@ EOF
     assert_failure
     assert_output --partial "Failed to self-update primer CLI"
 }
+
+@test "self-update: re-executes the downloaded launcher immediately" {
+    local fakebin test_home
+    fakebin="$(mktemp -d)"
+    test_home="$(mktemp -d)"
+
+    cat > "${fakebin}/curl" <<'EOF'
+#!/bin/sh
+out=""
+while [ "$#" -gt 0 ]; do
+    if [ "$1" = "-o" ]; then out="$2"; shift 2; continue; fi
+    shift
+done
+[ -n "$out" ] || exit 64
+cat > "$out" <<'LAUNCHER'
+#!/bin/zsh
+print "new launcher ran: $*"
+LAUNCHER
+EOF
+    chmod +x "${fakebin}/curl"
+
+    run env HOME="$test_home" PATH="${fakebin}:$PATH" zsh "$PRIMER_DIR/bin/primer" update --profile mac
+    assert_success
+    assert_output "new launcher ran: update --profile mac"
+}
