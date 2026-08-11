@@ -45,6 +45,7 @@ teardown() {
     echo "# test" >"$AGENTS_HOME/shared/AGENTS.md"
     git -C "$AGENTS_HOME" add shared/AGENTS.md
     git -C "$AGENTS_HOME" -c user.email=t@t -c user.name=t commit -m init >/dev/null 2>&1
+    mkdir -p "$AGENTS_ARCHIVE"
     git -C "$AGENTS_ARCHIVE" init -b main >/dev/null 2>&1
     git -C "$AGENTS_ARCHIVE" remote add origin git@github.com:tomagranate/chat-archive.git
     zsh_run_module agents "mod_status"
