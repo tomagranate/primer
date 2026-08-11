@@ -13,20 +13,20 @@ setup() {
     export MOD_ITEMS_FILE="$(mktemp)"
     export PATH="$MOCK_DIR:$PRIMER_DIR/tests/helpers/mocks:$PATH"
 
-    cat > "$MOCK_DIR/darkbloom" <<'EOF'
+    cat > "$MOCK_DIR/sampletool" <<'EOF'
 #!/bin/sh
-echo "darkbloom $*" >> "${MOCK_LOG:-/dev/null}"
+echo "sampletool $*" >> "${MOCK_LOG:-/dev/null}"
 exit 1
 EOF
-    chmod +x "$MOCK_DIR/darkbloom"
+    chmod +x "$MOCK_DIR/sampletool"
 
     cat > "$TEST_CONF" <<'EOF'
 [shell-installers]
 installers =
-    - name: darkbloom
-      url: https://api.darkbloom.dev/install.sh
-      command: darkbloom
-      check: darkbloom --version
+    - name: sampletool
+      url: https://example.com/sampletool.sh
+      command: sampletool
+      check: sampletool --version
 EOF
 }
 
@@ -34,16 +34,16 @@ teardown() {
     rm -rf "$TEST_HOME" "$MOCK_LOG" "$TEST_CONF" "$MOD_ITEMS_FILE"
 }
 
-make_darkbloom_mock() {
-    cat > "$MOCK_DIR/darkbloom" <<'EOF'
+make_sampletool_mock() {
+    cat > "$MOCK_DIR/sampletool" <<'EOF'
 #!/bin/sh
-echo "darkbloom $*" >> "${MOCK_LOG:-/dev/null}"
+echo "sampletool $*" >> "${MOCK_LOG:-/dev/null}"
 case "$1" in
     --version) echo "0.6.9"; exit 0 ;;
 esac
 exit 0
 EOF
-    chmod +x "$MOCK_DIR/darkbloom"
+    chmod +x "$MOCK_DIR/sampletool"
 }
 
 run_shell_installers_with_conf() {
@@ -71,23 +71,23 @@ run_shell_installers_with_conf() {
     export DRY_RUN=true
     run_shell_installers_with_conf "mod_update"
     assert_success
-    assert_output --partial "[dry-run] curl -fsSL https://api.darkbloom.dev/install.sh | bash"
+    assert_output --partial "[dry-run] curl -fsSL https://example.com/sampletool.sh | bash"
 }
 
 @test "shell-installers: wet run calls configured installer when missing" {
     run_shell_installers_with_conf "mod_update"
     assert_failure
-    run grep "curl -fsSL https://api.darkbloom.dev/install.sh" "$MOCK_LOG"
+    run grep "curl -fsSL https://example.com/sampletool.sh" "$MOCK_LOG"
     assert_success
-    run grep "$(printf 'failed\tdarkbloom\tcheck failed')" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'failed\tsampletool\tcheck failed')" "$MOD_ITEMS_FILE"
     assert_success
 }
 
 @test "shell-installers: wet run skips installer when already installed" {
-    make_darkbloom_mock
+    make_sampletool_mock
     run_shell_installers_with_conf "mod_update"
     assert_success
-    run grep "curl -fsSL https://api.darkbloom.dev/install.sh" "$MOCK_LOG"
+    run grep "curl -fsSL https://example.com/sampletool.sh" "$MOCK_LOG"
     assert_failure
 }
 
@@ -100,10 +100,10 @@ EOF
     cat > "$TEST_CONF" <<'EOF'
 [shell-installers]
 installers =
-    - name: darkbloom
-      url: https://api.darkbloom.dev/install.sh
-      command: darkbloom
-      check: darkbloom --version
+    - name: sampletool
+      url: https://example.com/sampletool.sh
+      command: sampletool
+      check: sampletool --version
     - name: example
       url: https://example.com/install.sh
       command: example
@@ -112,7 +112,7 @@ EOF
     export DRY_RUN=true
     run_shell_installers_with_conf "mod_update"
     assert_success
-    assert_output --partial "[dry-run] curl -fsSL https://api.darkbloom.dev/install.sh | bash"
+    assert_output --partial "[dry-run] curl -fsSL https://example.com/sampletool.sh | bash"
     assert_output --partial "[dry-run] curl -fsSL https://example.com/install.sh | bash"
 }
 
@@ -201,21 +201,21 @@ EOF
 }
 
 @test "shell-installers: mod_status succeeds when installed" {
-    make_darkbloom_mock
+    make_sampletool_mock
     run_shell_installers_with_conf "mod_status"
     assert_success
 }
 
 @test "shell-installers: mod_status accepts tool installed under dotdir bin" {
-    mkdir -p "$TEST_HOME/.darkbloom/bin"
-    cat > "$TEST_HOME/.darkbloom/bin/darkbloom" <<'EOF'
+    mkdir -p "$TEST_HOME/.sampletool/bin"
+    cat > "$TEST_HOME/.sampletool/bin/sampletool" <<'EOF'
 #!/bin/sh
 case "$1" in
     --version) echo "0.6.10"; exit 0 ;;
 esac
 exit 0
 EOF
-    chmod +x "$TEST_HOME/.darkbloom/bin/darkbloom"
+    chmod +x "$TEST_HOME/.sampletool/bin/sampletool"
 
     run_shell_installers_with_conf "mod_status"
     assert_success

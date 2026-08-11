@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { sanitizeLine } from "./ansi";
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: verifies controls never survive
-const UNSAFE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x9b\x1b]/;
+const UNSAFE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\x1b]/;
 
 describe("sanitizeLine", () => {
   test.each([
@@ -26,6 +26,9 @@ describe("sanitizeLine", () => {
     ["PM", "a\x1b^payload\x1b\\b", "ab"],
     ["APC unterminated", "a\x1b_payload", "a"],
     ["C1 CSI", "a\x9b31mb", "ab"],
+    ["C1 OSC", "a\x9d0;title\x9cb", "ab"],
+    ["C1 DCS", "a\x90payload\x9cb", "ab"],
+    ["stray C1 controls", "a\x80\x8f\x9cb", "ab"],
     ["lone ESC at end", "hello\x1b", "hello"],
     ["stray BEL", "be\x07ll", "bell"],
     ["tab becomes spaces", "a\tb", "a  b"],

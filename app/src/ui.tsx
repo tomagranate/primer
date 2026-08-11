@@ -278,7 +278,9 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
             {focus.logs.slice(-tailCount).map((line, i) => (
               <text key={i} fg={/error|failed/i.test(line) ? C.red : C.dim}>{`  ${line}`}</text>
             ))}
-            {focus.logs.length === 0 && <text fg={C.dim}>  no output yet</text>}
+            {focus.logs.length === 0 && (
+              <text fg={C.dim}>{`  status: ${focus.detail || focus.state}`}</text>
+            )}
           </box>
         )}
       </box>

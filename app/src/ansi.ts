@@ -43,6 +43,13 @@ export function sanitizeLine(line: string): string {
       continue;
     }
 
+    if (c === 0x90 || c === 0x98 || c === 0x9d || c === 0x9e || c === 0x9f) {
+      // C1 DCS/SOS/OSC/PM/APC string. Consume through ST, BEL, or line end.
+      i++;
+      while (i < line.length && line.charCodeAt(i) !== 0x07 && line.charCodeAt(i) !== 0x9c) i++;
+      continue;
+    }
+
     if (c === 0x9b) {
       // C1 CSI
       i++;
@@ -51,7 +58,7 @@ export function sanitizeLine(line: string): string {
     }
 
     if (c === 0x09) { out += "  "; continue; }
-    if (c < 0x20 || c === 0x7f) continue;
+    if (c < 0x20 || (c >= 0x7f && c <= 0x9f)) continue;
     out += line[i];
   }
   return out;

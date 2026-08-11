@@ -246,11 +246,17 @@ export class Engine {
       const dec = new TextDecoder();
       let buf = "";
       for await (const chunk of stream) {
-        buf += dec.decode(chunk);
-        const parts = buf.split("\n");
+        buf += dec.decode(chunk, { stream: true });
+        // Many installers redraw progress with CR instead of a newline.
+        // Treat each redraw as a log record so the TUI shows active work.
+        const parts = buf.split(/[\r\n]/);
         buf = parts.pop() ?? "";
-        for (const line of parts) n.logs.push(sanitizeLine(line.replace(/\r$/, "")));
+        for (const line of parts) {
+          const clean = sanitizeLine(line);
+          if (clean) n.logs.push(clean);
+        }
       }
+      buf += dec.decode();
       if (buf.trim()) n.logs.push(sanitizeLine(buf));
     };
     const statusPoll = setInterval(async () => {

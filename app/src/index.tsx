@@ -76,7 +76,17 @@ Flags:
 }
 
 function notify(message: string): void {
-  process.stdout.write(`\x07\x1b]9;${message}\x07`);
+  // Do not write notification escape sequences while OpenTUI owns stdout.
+  // Use the operating system service so the renderer is the only terminal
+  // writer.
+  if (process.platform === "darwin" && Bun.which("osascript")) {
+    const escaped = message.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    Bun.spawn(["osascript", "-e", `display notification "${escaped}" with title "Primer"`], {
+      stdout: "ignore", stderr: "ignore",
+    });
+  } else if (Bun.which("notify-send")) {
+    Bun.spawn(["notify-send", "Primer", message], { stdout: "ignore", stderr: "ignore" });
+  }
 }
 
 /* ── update ── */
