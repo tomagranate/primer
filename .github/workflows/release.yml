@@ -81,16 +81,52 @@ jobs:
           done
           printf '%s\n' "$GITHUB_SHA" > primer-version.txt
 
-      - name: Publish rolling latest release
+      - name: Publish immutable release and update latest marker
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload latest dist/* --clobber --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create latest dist/* \
+          release_tag="commit-$GITHUB_SHA"
+          if ! gh release view "$release_tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$release_tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --latest=false \
+              --title "Primer $GITHUB_SHA" \
+              --notes "Standalone binaries built from commit $GITHUB_SHA."
+          fi
+
+          upload_asset() {
+            local asset="$1"
+            for attempt in 1 2 3; do
+              if gh release upload "$release_tag" "dist/$asset" --clobber --repo "$GITHUB_REPOSITORY"; then
+                return 0
+              fi
+              sleep $((attempt * 2))
+            done
+            return 1
+          }
+
+          for asset in \
+            primer-darwin-arm64 primer-darwin-arm64.sha256 \
+            primer-darwin-x64 primer-darwin-x64.sha256 \
+            primer-linux-arm64 primer-linux-arm64.sha256 \
+            primer-linux-x64 primer-linux-x64.sha256; do
+            upload_asset "$asset"
+          done
+
+          if ! gh release view latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create latest \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "Primer latest" \
-              --notes "Rolling standalone binaries built from master."
+              --notes "Points Primer clients to the latest complete release."
           fi
+
+          # Change discovery only after the immutable release is complete.
+          for attempt in 1 2 3; do
+            if gh release upload latest dist/primer-version.txt --clobber --repo "$GITHUB_REPOSITORY"; then
+              exit 0
+            fi
+            sleep $((attempt * 2))
+          done
+          exit 1

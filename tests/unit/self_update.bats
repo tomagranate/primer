@@ -42,7 +42,7 @@ EOF
 
     run env HOME="$test_home" PATH="${fakebin}:$PATH" zsh "$PRIMER_DIR/bin/primer" update
     assert_failure
-    assert_output --partial "Failed to self-update primer CLI"
+    assert_output --partial "Failed to resolve the latest Primer version"
 }
 
 @test "self-update: re-executes the downloaded launcher immediately" {
@@ -53,10 +53,17 @@ EOF
     cat > "${fakebin}/curl" <<'EOF'
 #!/bin/sh
 out=""
+url=""
 while [ "$#" -gt 0 ]; do
     if [ "$1" = "-o" ]; then out="$2"; shift 2; continue; fi
-    shift
+    case "$1" in -*) shift ;; *) url="$1"; shift ;; esac
 done
+case "$url" in
+*/primer-version.txt)
+    printf '%s\n' 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    exit 0
+    ;;
+esac
 [ -n "$out" ] || exit 64
 cat > "$out" <<'LAUNCHER'
 #!/bin/zsh
@@ -68,4 +75,60 @@ EOF
     run env HOME="$test_home" PATH="${fakebin}:$PATH" zsh "$PRIMER_DIR/bin/primer" update --profile mac
     assert_success
     assert_output "new launcher ran: update --profile mac"
+}
+
+@test "self-update: skips launcher download for the cached release" {
+    local fakebin test_home version
+    fakebin="$(mktemp -d)"
+    test_home="$(mktemp -d)"
+    version="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    mkdir -p "$test_home/bin" "$test_home/.cache/primer"
+    cp "$PRIMER_DIR/bin/primer" "$test_home/bin/primer"
+    printf '%s\n' "$version" > "$test_home/.cache/primer/launcher-version"
+
+    cat > "${fakebin}/curl" <<'EOF'
+#!/bin/sh
+case "$*" in
+    *primer-version.txt*) printf '%s\n' 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' ;;
+    *) echo "unexpected download: $*" >&2; exit 64 ;;
+esac
+EOF
+    chmod +x "${fakebin}/curl"
+
+    run env HOME="$test_home" BIN_DIR="$test_home/bin" PATH="${fakebin}:$PATH" \
+        PRIMER_SELF_UPDATED=1 zsh -c "
+            export PRIMER_SOURCE_ONLY=1
+            source '$PRIMER_DIR/bin/primer'
+            PRIMER_RELEASE_VERSION='$version'
+            BIN_DIR='$test_home/bin'
+            primer::self_update
+        "
+    assert_success
+    refute_output --partial "unexpected download"
+}
+
+@test "framework: reuses the cache for the current release" {
+    local fakebin test_home version
+    fakebin="$(mktemp -d)"
+    test_home="$(mktemp -d)"
+    version="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    mkdir -p "$test_home/.cache/primer/framework"
+    printf '%s\n' "$version" > "$test_home/.cache/primer/framework/.primer-version"
+
+    cat > "${fakebin}/curl" <<'EOF'
+#!/bin/sh
+echo "unexpected download: $*" >&2
+exit 64
+EOF
+    chmod +x "${fakebin}/curl"
+
+    run env HOME="$test_home" PATH="${fakebin}:$PATH" zsh -c "
+        export PRIMER_SOURCE_ONLY=1
+        source '$PRIMER_DIR/bin/primer'
+        PRIMER_RELEASE_VERSION='$version'
+        primer::download_framework
+        [[ \"\$PRIMER_DIR\" == '$test_home/.cache/primer/framework' ]]
+    "
+    assert_success
+    refute_output --partial "unexpected download"
 }

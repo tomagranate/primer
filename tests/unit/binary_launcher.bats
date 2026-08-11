@@ -62,7 +62,7 @@ teardown() {
     assert_success
     assert_output "native primer: --help"
     [ -x "$TEST_HOME/.cache/primer/bin/primer-darwin-arm64-$MOCK_VERSION" ]
-    run grep -F "releases/download/latest/primer-darwin-arm64" "$MOCK_CURL_LOG"
+    run grep -F "releases/download/commit-$MOCK_VERSION/primer-darwin-arm64" "$MOCK_CURL_LOG"
     assert_success
 }
 
@@ -75,7 +75,7 @@ teardown() {
         PATH="$FAKEBIN:$PATH" zsh "$PRIMER_DIR/bin/primer" status
     assert_success
     assert_output "native primer: status"
-    run grep -F "primer-darwin-arm64 -o" "$MOCK_CURL_LOG"
+    run grep -F "commit-$MOCK_VERSION/primer-darwin-arm64 -o" "$MOCK_CURL_LOG"
     assert_failure
 }
 
