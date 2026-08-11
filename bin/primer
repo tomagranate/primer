@@ -17,6 +17,8 @@ typeset -g PRIMER_SKIP=""  # Space-separated modules to skip (--skip <name>)
 typeset -g PRIMER_ONLY=""  # Space-separated modules to run exclusively (--only <name>)
 typeset -g PRIMER_UI_MODE=""  # auto-selected unless --tui or --log is passed
 typeset -g PRIMER_PROFILE="${PRIMER_PROFILE:-}"
+typeset -g PRIMER_RELEASE_VERSION=""
+typeset -gr PRIMER_RELEASE_ROOT="https://github.com/tomagranate/primer/releases/download"
 
 primer::download_with_spinner() {
     local label="$1"
@@ -51,9 +53,27 @@ primer::download_with_spinner() {
 
 # ── Framework Download ────────────────────────────────────────────────────────
 
+primer::resolve_release_version() {
+    PRIMER_RELEASE_VERSION="$(curl -fsSL "$PRIMER_RELEASE_ROOT/latest/primer-version.txt")" || {
+        print "Failed to resolve the latest Primer version." >&2
+        return 1
+    }
+    [[ "$PRIMER_RELEASE_VERSION" =~ '^[0-9a-f]{40}$' ]] || {
+        print "Invalid Primer version: $PRIMER_RELEASE_VERSION" >&2
+        return 1
+    }
+}
+
 primer::download_framework() {
-    local cache="$HOME/.cache/primer"
+    local cache="$HOME/.cache/primer/framework"
+    local marker="$cache/.primer-version"
     local staging previous=""
+
+    if [[ -d "$cache" && -f "$marker" ]] && \
+        [[ "$(<"$marker")" == "$PRIMER_RELEASE_VERSION" ]]; then
+        PRIMER_DIR="$cache"
+        return 0
+    fi
 
     mkdir -p "${cache:h}"
 
@@ -65,13 +85,15 @@ primer::download_framework() {
     fi
 
     # Download the entire repo as a tarball and extract
-    if ! curl -fsSL "$REPO_URL/archive/refs/heads/master.tar.gz" \
+    if ! curl -fsSL "$REPO_URL/archive/$PRIMER_RELEASE_VERSION.tar.gz" \
         | tar -xzf - -C "$staging" --strip-components=1 2>/dev/null; then
         rm -rf "$staging"
         print "  ✗  Failed to download primer framework" >&2
         print "     Check your internet connection and try again." >&2
         return 1
     fi
+
+    print -r -- "$PRIMER_RELEASE_VERSION" > "$staging/.primer-version"
 
     # Swap the new copy in. Keep the old copy until the swap succeeds.
     if [[ -e "$cache" ]]; then
@@ -110,6 +132,12 @@ primer::self_update() {
     local target="${BIN_DIR}/primer"
     local tmp="${target}.tmp.$$"
     local url="${REPO_RAW}/bin/primer"
+    local marker="$HOME/.cache/primer/launcher-version"
+
+    if [[ -x "$target" && -f "$marker" ]] && \
+        [[ "$(<"$marker")" == "$PRIMER_RELEASE_VERSION" ]]; then
+        return 0
+    fi
 
     mkdir -p "$BIN_DIR"
 
@@ -133,6 +161,9 @@ primer::self_update() {
         print "     Could not replace: $target" >&2
         return 1
     fi
+
+    mkdir -p "${marker:h}"
+    print -r -- "$PRIMER_RELEASE_VERSION" > "$marker"
 }
 
 # ── Help ──────────────────────────────────────────────────────────────────────
@@ -181,7 +212,7 @@ primer::run_app() {
         exec bun run "$PRIMER_DIR/app/src/index.tsx" "$@"
     fi
 
-    local os arch asset release_base version cache_dir binary tmp expected actual
+    local os arch asset cache_dir binary tmp expected actual
     case "$(uname -s 2>/dev/null)" in
         Darwin) os=darwin ;;
         Linux) os=linux ;;
@@ -194,28 +225,18 @@ primer::run_app() {
     esac
 
     asset="primer-${os}-${arch}"
-    release_base="https://github.com/tomagranate/primer/releases/download/latest"
-    version="$(curl -fsSL "$release_base/primer-version.txt")" || {
-        print "Failed to resolve the latest Primer binary version." >&2
-        return 1
-    }
-    [[ "$version" =~ '^[0-9a-f]{40}$' ]] || {
-        print "Invalid Primer binary version: $version" >&2
-        return 1
-    }
-
     cache_dir="$HOME/.cache/primer/bin"
-    binary="$cache_dir/${asset}-${version}"
+    binary="$cache_dir/${asset}-${PRIMER_RELEASE_VERSION}"
     if [[ ! -x "$binary" ]]; then
         mkdir -p "$cache_dir"
         tmp="$(mktemp "$cache_dir/${asset}.XXXXXX")" || return 1
         if ! primer::download_with_spinner "Downloading Primer binary..." \
-            curl -fsSL "$release_base/$asset" -o "$tmp"; then
+            curl -fsSL "$PRIMER_RELEASE_ROOT/commit-$PRIMER_RELEASE_VERSION/$asset" -o "$tmp"; then
             rm -f "$tmp"
             print "Failed to download $asset." >&2
             return 1
         fi
-        expected="$(curl -fsSL "$release_base/${asset}.sha256" | awk '{print $1}')" || {
+        expected="$(curl -fsSL "$PRIMER_RELEASE_ROOT/commit-$PRIMER_RELEASE_VERSION/${asset}.sha256" | awk '{print $1}')" || {
             rm -f "$tmp"
             return 1
         }
@@ -395,6 +416,10 @@ main() {
         [[ "$arg" == "update" || "$arg" == "status" ]] && command="$arg"
         [[ "$arg" == "--dry-run" ]] && DRY_RUN=true
     done
+
+    if [[ -z "$PRIMER_LOCAL" || "${PRIMER_APP_SOURCE:-0}" != 1 ]]; then
+        primer::resolve_release_version || return 1
+    fi
 
     # Keep the launcher itself current before running update.
     if primer::should_self_update "$command" && [[ "${PRIMER_SELF_UPDATED:-0}" != 1 ]]; then
