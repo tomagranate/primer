@@ -133,4 +133,7 @@ esac
 # ── Run primer update ─────────────────────────────────────────────────────────
 
 ensure_zsh
+if [ -t 1 ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
+    exec "$(command -v zsh)" "$BIN_DIR/primer" update "$@" </dev/tty
+fi
 exec "$(command -v zsh)" "$BIN_DIR/primer" update "$@"

@@ -86,7 +86,10 @@ async function runUpdate(args: Args): Promise<never> {
   const profile = await detectProfile(primerDir, args.profile ?? process.env.PRIMER_PROFILE);
   const defs = await loadNodes(primerDir, profile);
 
-  const useTui = !args.headless && process.stdout.isTTY;
+  // A piped installer can keep stdout on the terminal while stdin is a pipe.
+  // Do not start OpenTUI in that state. Terminal query replies would reach the
+  // parent shell and appear as text after Primer exits.
+  const useTui = !args.headless && process.stdout.isTTY && process.stdin.isTTY;
 
   if (!useTui) {
     const engine = new Engine(defs, {

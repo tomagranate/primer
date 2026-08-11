@@ -18,6 +18,37 @@ typeset -g PRIMER_ONLY=""  # Space-separated modules to run exclusively (--only 
 typeset -g PRIMER_UI_MODE=""  # auto-selected unless --tui or --log is passed
 typeset -g PRIMER_PROFILE="${PRIMER_PROFILE:-}"
 
+primer::download_with_spinner() {
+    local label="$1"
+    shift
+
+    if [[ ! -t 2 ]]; then
+        "$@"
+        return
+    fi
+
+    local -a frames=('|' '/' '-' '\')
+    local frame=1 pid result
+    "$@" &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        printf '\r  %s %s' "${frames[$frame]}" "$label" >&2
+        frame=$(( frame % 4 + 1 ))
+        sleep 0.1
+    done
+    if wait "$pid"; then
+        result=0
+    else
+        result=$?
+    fi
+    if (( result == 0 )); then
+        printf '\r  Primer binary download complete.\n' >&2
+    else
+        printf '\r  Primer binary download failed.\n' >&2
+    fi
+    return "$result"
+}
+
 # ── Framework Download ────────────────────────────────────────────────────────
 
 primer::download_framework() {
@@ -178,7 +209,8 @@ primer::run_app() {
     if [[ ! -x "$binary" ]]; then
         mkdir -p "$cache_dir"
         tmp="$(mktemp "$cache_dir/${asset}.XXXXXX")" || return 1
-        if ! curl -fsSL "$release_base/$asset" -o "$tmp"; then
+        if ! primer::download_with_spinner "Downloading Primer binary..." \
+            curl -fsSL "$release_base/$asset" -o "$tmp"; then
             rm -f "$tmp"
             print "Failed to download $asset." >&2
             return 1
