@@ -366,6 +366,7 @@ load '../helpers/common'
     zsh_run '
         engine::load_config "$PRIMER_DIR/configs/common.conf" "$PRIMER_DIR/configs/profiles/mac.conf"
         local m; for m in $_mod_order; do _state[$m]=pending; done
+        _state[homebrew]=skipped
         _state[touchid]=skipped
         _state[xcode]=skipped
         engine::_needs_sudo && echo YES || echo NO

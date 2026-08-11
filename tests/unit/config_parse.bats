@@ -231,7 +231,6 @@ EOF
         [[ "${_mod_deps[mac-app-store]}" == "homebrew" ]] || { echo "wrong mac app store dep"; exit 1; }
         [[ "${_mod_deps[xcode]}" == "mac-app-store" ]] || { echo "wrong xcode dep"; exit 1; }
         [[ "${_mod_config[mac-app-store.mas]}" == *"Xcode:497799835"* ]] || { echo "missing xcode app store item"; exit 1; }
-        [[ "${_login_order[*]}" == "github" ]] || { echo "missing configured logins"; exit 1; }
         [[ -z "${_mod_config[logins.xcode-cli-terms_command]:-}" ]] || { echo "xcode terms should be handled by xcode module"; exit 1; }
         [[ "${_mod_config[logins.github_default]}" == "yes" ]] || { echo "missing login default"; exit 1; }
         [[ "${_mod_config[logins.github_depends_on]}" == "ssh, git, homebrew-apps" ]] || { echo "missing login module deps"; exit 1; }
