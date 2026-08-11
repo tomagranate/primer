@@ -175,7 +175,6 @@ EOF
         apt_packages=($=_mod_config[apt.packages])
         [[ ${apt_packages[(Ie)gh]} -eq 0 ]] || { echo "unexpected distro gh package"; exit 1; }
         [[ "${_mod_config[apt.packages]}" != *"docker-compose-plugin"* ]] || { echo "unexpected docker plugin package"; exit 1; }
-        [[ "${_mod_config[shell-installers.installers]}" != *"darkbloom"* ]] || { echo "unexpected darkbloom"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" == *"shell: sh"* ]] || { echo "missing sh installer shell"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" == *"args: -y -b \$HOME/.local/bin"* ]] || { echo "missing user-local starship"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" == *"name: opencode"* ]] || { echo "missing opencode"; exit 1; }
@@ -215,7 +214,6 @@ EOF
         apt_packages=($=_mod_config[apt.packages])
         [[ ${apt_packages[(Ie)gh]} -eq 0 ]] || { echo "unexpected distro gh package"; exit 1; }
         [[ "${_mod_config[apt.packages]}" != *"docker-compose-plugin"* ]] || { echo "unexpected docker plugin package"; exit 1; }
-        [[ "${_mod_config[shell-installers.installers]}" != *"darkbloom"* ]] || { echo "unexpected darkbloom"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" == *"shell: sh"* ]] || { echo "missing sh installer shell"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" == *"args: -y -b \$HOME/.local/bin"* ]] || { echo "missing user-local starship"; exit 1; }
         [[ "${_mod_config[shell-installers.installers]}" == *"privileged: true"* ]] || { echo "missing privileged installer"; exit 1; }
@@ -228,10 +226,9 @@ EOF
     assert_output "ok"
 }
 
-@test "profile: mac config includes darkbloom shell installer" {
+@test "profile: mac config includes managed settings" {
     zsh_run '
         engine::load_config "$PRIMER_DIR/configs/common.conf" "$PRIMER_DIR/configs/profiles/mac.conf"
-        [[ "${_mod_config[shell-installers.installers]}" == *"darkbloom"* ]] || { echo "missing darkbloom"; exit 1; }
         [[ ${_mod_order[(Ie)managed-settings]} -gt 0 ]] || { echo "missing managed-settings"; exit 1; }
         [[ "${_mod_deps[managed-settings]}" == "homebrew-apps" ]] || { echo "wrong managed-settings dep"; exit 1; }
         echo "ok"
