@@ -29,6 +29,7 @@ function parseArgs(argv: string[]): Args {
       case "update": case "status": args.command = a; break;
       case "--dry-run": args.dryRun = true; break;
       case "--log": args.headless = true; break;
+      case "--tui": break; // compatibility: TUI is already the terminal default
       case "--skip": args.skip.push(need(argv, ++i, a)); break;
       case "--only": args.only.push(need(argv, ++i, a)); break;
       case "--profile": args.profile = need(argv, ++i, a); break;
@@ -70,6 +71,7 @@ Flags:
   --only <module>   Run only this module; repeatable (update only)
   --profile <name>  Force profile: mac, linux-vps, ubuntu-desktop
   --log             Plain line output instead of the TUI
+  --tui             Compatibility alias; TUI is already the default
   --help            Show this help message`);
 }
 
