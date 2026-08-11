@@ -3,8 +3,7 @@
  *
  * Left: task list. Right: live log tail of the focused node.
  * Follow-along mode is the default; arrows take manual control; esc returns.
- * Interactive nodes show a framed prompt; Enter suspends the renderer and
- * hands the terminal to their command while other nodes keep running.
+ * Interactive nodes show a framed prompt. Pane commands show live output.
  */
 import { useEffect, useState } from "react";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
@@ -276,7 +275,13 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
                 {!focus.defaultOn && <text fg={C.dim}>config default: skip</text>}
               </>
             ) : (
-              <text fg={C.yellow}>{`${spin()} signing in…`}</text>
+              <>
+                <text fg={C.yellow}>{`${spin()} signing in…`}</text>
+                {focus.logs.slice(-tailCount).map((line, i) => (
+                  <text key={i} fg={/error|failed/i.test(line) ? C.red : C.text}>{line}</text>
+                ))}
+                {focus.logs.length === 0 && <text fg={C.dim}>waiting for command output</text>}
+              </>
             )}
           </box>
         ) : (

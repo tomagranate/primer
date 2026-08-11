@@ -239,11 +239,12 @@ EOF
         [[ "${_login_order[*]}" == "github" ]] || { echo "wrong mac login order"; exit 1; }
         [[ -z "${_mod_config[logins.onepassword_command]:-}" ]] || { echo "1Password login should not be interactive"; exit 1; }
         [[ "${_mod_config[logins.github_requires]}" == "gh" ]] || { echo "missing login requirements"; exit 1; }
+        [[ "${_mod_config[logins.github_mode]}" == "pane" ]] || { echo "missing pane mode"; exit 1; }
         [[ "${_mod_config[logins.github_status]}" == *"gh auth status --hostname github.com"* ]] || { echo "missing login status"; exit 1; }
         [[ "${_mod_config[logins.github_status]}" == *"git_protocol"* ]] || { echo "missing ssh protocol status"; exit 1; }
         [[ "${_mod_config[logins.github_status]}" == *"gh ssh-key list"* ]] || { echo "missing ssh key status"; exit 1; }
-        [[ "${_mod_config[logins.github_command]}" == *"gh auth refresh --hostname github.com --scopes admin:public_key"* ]] || { echo "missing login refresh"; exit 1; }
-        [[ "${_mod_config[logins.github_command]}" == *"gh auth login --hostname github.com --git-protocol ssh --scopes admin:public_key"* ]] || { echo "missing login command"; exit 1; }
+        [[ "${_mod_config[logins.github_command]}" == *"gh auth refresh --hostname github.com --scopes admin:public_key --clipboard"* ]] || { echo "missing login refresh"; exit 1; }
+        [[ "${_mod_config[logins.github_command]}" == *"gh auth login --web --clipboard --hostname github.com --git-protocol ssh --scopes admin:public_key --skip-ssh-key"* ]] || { echo "missing login command"; exit 1; }
         [[ "${_mod_config[logins.github_command]}" == *"gh ssh-key add"* ]] || { echo "missing ssh key add"; exit 1; }
         [[ "${_mod_config[homebrew.taps]}" == *"buildkite/buildkite"* ]] || { echo "missing:buildkite/buildkite"; exit 1; }
         echo "ok"

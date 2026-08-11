@@ -6,8 +6,7 @@
  * MOD_STATUS_FILE. The module.zsh files do not change.
  *
  * Interactive nodes wait for the user (state "needs-user"). The UI answers
- * them; their command gets the real terminal via the suspend/resume hooks
- * while other nodes keep running.
+ * them. Pane commands stream output into the TUI while other nodes run.
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
@@ -22,7 +21,7 @@ export type NodeState =
   | "running"      // module subprocess active
   | "checking"     // interactive: probing status_cmd / requires
   | "needs-user"   // interactive: ready, waiting for the user
-  | "interacting"  // interactive: command has the terminal
+  | "interacting"  // interactive command is active
   | "done" | "failed" | "skipped";
 
 export interface EngineNode extends NodeDef {
@@ -361,7 +360,24 @@ export class Engine {
     this.opts.onEvent?.(n, "needs-user");
   }
 
-  /** UI answered: run the interactive command on the real terminal. */
+  private async pipeLogs(n: EngineNode, stream: ReadableStream<Uint8Array>): Promise<void> {
+    const dec = new TextDecoder();
+    let buf = "";
+    for await (const chunk of stream) {
+      buf += dec.decode(chunk, { stream: true });
+      const parts = buf.split(/[\r\n]/);
+      buf = parts.pop() ?? "";
+      for (const line of parts) {
+        const clean = sanitizeLine(line);
+        if (clean) n.logs.push(clean);
+      }
+    }
+    buf += dec.decode();
+    const clean = sanitizeLine(buf);
+    if (clean) n.logs.push(clean);
+  }
+
+  /** UI answered: run the command in its configured display mode. */
   async answerInteractive(n: EngineNode): Promise<void> {
     if (n.state !== "needs-user") return;
     const command = n.config["command"];
@@ -370,6 +386,26 @@ export class Engine {
     n.state = "interacting";
     n.detail = "signing in";
     this.opts.onEvent?.(n, "interacting");
+
+    if (n.config["mode"] === "pane") {
+      n.logs.push("Starting browser sign-in.");
+      const proc = Bun.spawn(["zsh", "-c", command], {
+        stdin: "ignore", stdout: "pipe", stderr: "pipe",
+        env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" },
+      });
+      this.procs.set(n.id, proc);
+      const readers = [
+        this.pipeLogs(n, proc.stdout as ReadableStream<Uint8Array>),
+        this.pipeLogs(n, proc.stderr as ReadableStream<Uint8Array>),
+      ];
+      const code = await proc.exited;
+      await Promise.all(readers);
+      this.procs.delete(n.id);
+      if (code === 0) this.settle(n, "done", "complete");
+      else if (code === 130) this.settle(n, "skipped", "interrupted");
+      else this.settle(n, "failed", `exit ${code}`);
+      return;
+    }
 
     this.opts.suspendUI?.();
     process.stdout.write(`\nPrimer paused for ${n.label}. Complete the prompt to return.\n\n`);
