@@ -29,10 +29,18 @@ export interface EngineNode extends NodeDef {
   state: NodeState;
   detail: string;
   logs: string[];
+  items: EngineItem[];
   start?: number;
   end?: number;
   notified: boolean;
   defaultOn: boolean;   // interactive-step default from config
+}
+
+export interface EngineItem {
+  name: string;
+  state: string;
+  detail: string;
+  logs: string[];
 }
 
 export interface EngineOptions {
@@ -69,6 +77,7 @@ export class Engine {
       state: "pending",
       detail: "",
       logs: [],
+      items: [],
       notified: false,
       defaultOn: d.kind === "interactive" ? boolDefault(d.config["default"]) : true,
     }));
@@ -191,6 +200,12 @@ export class Engine {
     this.opts.onEvent?.(n, state);
   }
 
+  private updateDetail(n: EngineNode, detail: string): void {
+    if (!detail || detail === n.detail) return;
+    n.detail = detail;
+    n.logs.push(detail);
+  }
+
   /* ── module execution (contract port of engine::_start_module) ── */
 
   private zshQuote(v: string): string {
@@ -200,11 +215,14 @@ export class Engine {
   private async runModule(n: EngineNode): Promise<void> {
     n.state = "running";
     n.start = Date.now();
-    n.detail = "starting...";
+    n.detail = "";
+    this.updateDetail(n, "starting...");
     this.opts.onEvent?.(n, "start");
 
     const modDir = join(this.opts.primerDir, "modules", n.id);
     const statusFile = join(this.tmp, `${n.id}.status`);
+    const itemsFile = join(this.tmp, `${n.id}.items`);
+    const itemLogDir = join(this.tmp, `${n.id}.item-logs`);
     const configFile = join(this.tmp, `${n.id}.config.zsh`);
     const runner = join(this.tmp, `${n.id}.runner.zsh`);
 
@@ -227,7 +245,8 @@ export class Engine {
       env: {
         ...process.env,
         MOD_STATUS_FILE: statusFile,
-        MOD_ITEMS_FILE: join(this.tmp, `${n.id}.items`),
+        MOD_ITEMS_FILE: itemsFile,
+        MOD_ITEM_LOG_DIR: itemLogDir,
         MOD_CONFIG_FILE: configFile,
         MOD_DIR: modDir,
         MOD_NAME: n.id,
@@ -259,11 +278,41 @@ export class Engine {
       buf += dec.decode();
       if (buf.trim()) n.logs.push(sanitizeLine(buf));
     };
+    const itemStates = new Map<string, string>();
     const statusPoll = setInterval(async () => {
       try {
         const text = sanitizeLine((await readFile(statusFile, "utf8")).trim());
-        if (text) n.detail = text;
+        if (text) this.updateDetail(n, text);
       } catch { /* not written yet */ }
+      try {
+        const text = await readFile(itemsFile, "utf8");
+        for (const record of text.split("\n")) {
+          if (!record) continue;
+          const [state = "", name = "", detail = ""] = record.split("\t");
+          if (!name || state === "pending") continue;
+          const value = `${state}\t${detail}`;
+          if (itemStates.get(name) === value) continue;
+          itemStates.set(name, value);
+          n.logs.push(sanitizeLine(`${name}: ${state}${detail ? ` (${detail})` : ""}`));
+          const item = n.items.find((candidate) => candidate.name === name);
+          if (item) { item.state = state; item.detail = detail; }
+        }
+      } catch { /* not written yet */ }
+      try {
+        const manifest = await readFile(join(itemLogDir, "manifest"), "utf8");
+        for (const record of manifest.split("\n")) {
+          if (!record) continue;
+          const [slot = "", name = ""] = record.split("\t");
+          if (!slot || !name) continue;
+          let item = n.items.find((candidate) => candidate.name === name);
+          if (!item) {
+            item = { name, state: "running", detail: "", logs: [] };
+            n.items.push(item);
+          }
+          const text = await readFile(join(itemLogDir, `${slot}.log`), "utf8").catch(() => "");
+          item.logs = text.split(/[\r\n]/).map(sanitizeLine).filter(Boolean);
+        }
+      } catch { /* no parallel items */ }
     }, 250);
 
     const readers = [pipe(proc.stdout as any), pipe(proc.stderr as any)];
@@ -275,17 +324,13 @@ export class Engine {
 
     try {
       const text = sanitizeLine((await readFile(statusFile, "utf8")).trim());
-      if (text) n.detail = text;
+      if (text) this.updateDetail(n, text);
     } catch { /* keep last detail */ }
     this.settle(n, code === 0 ? "done" : "failed",
       n.detail || (code === 0 ? "done" : "failed"));
   }
 
   /* ── interactive execution ── */
-
-  private interactiveName(n: EngineNode): string {
-    return n.id.replace(/^interactive:/, "");
-  }
 
   private async prepareInteractive(n: EngineNode): Promise<void> {
     n.state = "checking";
@@ -326,27 +371,25 @@ export class Engine {
     n.detail = "signing in";
     this.opts.onEvent?.(n, "interacting");
 
-    const logFile = join(this.tmp, `interactive-${this.interactiveName(n)}.log`);
     this.opts.suspendUI?.();
+    process.stdout.write(`\nPrimer paused for ${n.label}. Complete the prompt to return.\n\n`);
     let code = 1;
+    // The terminal sends SIGINT to the complete foreground process group.
+    // Keep Primer alive while the interactive child handles Ctrl-C.
+    const holdSigint = () => {};
+    process.on("SIGINT", holdSigint);
     try {
-      // Mirror engine::_run_login_command: tee output to a log, keep the tty.
-      const wrapped = `{ ${command} ; } > >(tee ${this.zshQuote(logFile)}) 2> >(tee -a ${this.zshQuote(logFile)} >&2)`;
-      const proc = Bun.spawn(["zsh", "-c", wrapped], {
+      // Keep all three streams attached to the terminal. GitHub CLI changes
+      // behavior when stdout or stderr is a pipe.
+      const proc = Bun.spawn(["zsh", "-c", command], {
         stdin: "inherit", stdout: "inherit", stderr: "inherit",
         env: { ...process.env },
       });
       code = await proc.exited;
     } finally {
+      process.removeListener("SIGINT", holdSigint);
       this.opts.resumeUI?.();
     }
-
-    try {
-      const text = await readFile(logFile, "utf8");
-      for (const line of text.split("\n")) {
-        if (line.trim()) n.logs.push(sanitizeLine(line));
-      }
-    } catch { /* no output captured */ }
 
     if (code === 0) this.settle(n, "done", "complete");
     else if (code === 130) this.settle(n, "skipped", "interrupted");

@@ -424,8 +424,12 @@ primer::parallel_items() {
     (( jobs < 1 )) && jobs=1
     (( jobs > total )) && jobs=$total
 
-    local workdir
+    local workdir item_log_dir manifest
     workdir="$(mktemp -d "${TMPDIR:-/tmp}/primer-items.XXXXXX")" || return 1
+    item_log_dir="${MOD_ITEM_LOG_DIR:-$workdir/logs}"
+    manifest="$item_log_dir/manifest"
+    mkdir -p "$item_log_dir"
+    : > "$manifest"
 
     local -A pid_item=() pid_result=() pid_log=()
     local next=1 completed=0 any_failed=false
@@ -437,7 +441,8 @@ primer::parallel_items() {
             item="${items[$next]}"
             slot="$next"
             result="${workdir}/${slot}.result"
-            log="${workdir}/${slot}.log"
+            log="${item_log_dir}/${slot}.log"
+            printf '%s\t%s\n' "$slot" "$item" >> "$manifest"
             primer::item_update "$item" "running"
             (
                 export PRIMER_ITEM_RESULT_FILE="$result"

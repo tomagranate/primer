@@ -73,6 +73,7 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
   const [screen, setScreen] = useState<"run" | "logs" | "summary">("run");
   const [logScroll, setLogScroll] = useState(-1); // -1 = follow tail
   const [logNode, setLogNode] = useState<EngineNode | null>(null);
+  const [itemTabs, setItemTabs] = useState<Record<string, number>>({});
 
   useEffect(() => {
     const iv = setInterval(() => {
@@ -125,6 +126,13 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
       setCursor((base + (name === "up" ? nodes.length - 1 : 1)) % nodes.length);
     } else if (name === "escape") {
       setFollow(true);
+    } else if ((name === "left" || name === "right" || name === "tab") && focus.items.length) {
+      const tabCount = focus.items.length + 1;
+      const step = name === "left" ? tabCount - 1 : 1;
+      setItemTabs((tabs) => ({
+        ...tabs,
+        [focus.id]: ((tabs[focus.id] ?? 0) + step) % tabCount,
+      }));
     } else if (name === "return") {
       if (engine.finished()) { onQuit(); return; }
       const target = follow ? nodes.find((n) => n.state === "needs-user") ?? focus : focus;
@@ -215,6 +223,9 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
   const interactivePane = focus.kind === "interactive" && (focus.state === "needs-user" || focus.state === "interacting");
   const tailCount = Math.max(3, dims.height - (attention ? 7 : 6));
   const instruction = focus.kind === "interactive" ? focus.config["instruction"] : undefined;
+  const itemTab = focus.items.length ? Math.min(itemTabs[focus.id] ?? 0, focus.items.length) : 0;
+  const selectedItem = itemTab > 0 ? focus.items[itemTab - 1] : undefined;
+  const paneLogs = selectedItem ? selectedItem.logs : focus.logs;
 
   return (
     <box style={{ width: "100%", height: "100%", flexDirection: "column", backgroundColor: C.surface0 }}>
@@ -275,12 +286,20 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
               <text fg={C.bold}>{` ${focus.label}  `}</text>
               <text fg={C.dim}>{`${focus.detail || focus.state}  ${elapsed(focus)}`}</text>
             </box>
-            {focus.logs.slice(-tailCount).map((line, i) => (
+            {focus.items.length > 0 && (
+              <box style={{ height: 1, flexDirection: "row" }}>
+                <text fg={itemTab === 0 ? C.bold : C.dim}>{`  ${itemTab === 0 ? "[module]" : " module "}  `}</text>
+                {focus.items.map((item, i) => (
+                  <text key={item.name} fg={i + 1 === itemTab ? C.bold : C.dim}>
+                    {`${i + 1 === itemTab ? "[" : " "}${item.name}${i + 1 === itemTab ? "]" : " "} `}
+                  </text>
+                ))}
+              </box>
+            )}
+            {paneLogs.slice(-tailCount).map((line, i) => (
               <text key={i} fg={/error|failed/i.test(line) ? C.red : C.dim}>{`  ${line}`}</text>
             ))}
-            {focus.logs.length === 0 && (
-              <text fg={C.dim}>{`  status: ${focus.detail || focus.state}`}</text>
-            )}
+            {paneLogs.length === 0 && <text fg={C.dim}>  waiting for command output</text>}
           </box>
         )}
       </box>
@@ -290,8 +309,8 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
           {engine.finished()
             ? "finished — ⏎ quit"
             : follow
-              ? `following (▸) · ↑↓ take control${attention ? " · ⏎ answer input · s skip" : ""} · space logs`
-              : "manual (›) · ↑↓ select · space logs · esc follow-along"}
+              ? `following (▸) · ↑↓ take control · ←→ item logs${attention ? " · ⏎ answer input · s skip" : ""} · space logs`
+              : "manual (›) · ↑↓ module · ←→ item logs · space logs · esc follow"}
         </text>
       </box>
     </box>
