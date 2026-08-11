@@ -38,12 +38,6 @@ exit 42
 EOF
     chmod +x "$fakebin/zsh"
 
-    cat > "$fakebin/bun" <<'EOF'
-#!/bin/sh
-exit 0
-EOF
-    chmod +x "$fakebin/bun"
-
     run env HOME="$test_home" MOCK_LOG="$log" PATH="$fakebin:$pathbin:/usr/bin:/bin" sh "$PRIMER_DIR/setup.sh"
     assert_failure 42
     assert_output --partial "primer command available at $pathbin/primer"

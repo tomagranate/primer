@@ -169,11 +169,20 @@ def write_test_config(root: Path, text: str) -> None:
         )
 
 
+def copy_runtime(repo: Path, root: Path) -> None:
+    shutil.copytree(repo / "bin", root / "bin")
+    shutil.copytree(repo / "lib", root / "lib")
+    shutil.copytree(
+        repo / "app",
+        root / "app",
+        ignore=shutil.ignore_patterns("node_modules", "dist"),
+    )
+
+
 def build_stress_repo(repo: Path) -> tempfile.TemporaryDirectory[str]:
     tmp = tempfile.TemporaryDirectory(prefix="primer-terminal-stress-")
     root = Path(tmp.name)
-    shutil.copytree(repo / "bin", root / "bin")
-    shutil.copytree(repo / "lib", root / "lib")
+    copy_runtime(repo, root)
     (root / "modules" / "many").mkdir(parents=True)
     (root / "modules" / "quick").mkdir(parents=True)
     (root / "modules" / "hostile").mkdir(parents=True)
@@ -252,8 +261,7 @@ mod_status() { primer::status_msg "ok"; }
 def build_parallel_stress_repo(repo: Path) -> tempfile.TemporaryDirectory[str]:
     tmp = tempfile.TemporaryDirectory(prefix="primer-terminal-parallel-stress-")
     root = Path(tmp.name)
-    shutil.copytree(repo / "bin", root / "bin")
-    shutil.copytree(repo / "lib", root / "lib")
+    copy_runtime(repo, root)
     modules_dir = root / "modules"
     modules_dir.mkdir()
     write_test_config(
@@ -306,8 +314,7 @@ mod_status() { primer::status_msg "ok"; }
 def build_interrupt_repo(repo: Path) -> tempfile.TemporaryDirectory[str]:
     tmp = tempfile.TemporaryDirectory(prefix="primer-terminal-interrupt-")
     root = Path(tmp.name)
-    shutil.copytree(repo / "bin", root / "bin")
-    shutil.copytree(repo / "lib", root / "lib")
+    copy_runtime(repo, root)
     (root / "modules" / "slow").mkdir(parents=True)
     write_test_config(
         root,
@@ -339,6 +346,7 @@ def run_in_pty(repo: Path, command: list[str] | None = None) -> tuple[int, bytes
         env.update(
             {
                 "PRIMER_LOCAL": str(repo),
+                "PRIMER_APP_SOURCE": "1",
                 "TERM": "xterm-256color",
                 "COLUMNS": str(COLS),
                 "LINES": str(ROWS),
@@ -349,6 +357,7 @@ def run_in_pty(repo: Path, command: list[str] | None = None) -> tuple[int, bytes
 
     set_winsize(fd, ROWS, COLS)
     chunks: list[bytes] = []
+    dismissed = False
     while True:
         ready, _, _ = select.select([fd], [], [], 10)
         if not ready:
@@ -363,6 +372,9 @@ def run_in_pty(repo: Path, command: list[str] | None = None) -> tuple[int, bytes
         if not chunk:
             break
         chunks.append(chunk)
+        if not dismissed and b"primer update complete" in b"".join(chunks):
+            os.write(fd, b"\r")
+            dismissed = True
 
     _, status = os.waitpid(pid, 0)
     rc = os.waitstatus_to_exitcode(status)
@@ -377,6 +389,7 @@ def run_in_pty_and_interrupt(repo: Path) -> tuple[int, bytes]:
         env.update(
             {
                 "PRIMER_LOCAL": str(repo),
+                "PRIMER_APP_SOURCE": "1",
                 "TERM": "xterm-256color",
                 "COLUMNS": str(COLS),
                 "LINES": str(ROWS),

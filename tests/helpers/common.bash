@@ -9,6 +9,7 @@
 
 export PRIMER_DIR
 PRIMER_DIR="$(cd "${BATS_TEST_DIRNAME}" && git rev-parse --show-toplevel)"
+export PRIMER_APP_SOURCE=1
 
 # ── Load bats-support and bats-assert ────────────────────────────────────────
 
