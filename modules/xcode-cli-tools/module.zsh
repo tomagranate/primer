@@ -14,21 +14,8 @@ _xcode_cli_tools::install() {
     xcode-select --install
 }
 
-_xcode_cli_tools::accept_license() {
-    command -v xcodebuild >/dev/null 2>&1 || return 0
-
-    if [[ "$DRY_RUN" == true ]]; then
-        echo "[dry-run] sudo xcodebuild -license accept"
-        return 0
-    fi
-
-    primer::status_msg "accepting Xcode license..."
-    sudo xcodebuild -license accept
-}
-
 mod_update() {
     if _xcode_cli_tools::installed; then
-        _xcode_cli_tools::accept_license || return 1
         primer::status_msg "installed"
         return 0
     fi
@@ -37,7 +24,6 @@ mod_update() {
     _xcode_cli_tools::install || true
 
     if [[ "$DRY_RUN" == true ]]; then
-        _xcode_cli_tools::accept_license || return 1
         primer::status_msg "install requested"
         return 0
     fi
@@ -48,7 +34,6 @@ mod_update() {
         sleep 5
     done
 
-    _xcode_cli_tools::accept_license || return 1
     primer::status_msg "installed"
 }
 

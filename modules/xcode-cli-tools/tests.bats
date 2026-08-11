@@ -27,11 +27,11 @@ teardown() {
     assert_success
 }
 
-@test "xcode-cli-tools: accepts the Xcode license immediately when installed" {
+@test "xcode-cli-tools: does not require full Xcode when CLI tools are installed" {
     zsh_run_module xcode-cli-tools "mod_update"
     assert_success
     run grep "sudo xcodebuild -license accept" "$MOCK_LOG"
-    assert_success
+    assert_failure
 }
 
 @test "xcode-cli-tools: status fails when missing" {
@@ -55,5 +55,5 @@ teardown() {
     run grep "xcode-select --install" "$MOCK_LOG"
     assert_success
     run grep "sudo xcodebuild -license accept" "$MOCK_LOG"
-    assert_success
+    assert_failure
 }
