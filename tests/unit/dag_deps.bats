@@ -302,7 +302,7 @@ load '../helpers/common'
     assert_output "NO"
 }
 
-@test "needs_sudo: mac profile marks touchid and xcode only" {
+@test "needs_sudo: mac profile marks Homebrew bootstrap, Xcode, and Touch ID" {
     zsh_run '
         engine::load_config "$PRIMER_DIR/configs/common.conf" "$PRIMER_DIR/configs/profiles/mac.conf"
         local m
@@ -312,7 +312,7 @@ load '../helpers/common'
         done
         print -r -- "${out[*]}"
     '
-    assert_output "xcode touchid"
+    assert_output "homebrew xcode touchid"
 }
 
 @test "needs_sudo: linux-vps profile marks apt, tailscale, login-shell" {
@@ -366,6 +366,7 @@ load '../helpers/common'
     zsh_run '
         engine::load_config "$PRIMER_DIR/configs/common.conf" "$PRIMER_DIR/configs/profiles/mac.conf"
         local m; for m in $_mod_order; do _state[$m]=pending; done
+        _state[homebrew]=skipped
         _state[touchid]=skipped
         _state[xcode]=skipped
         engine::_needs_sudo && echo YES || echo NO

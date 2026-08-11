@@ -234,11 +234,11 @@ EOF
 @test "homebrew: failure output focuses on failed formula, not successful setup chatter" {
     export MOCK_BREW_VERBOSE_SETUP=1
     export MOCK_BREW_FAIL_PACKAGES="alpha"
-    export MOCK_BREW_FAIL_OUTPUT="Error: dashlane-cli failed during install"
+    export MOCK_BREW_FAIL_OUTPUT="Error: alpha failed during install"
     run_homebrew_with_conf "mod_update"
     assert_failure
     assert_output --partial "Error while running: brew install alpha"
-    assert_output --partial "Error: dashlane-cli failed during install"
+    assert_output --partial "Error: alpha failed during install"
     [[ "$output" != *"==> Updating Homebrew..."* ]] || {
         echo "Did not expect successful brew update output in failure log: $output"; false
     }

@@ -75,7 +75,7 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | **macos** | homebrew-apps | Applies macOS defaults and configures the Dock |
 | **zsh** | homebrew | Updates managed section in ~/.zshrc, manages ~/.zimrc, installs Zim |
 | **starship** | homebrew | Deploys starship.toml to ~/.config/ |
-| **agents** | homebrew / apt + github login | Installs `agents` CLI, clones/pulls private `agents-home` into ~/.agents, runs `agents sync` |
+| **agents** | homebrew / apt + github login | Initializes the `agents` CLI, private `agents-home` in ~/.agents, and private `chat-archive` in ~/.agents-archive, then runs `agents sync` |
 | **mise** | homebrew | Installs language runtimes (Node, Python, Bun) |
 | **ssh** | xcode-cli-tools | Creates an SSH key and configures macOS keychain-backed agent support |
 | **touchid** | -- | Enables Touch ID for sudo |
@@ -119,7 +119,7 @@ The engine is split by topic. `lib/engine.zsh` sources the other `lib/` files, t
 │   │   ├── module.zsh
 │   │   └── files/                # starship.toml
 │   ├── agents/
-│   │   └── module.zsh            # agents CLI + private agents-home (~/.agents)
+│   │   └── module.zsh            # agents CLI + private home and archive repos
 │   ├── mise/
 │   │   └── module.zsh            # Installs tools from config via mise use --global
 │   ├── touchid/
@@ -196,6 +196,7 @@ Module settings live in `configs/common.conf` and `configs/profiles/*.conf`. Eac
 [homebrew]
 label = Homebrew
 depends_on = xcode-cli-tools
+needs_sudo = true
 taps =
     tomagranate/tap
 formulae =
@@ -233,6 +234,9 @@ needs_sudo = true
 app_path = /Applications/Xcode.app
 simulator_platforms =
     iOS
+
+[git]
+depends_on = xcode-cli-tools
 
 [mise]
 label = Mise languages
