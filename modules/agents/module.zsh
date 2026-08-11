@@ -1,14 +1,10 @@
 #!/bin/zsh
-# modules/agents -- agents CLI + private agents-home content (~/.agents)
+# modules/agents -- agents CLI + private home and chat archive repositories
 
-_agents::home_path() {
-    local configured
-    configured="$(mod_config path)"
-    configured="${configured:-$HOME/.agents}"
-    # Trim whitespace (mod_config can leave trailing spaces)
+_agents::expand_path() {
+    local configured="$1"
     configured="${configured##[[:space:]]#}"
     configured="${configured%%[[:space:]]#}"
-    # Expand leading ~/ without using #~/ (zsh expands ~ in patterns)
     if [[ "$configured" == '~' ]]; then
         configured="$HOME"
     elif [[ "$configured" == '~/'* ]]; then
@@ -17,10 +13,29 @@ _agents::home_path() {
     print -r -- "$configured"
 }
 
+_agents::home_path() {
+    local configured
+    configured="$(mod_config path)"
+    configured="${configured:-$HOME/.agents}"
+    _agents::expand_path "$configured"
+}
+
 _agents::repo() {
     local repo
     repo="$(mod_config repo)"
     print -r -- "${repo:-tomagranate/agents-home}"
+}
+
+_agents::archive_path() {
+    local configured
+    configured="$(mod_config archive_path)"
+    _agents::expand_path "${configured:-$HOME/.agents-archive}"
+}
+
+_agents::archive_repo() {
+    local repo
+    repo="$(mod_config archive_repo)"
+    print -r -- "${repo:-tomagranate/chat-archive}"
 }
 
 _agents::formula() {
@@ -135,6 +150,41 @@ _agents::ensure_home() {
     git clone "$https_url" "$home" || return 1
 }
 
+_agents::init_home() {
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "[dry-run] AGENTS_HOME=$(_agents::home_path) agents init --no-apply"
+        return 0
+    fi
+    AGENTS_HOME="$(_agents::home_path)" agents init --no-apply || return 1
+}
+
+_agents::ensure_archive() {
+    local archive repo ssh_url
+    archive="$(_agents::archive_path)"
+    repo="$(_agents::archive_repo)"
+    ssh_url="git@github.com:${repo}.git"
+
+    if [[ "$DRY_RUN" == true ]]; then
+        if [[ ! -d "$archive/.git" ]]; then
+            echo "[dry-run] agents archive init --path $archive --remote $ssh_url"
+        fi
+        return 0
+    fi
+
+    if [[ -d "$archive/.git" ]]; then
+        primer::status_msg "chat archive present"
+        return 0
+    fi
+    if [[ -e "$archive" ]] && [[ -n "$(ls -A "$archive" 2>/dev/null)" ]]; then
+        primer::status_msg "exists non-git: $archive"
+        return 1
+    fi
+
+    mkdir -p "$(dirname "$archive")"
+    primer::status_msg "initializing chat archive..."
+    agents archive init --path "$archive" --remote "$ssh_url" || return 1
+}
+
 _agents::sync() {
     if [[ "$DRY_RUN" == true ]]; then
         echo "[dry-run] agents sync"
@@ -151,6 +201,12 @@ mod_update() {
     primer::status_msg "checking agents-home..."
     _agents::ensure_home || return 1
 
+    primer::status_msg "initializing agents-home..."
+    _agents::init_home || return 1
+
+    primer::status_msg "checking chat archive..."
+    _agents::ensure_archive || return 1
+
     primer::status_msg "syncing and wiring content..."
     _agents::sync || return 1
 
@@ -158,9 +214,11 @@ mod_update() {
 }
 
 mod_status() {
-    local home repo parts=()
+    local home repo archive archive_repo parts=()
     home="$(_agents::home_path)"
     repo="$(_agents::repo)"
+    archive="$(_agents::archive_path)"
+    archive_repo="$(_agents::archive_repo)"
 
     if ! _agents::cli_ok; then
         primer::status_msg "CLI missing"
@@ -172,10 +230,21 @@ mod_status() {
         return 1
     fi
 
+    if [[ ! -d "$archive/.git" ]]; then
+        primer::status_msg "archive not a git repo"
+        return 1
+    fi
+
     local remote
     remote="$(git -C "$home" remote get-url origin 2>/dev/null || true)"
     if [[ "$remote" != *"$repo"* ]]; then
         parts+=("remote≠$repo")
+    fi
+
+    local archive_remote
+    archive_remote="$(git -C "$archive" remote get-url origin 2>/dev/null || true)"
+    if [[ "$archive_remote" != *"$archive_repo"* ]]; then
+        parts+=("archive remote≠$archive_repo")
     fi
 
     if ! git -C "$home" diff --quiet 2>/dev/null || ! git -C "$home" diff --cached --quiet 2>/dev/null; then
