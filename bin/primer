@@ -122,7 +122,7 @@ Flags:
   --skip <module>   Skip a module by name; repeatable (update only)
   --only <module>   Run only this module; repeatable (update only)
   --profile <name>  Force profile: mac, linux-vps, ubuntu-desktop
-  --tui             Force alternate-screen terminal UI (update only)
+  --tui             Compatibility alias; TUI is already the default
   --log             Force plain log output
   --help            Show this help message
 
@@ -132,13 +132,28 @@ Examples:
   primer update --skip mac-app-store     # Skip App Store installs
   primer update --only homebrew          # Run only homebrew
   primer update --profile linux-vps      # Run the Linux VPS profile
-  primer update --log                    # Print progress and logs without a TUI
+  primer update --log                    # Use headless output without the sidebar
   primer status                          # Check current state
 
 Environment:
   PRIMER_LOCAL=/path/to/repo   Use a local checkout instead of GitHub
   PRIMER_PROFILE=linux-vps     Select profile without a flag
 EOF
+}
+
+primer::run_app() {
+    local bun_bin=""
+    if command -v bun >/dev/null 2>&1; then
+        bun_bin="$(command -v bun)"
+    elif [[ -x "$HOME/.bun/bin/bun" ]]; then
+        bun_bin="$HOME/.bun/bin/bun"
+    else
+        print "Bun is required to run Primer's terminal app." >&2
+        print "Re-run setup.sh or install Bun from https://bun.com/docs/installation." >&2
+        return 1
+    fi
+
+    exec "$bun_bin" run "$PRIMER_DIR/app/src/index.tsx" "$@"
 }
 
 # ── Profile Detection ────────────────────────────────────────────────────────
@@ -291,74 +306,17 @@ primer::config_files_for_profile() {
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 main() {
-    local command=""
-
-    # Parse arguments
-    while (( $# > 0 )); do
-        case "$1" in
-            update|status)  command="$1" ;;
-            --dry-run)      DRY_RUN=true ;;
-            --tui)          PRIMER_UI_MODE="alternate" ;;
-            --log)          PRIMER_UI_MODE="log" ;;
-            --profile)
-                if [[ -z "${2:-}" || "${2:-}" == --* ]]; then
-                    print "Missing argument for --profile" >&2
-                    print "Run 'primer --help' for usage." >&2
-                    return 1
-                fi
-                PRIMER_PROFILE="$2"; shift ;;
-            --skip)
-                if [[ -z "${2:-}" || "${2:-}" == --* ]]; then
-                    print "Missing argument for --skip" >&2
-                    print "Run 'primer --help' for usage." >&2
-                    return 1
-                fi
-                PRIMER_SKIP="${PRIMER_SKIP:+$PRIMER_SKIP }$2"; shift ;;
-            --only)
-                if [[ -z "${2:-}" || "${2:-}" == --* ]]; then
-                    print "Missing argument for --only" >&2
-                    print "Run 'primer --help' for usage." >&2
-                    return 1
-                fi
-                PRIMER_ONLY="${PRIMER_ONLY:+$PRIMER_ONLY }$2"; shift ;;
-            --help|-h|help) primer::help; return 0 ;;
-            *)
-                print "Unknown argument: $1" >&2
-                print "Run 'primer --help' for usage." >&2
-                return 1
-                ;;
-        esac
-        shift
+    local command="" arg
+    for arg in "$@"; do
+        [[ "$arg" == "update" || "$arg" == "status" ]] && command="$arg"
+        [[ "$arg" == "--dry-run" ]] && DRY_RUN=true
     done
 
-    if [[ -z "$command" ]]; then
-        primer::help
-        return 0
-    fi
-
-    if [[ (-n "$PRIMER_SKIP" || -n "$PRIMER_ONLY") && "$command" != "update" ]]; then
-        print -- "--skip and --only are only valid with 'update'." >&2
-        return 1
-    fi
-
-    if [[ "$PRIMER_UI_MODE" == "alternate" && "$command" != "update" ]]; then
-        print -- "--tui is only valid with 'update'." >&2
-        return 1
-    fi
-
-    if [[ -n "$PRIMER_SKIP" && -n "$PRIMER_ONLY" ]]; then
-        print -- "--skip and --only cannot be used together." >&2
-        return 1
-    fi
-
-    export DRY_RUN
-    export PRIMER_SKIP
-    export PRIMER_ONLY
-    export PRIMER_UI_MODE
-
     # Keep the launcher itself current before running update.
-    if primer::should_self_update "$command"; then
+    if primer::should_self_update "$command" && [[ "${PRIMER_SELF_UPDATED:-0}" != 1 ]]; then
         primer::self_update || return 1
+        export PRIMER_SELF_UPDATED=1
+        exec "${BIN_DIR}/primer" "$@"
     fi
 
     # Load framework (local or remote)
@@ -369,25 +327,9 @@ main() {
     fi
     export PRIMER_DIR
 
-    # Source engine and UI
-    source "$PRIMER_DIR/lib/ui.zsh"
-    source "$PRIMER_DIR/lib/engine.zsh"
-
-    PRIMER_PROFILE="$(primer::detect_profile)" || return 1
-    export PRIMER_PROFILE
-
-    local config_output config_files=()
-    config_output="$(primer::config_files_for_profile "$PRIMER_PROFILE")" || return 1
-    config_files=("${(@f)config_output}")
-
-    # Load the DAG config
-    engine::load_config "${config_files[@]}"
-
-    # Dispatch
-    case "$command" in
-        update) engine::run_update ;;
-        status) engine::run_status ;;
-    esac
+    # The TypeScript app is Primer's sole execution path. It selects the
+    # sidebar TUI on a terminal and headless output when no TTY is available.
+    primer::run_app "$@"
 }
 
 if [[ -z "${PRIMER_SOURCE_ONLY:-}" ]]; then

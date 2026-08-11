@@ -34,7 +34,7 @@ primer <command> [options]
 - `--skip <module>` - skip a module by name; repeatable (valid with `update`)
 - `--only <module>` - run only one module; repeatable (valid with `update`)
 - `--profile <name>` - force a profile; any name with a file in `configs/profiles/`, such as `mac`, `linux-vps`, or `ubuntu-desktop`
-- `--tui` - force alternate-screen terminal UI (valid with `update`)
+- `--tui` - compatibility alias; the sidebar TUI is already the terminal default
 - `--log` - force plain log output
 - `--help` - show help text
 - `-h` - show help text
@@ -85,20 +85,25 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 
 Each module is a **self-contained folder** that owns its config files, scripts, and install logic. Profile config is split into `configs/common.conf` plus `configs/profiles/<profile>.conf`. Primer loads the common file first, then the profile file. A profile file holds only the keys that differ from the common file.
 
-The engine is split by topic. `lib/engine.zsh` sources the other `lib/` files, then defines the two public entry points. Source `lib/engine.zsh` to get the whole engine.
+The TypeScript app in `app/` is the sole command and scheduling engine. On a terminal it renders the OpenTUI sidebar; without a TTY, or with `--log`, the same engine emits plain line output. Zsh remains only at the module boundary: the TypeScript engine runs each `modules/*/module.zsh` with helpers from `lib/ui.zsh`. The older Zsh engine files remain temporarily for module-level compatibility tests but are not reachable from `primer`.
 
 ```
-├── setup.sh                      # Bootstrap (curl-able, installs primer CLI)
+├── setup.sh                      # Bootstrap (installs Bun and the primer launcher)
+├── app/
+│   └── src/
+│       ├── index.tsx             # Sole command entry point + TTY/headless selection
+│       ├── engine.ts             # Unified module and interactive-step DAG
+│       └── ui.tsx                # OpenTUI sidebar, logs, and summary screens
 ├── configs/
 │   ├── common.conf               # Shared user-level config
 │   └── profiles/                 # mac, linux-vps, ubuntu-desktop fragments
 ├── lib/
-│   ├── engine.zsh                # Facade: loads the parts below, holds run_update/run_status
+│   ├── engine.zsh                # Retained legacy engine (not a primer call path)
 │   ├── config.zsh                # Global registries + INI config parser
 │   ├── dag.zsh                   # Dependency checks, filters, module lifecycle
 │   ├── logins.zsh                # Interactive login gates, pickers, reports
-│   ├── render.zsh                # Frame rendering, TUI drawing, run report
-│   └── ui.zsh                    # Terminal UI (spinners, boxes, colors, helpers)
+│   ├── render.zsh                # Retained legacy renderer
+│   └── ui.zsh                    # Shared Zsh module helpers and status protocol
 ├── modules/
 │   ├── xcode-cli-tools/
 │   │   └── module.zsh
@@ -128,7 +133,7 @@ The engine is split by topic. `lib/engine.zsh` sources the other `lib/` files, t
 │       ├── module.zsh
 │       └── bin/                   # git-clean, git-uncommit, etc.
 └── bin/
-    └── primer                     # CLI entry point
+    └── primer                     # Self-updating launcher; execs app/src/index.tsx
 ```
 
 ## Adding a Module

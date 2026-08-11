@@ -41,21 +41,19 @@ load 'helpers/common'
     export PRIMER_LOCAL="$PRIMER_DIR"
     run zsh "$PRIMER_DIR/bin/primer" update --dry-run --log --profile mac --only ghostty
     assert_success
-    assert_output --partial "Streaming setup logs"
     assert_output --partial "==> Ghostty terminal"
-    assert_output --partial "primer update (dry run)"
+    assert_output --partial "primer: 1 modules done"
     refute_output --partial $'\e[?1049h'
     refute_output --partial $'\e[?1049l'
     refute_output --partial $'\e[?25l'
     refute_output --partial $'\e[?25h'
 }
 
-@test "primer update --tui fails clearly when stdout is not a TTY" {
+@test "primer update --tui falls back to headless output without a TTY" {
     export PRIMER_LOCAL="$PRIMER_DIR"
     run zsh "$PRIMER_DIR/bin/primer" update --dry-run --tui
-    assert_failure
-    assert_output --partial "--tui requires stdout to be a terminal."
-    refute_output --partial "waiting"
+    assert_success
+    assert_output --partial "primer:"
     refute_output --partial $'\e[?25h'
 }
 

@@ -29,6 +29,7 @@ function parseArgs(argv: string[]): Args {
       case "update": case "status": args.command = a; break;
       case "--dry-run": args.dryRun = true; break;
       case "--log": args.headless = true; break;
+      case "--tui": break; // compatibility: TUI is already the terminal default
       case "--skip": args.skip.push(need(argv, ++i, a)); break;
       case "--only": args.only.push(need(argv, ++i, a)); break;
       case "--profile": args.profile = need(argv, ++i, a); break;
@@ -37,7 +38,7 @@ function parseArgs(argv: string[]): Args {
     }
   }
   if (args.skip.length && args.only.length) fail("--skip and --only cannot be used together.");
-  if ((args.skip.length || args.only.length || args.dryRun) && args.command !== "update") {
+  if (args.command && (args.skip.length || args.only.length || args.dryRun) && args.command !== "update") {
     fail("--dry-run, --skip, and --only are only valid with 'update'.");
   }
   return args;
@@ -70,6 +71,7 @@ Flags:
   --only <module>   Run only this module; repeatable (update only)
   --profile <name>  Force profile: mac, linux-vps, ubuntu-desktop
   --log             Plain line output instead of the TUI
+  --tui             Compatibility alias; TUI is already the default
   --help            Show this help message`);
 }
 
@@ -96,6 +98,9 @@ async function runUpdate(args: Args): Promise<never> {
           console.log(`--> ${label}: needs interactive input — skipped (no terminal)`);
           engine.skipInteractive(n);
         } else if (["done", "failed", "skipped"].includes(event)) {
+          if (args.dryRun && n.logs.length) {
+            for (const line of n.logs) console.log(line);
+          }
           console.log(`--> ${label}: ${n.state}${n.detail ? ` (${n.detail})` : ""}`);
         }
       },

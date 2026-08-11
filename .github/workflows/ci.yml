@@ -13,6 +13,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -23,6 +26,16 @@ jobs:
           rm -rf tests/helpers/bats-support tests/helpers/bats-assert
           git clone --depth 1 https://github.com/bats-core/bats-support.git tests/helpers/bats-support
           git clone --depth 1 https://github.com/bats-core/bats-assert.git tests/helpers/bats-assert
+
+      - name: Install terminal app dependencies
+        working-directory: app
+        run: bun install --frozen-lockfile
+
+      - name: Check terminal app
+        working-directory: app
+        run: |
+          bun run typecheck
+          bun test
 
       - name: Lint shell scripts
         run: |

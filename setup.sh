@@ -114,6 +114,37 @@ ensure_zsh() {
     esac
 }
 
+ensure_bun() {
+    if command -v bun >/dev/null 2>&1; then
+        return 0
+    fi
+    if [ -x "$HOME/.bun/bin/bun" ]; then
+        PATH="$HOME/.bun/bin:$PATH"
+        export PATH
+        return 0
+    fi
+
+    if [ "$(uname -s 2>/dev/null || printf unknown)" = Linux ] && ! command -v unzip >/dev/null 2>&1; then
+        if command -v apt-get >/dev/null 2>&1; then
+            printf "\033[1;34m==>\033[0m Installing unzip for Bun\n"
+            run_as_root apt-get update
+            run_as_root apt-get install -y unzip
+        else
+            printf "unzip is required to install Bun\n" >&2
+            return 1
+        fi
+    fi
+
+    printf "\033[1;34m==>\033[0m Installing Bun for the Primer terminal app\n"
+    curl -fsSL https://bun.com/install | bash
+    PATH="$HOME/.bun/bin:$PATH"
+    export PATH
+    command -v bun >/dev/null 2>&1 || {
+        printf "Bun installation completed but bun is not available\n" >&2
+        return 1
+    }
+}
+
 # ── Install primer CLI ────────────────────────────────────────────────────────
 
 printf "\033[1;34m==>\033[0m Installing primer CLI to %s\n" "$BIN_DIR"
@@ -133,4 +164,5 @@ esac
 # ── Run primer update ─────────────────────────────────────────────────────────
 
 ensure_zsh
+ensure_bun
 exec "$(command -v zsh)" "$BIN_DIR/primer" update "$@"

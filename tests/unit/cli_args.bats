@@ -3,6 +3,10 @@
 
 load '../helpers/common'
 
+setup() {
+    export PRIMER_LOCAL="$PRIMER_DIR"
+}
+
 # ── Help ─────────────────────────────────────────────────────────────────────
 
 @test "cli: --help exits 0 and shows usage" {
@@ -94,10 +98,10 @@ load '../helpers/common'
     assert_output --partial "cannot be used together"
 }
 
-@test "cli: --tui is rejected for status" {
+@test "cli: --tui remains a compatibility alias for status" {
     run zsh "$PRIMER_DIR/bin/primer" status --tui
-    assert_failure
-    assert_output --partial "only valid with 'update'"
+    [[ "$status" -le 1 ]]
+    refute_output --partial "Unknown argument"
 }
 
 @test "cli: --profile without argument exits 1" {
