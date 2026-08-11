@@ -38,7 +38,7 @@ function parseArgs(argv: string[]): Args {
     }
   }
   if (args.skip.length && args.only.length) fail("--skip and --only cannot be used together.");
-  if ((args.skip.length || args.only.length || args.dryRun) && args.command !== "update") {
+  if (args.command && (args.skip.length || args.only.length || args.dryRun) && args.command !== "update") {
     fail("--dry-run, --skip, and --only are only valid with 'update'.");
   }
   return args;
@@ -98,6 +98,9 @@ async function runUpdate(args: Args): Promise<never> {
           console.log(`--> ${label}: needs interactive input — skipped (no terminal)`);
           engine.skipInteractive(n);
         } else if (["done", "failed", "skipped"].includes(event)) {
+          if (args.dryRun && n.logs.length) {
+            for (const line of n.logs) console.log(line);
+          }
           console.log(`--> ${label}: ${n.state}${n.detail ? ` (${n.detail})` : ""}`);
         }
       },
