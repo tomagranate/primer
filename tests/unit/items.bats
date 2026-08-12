@@ -15,7 +15,7 @@ items_run() {
     run zsh -c "
         export PRIMER_DIR='${PRIMER_DIR}'
         export MOD_ITEMS_FILE='${ITEMS_FILE}'
-        source \"\$PRIMER_DIR/lib/ui.zsh\"
+        source \"\$PRIMER_DIR/lib/module.zsh\"
         $1
     "
 }
@@ -84,8 +84,24 @@ items_run() {
     run zsh -c "
         export PRIMER_DIR='${PRIMER_DIR}'
         unset MOD_ITEMS_FILE
-        source \"\$PRIMER_DIR/lib/ui.zsh\"
+        source \"\$PRIMER_DIR/lib/module.zsh\"
         primer::items_init alpha bravo
     "
+    assert_success
+}
+
+@test "parallel_items: quiet workers still produce an inspectable item log" {
+    local log_dir="$BATS_TEST_TMPDIR/item-logs"
+    run zsh -c "
+        export PRIMER_DIR='${PRIMER_DIR}'
+        export MOD_ITEMS_FILE='${ITEMS_FILE}'
+        export MOD_ITEM_LOG_DIR='${log_dir}'
+        source \"\$PRIMER_DIR/lib/module.zsh\"
+        quiet_worker() { primer::parallel_item_result done; }
+        primer::items_init alpha
+        primer::parallel_items 1 checking quiet_worker alpha
+    "
+    assert_success
+    run grep -R "alpha: done" "$log_dir"
     assert_success
 }

@@ -10,6 +10,7 @@ setup() {
     export MOCK_LOG="$(mktemp)"
     export TEST_CONF="$(mktemp)"
     export MOD_ITEMS_FILE="$(mktemp)"
+    export MOD_ITEM_LOG_DIR="$TEST_HOME/item-logs"
     export PATH="$MOCK_DIR:$PATH"
 
     cat > "$TEST_CONF" <<'EOF'
@@ -34,13 +35,14 @@ run_homebrew_apps_with_conf() {
         export MOD_NAME='homebrew-apps'
         export MOD_STATUS_FILE='${TEST_HOME}/mod-status'
         export MOD_ITEMS_FILE='${MOD_ITEMS_FILE}'
+        export MOD_ITEM_LOG_DIR='${MOD_ITEM_LOG_DIR}'
         export CONFIG_DIR='${TEST_CONFIG_DIR:-/tmp/primer-test-config}'
         export ZSH_CONFIG_DIR='${TEST_CONFIG_DIR:-/tmp/primer-test-config}/zsh'
         export BIN_DIR='${TEST_BIN_DIR:-/tmp/primer-test-bin}'
         export HOME='${TEST_HOME:-$HOME}'
-        source \"\$PRIMER_DIR/lib/ui.zsh\"
-        source \"\$PRIMER_DIR/lib/engine.zsh\"
-        engine::load_config '${TEST_CONF}'
+        source \"\$PRIMER_DIR/lib/module.zsh\"
+        source \"\$PRIMER_DIR/tests/helpers/module-config.zsh\"
+        test::load_module_config '${TEST_CONF}'
         source \"\$MOD_DIR/module.zsh\"
         ${action}
     "
@@ -103,6 +105,13 @@ EOF
     assert_success
 }
 
+@test "homebrew-apps: installed cask command is captured in its item log" {
+    run_homebrew_apps_with_conf "mod_update"
+    assert_success
+    run grep -R '$ brew install --quiet --cask fake-app' "$MOD_ITEM_LOG_DIR"
+    assert_success
+}
+
 # ── wet run: already installed and outdated → upgrade ─────────────────────────
 
 @test "homebrew-apps: wet run upgrades cask when installed and outdated" {
@@ -142,6 +151,14 @@ EOF
     run grep "$(printf 'done\tfake-app')" "$MOD_ITEMS_FILE"
     assert_success
     run grep "$(printf 'done\tanother-app')" "$MOD_ITEMS_FILE"
+    assert_success
+}
+
+@test "homebrew-apps: up-to-date result is captured in its item log" {
+    export MOCK_BREW_INSTALLED_CASKS="fake-app another-app"
+    run_homebrew_apps_with_conf "mod_update"
+    assert_success
+    run grep -R "Homebrew cask is installed and up to date" "$MOD_ITEM_LOG_DIR"
     assert_success
 }
 

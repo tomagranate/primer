@@ -24,8 +24,7 @@ zsh_run() {
     run zsh -c "
         export PRIMER_DIR='${PRIMER_DIR}'
         export DRY_RUN='${DRY_RUN:-false}'
-        source \"\$PRIMER_DIR/lib/ui.zsh\"
-        source \"\$PRIMER_DIR/lib/engine.zsh\"
+        source \"\$PRIMER_DIR/lib/module.zsh\"
         $1
     "
 }
@@ -50,9 +49,9 @@ zsh_run_module() {
         export ZSH_CONFIG_DIR='${TEST_CONFIG_DIR:-/tmp/primer-test-config}/zsh'
         export BIN_DIR='${TEST_BIN_DIR:-/tmp/primer-test-bin}'
         export HOME='${TEST_HOME:-$HOME}'
-        source \"\$PRIMER_DIR/lib/ui.zsh\"
-        source \"\$PRIMER_DIR/lib/engine.zsh\"
-        engine::load_config \"\$PRIMER_DIR/configs/common.conf\" \"\$PRIMER_DIR/configs/profiles/mac.conf\"
+        source \"\$PRIMER_DIR/lib/module.zsh\"
+        source \"\$PRIMER_DIR/tests/helpers/module-config.zsh\"
+        test::load_module_config \"\$PRIMER_DIR/configs/common.conf\" \"\$PRIMER_DIR/configs/profiles/mac.conf\"
         source \"\$MOD_DIR/module.zsh\"
         $1
     "

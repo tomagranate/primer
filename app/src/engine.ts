@@ -1,7 +1,7 @@
 /**
  * DAG engine: schedules module and interactive nodes as one graph.
  *
- * Module nodes spawn zsh with the exact contract lib/dag.zsh used:
+ * Module nodes spawn zsh through Primer's module contract:
  * MOD_* env vars, a generated config file, logs to a file, status text via
  * MOD_STATUS_FILE. The module.zsh files do not change.
  *
@@ -15,6 +15,8 @@ import { join } from "node:path";
 import { sanitizeLine } from "./ansi";
 import type { NodeDef } from "./config";
 import { boolDefault } from "./config";
+import { LineParser } from "./line-parser";
+import { signalProcessTree } from "./process-utils";
 
 export type NodeState =
   | "pending"      // waiting on deps
@@ -42,6 +44,17 @@ export interface EngineItem {
   logs: string[];
 }
 
+export function parseItemRecords(text: string): Array<Omit<EngineItem, "logs">> {
+  const records: Array<Omit<EngineItem, "logs">> = [];
+  for (const record of text.split("\n")) {
+    if (!record) continue;
+    const [state = "", name = "", detail = ""] = record.split("\t");
+    if (!name || !state) continue;
+    records.push({ name, state, detail });
+  }
+  return records;
+}
+
 export interface EngineOptions {
   primerDir: string;
   dryRun: boolean;
@@ -57,6 +70,7 @@ export interface EngineOptions {
 }
 
 const SETTLED: NodeState[] = ["done", "failed", "skipped"];
+const MAX_LOG_LINES = 10_000;
 
 export class Engine {
   nodes: EngineNode[] = [];
@@ -113,7 +127,7 @@ export class Engine {
   interrupt(): void {
     this.interrupted = true;
     for (const [id, proc] of this.procs) {
-      try { proc.kill(); } catch { /* already gone */ }
+      signalProcessTree(proc.pid, "SIGTERM");
       const n = this.node(id);
       if (n && !SETTLED.includes(n.state)) this.settle(n, "failed", "interrupted");
     }
@@ -127,6 +141,8 @@ export class Engine {
 
   cleanup(): void {
     this.stopTimers();
+    for (const proc of this.procs.values()) signalProcessTree(proc.pid, "SIGKILL");
+    this.procs.clear();
     try { rmSync(this.tmp, { recursive: true, force: true }); } catch { /* best effort */ }
   }
 
@@ -168,7 +184,7 @@ export class Engine {
     for (const dep of n.deps) {
       const depNode = this.node(dep) ?? this.node(`interactive:${dep}`);
       if (!depNode) continue; // dep not in this profile — treat as met
-      // Dry-run treats interactive deps as met (port of engine::_login_deps_met).
+      // A preview never blocks modules on interactive work it cannot perform.
       if (this.opts.dryRun && depNode.kind === "interactive") continue;
       if (depNode.state === "failed" || depNode.state === "skipped") return "blocked";
       if (depNode.state !== "done") waiting = true;
@@ -202,10 +218,35 @@ export class Engine {
   private updateDetail(n: EngineNode, detail: string): void {
     if (!detail || detail === n.detail) return;
     n.detail = detail;
-    n.logs.push(detail);
+    this.appendLog(n.logs, detail);
   }
 
-  /* ── module execution (contract port of engine::_start_module) ── */
+  private appendLog(logs: string[], line: string, replacePrevious = false): void {
+    const clean = sanitizeLine(line);
+    if (!clean) return;
+    if (replacePrevious && logs.length) logs[logs.length - 1] = clean;
+    else logs.push(clean);
+    if (logs.length > MAX_LOG_LINES) logs.splice(0, logs.length - MAX_LOG_LINES);
+  }
+
+  private async readLogs(logs: string[], stream: ReadableStream<Uint8Array>): Promise<void> {
+    const parser = new LineParser((line, replace) => this.appendLog(logs, line, replace));
+    const reader = stream.getReader();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        parser.write(value);
+      }
+      parser.flush();
+    } catch {
+      // A killed process may close a stream while it is being read.
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  /* ── module execution ── */
 
   private zshQuote(v: string): string {
     return `"${v.replace(/[\\$"`]/g, (m) => `\\${m}`)}"`;
@@ -232,7 +273,7 @@ export class Engine {
     await writeFile(configFile, configLines.join("\n") + "\n");
     await writeFile(runner, [
       "#!/bin/zsh",
-      'source "${PRIMER_DIR}/lib/ui.zsh"',
+      'source "${PRIMER_DIR}/lib/module.zsh"',
       'source "${MOD_CONFIG_FILE}"',
       'source "${MOD_DIR}/module.zsh" || { echo "Failed to load module: ${MOD_NAME}"; exit 1; }',
       '"mod_${MOD_ACTION}"',
@@ -260,41 +301,28 @@ export class Engine {
     });
     this.procs.set(n.id, proc);
 
-    const pipe = async (stream: ReadableStream<Uint8Array>) => {
-      const dec = new TextDecoder();
-      let buf = "";
-      for await (const chunk of stream) {
-        buf += dec.decode(chunk, { stream: true });
-        // Many installers redraw progress with CR instead of a newline.
-        // Treat each redraw as a log record so the TUI shows active work.
-        const parts = buf.split(/[\r\n]/);
-        buf = parts.pop() ?? "";
-        for (const line of parts) {
-          const clean = sanitizeLine(line);
-          if (clean) n.logs.push(clean);
-        }
-      }
-      buf += dec.decode();
-      if (buf.trim()) n.logs.push(sanitizeLine(buf));
-    };
     const itemStates = new Map<string, string>();
-    const statusPoll = setInterval(async () => {
+    const pollModuleState = async () => {
       try {
         const text = sanitizeLine((await readFile(statusFile, "utf8")).trim());
         if (text) this.updateDetail(n, text);
       } catch { /* not written yet */ }
       try {
         const text = await readFile(itemsFile, "utf8");
-        for (const record of text.split("\n")) {
-          if (!record) continue;
-          const [state = "", name = "", detail = ""] = record.split("\t");
-          if (!name || state === "pending") continue;
+        for (const { state, name, detail } of parseItemRecords(text)) {
+          let item = n.items.find((candidate) => candidate.name === name);
+          if (!item) {
+            item = { name, state, detail, logs: [] };
+            n.items.push(item);
+          }
           const value = `${state}\t${detail}`;
           if (itemStates.get(name) === value) continue;
           itemStates.set(name, value);
-          n.logs.push(sanitizeLine(`${name}: ${state}${detail ? ` (${detail})` : ""}`));
-          const item = n.items.find((candidate) => candidate.name === name);
-          if (item) { item.state = state; item.detail = detail; }
+          item.state = state;
+          item.detail = detail;
+          if (state !== "pending") {
+            this.appendLog(n.logs, `${name}: ${state}${detail ? ` (${detail})` : ""}`);
+          }
         }
       } catch { /* not written yet */ }
       try {
@@ -309,15 +337,20 @@ export class Engine {
             n.items.push(item);
           }
           const text = await readFile(join(itemLogDir, `${slot}.log`), "utf8").catch(() => "");
-          item.logs = text.split(/[\r\n]/).map(sanitizeLine).filter(Boolean);
+          item.logs = text.split(/[\r\n]/).map(sanitizeLine).filter(Boolean).slice(-MAX_LOG_LINES);
         }
       } catch { /* no parallel items */ }
-    }, 250);
+    };
+    const statusPoll = setInterval(() => void pollModuleState(), 250);
 
-    const readers = [pipe(proc.stdout as any), pipe(proc.stderr as any)];
+    const readers = [
+      this.readLogs(n.logs, proc.stdout as ReadableStream<Uint8Array>),
+      this.readLogs(n.logs, proc.stderr as ReadableStream<Uint8Array>),
+    ];
     const code = await proc.exited;
     await Promise.all(readers);
     clearInterval(statusPoll);
+    await pollModuleState();
     this.procs.delete(n.id);
     if (this.interrupted && SETTLED.includes(n.state)) return;
 
@@ -361,20 +394,7 @@ export class Engine {
   }
 
   private async pipeLogs(n: EngineNode, stream: ReadableStream<Uint8Array>): Promise<void> {
-    const dec = new TextDecoder();
-    let buf = "";
-    for await (const chunk of stream) {
-      buf += dec.decode(chunk, { stream: true });
-      const parts = buf.split(/[\r\n]/);
-      buf = parts.pop() ?? "";
-      for (const line of parts) {
-        const clean = sanitizeLine(line);
-        if (clean) n.logs.push(clean);
-      }
-    }
-    buf += dec.decode();
-    const clean = sanitizeLine(buf);
-    if (clean) n.logs.push(clean);
+    await this.readLogs(n.logs, stream);
   }
 
   /** UI answered: run the command in its configured display mode. */
@@ -388,7 +408,7 @@ export class Engine {
     this.opts.onEvent?.(n, "interacting");
 
     if (n.config["mode"] === "pane") {
-      n.logs.push("Starting browser sign-in.");
+      this.appendLog(n.logs, "Starting browser sign-in.");
       const proc = Bun.spawn(["zsh", "-c", command], {
         stdin: "ignore", stdout: "pipe", stderr: "pipe",
         env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" },

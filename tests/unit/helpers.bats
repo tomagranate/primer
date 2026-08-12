@@ -75,8 +75,7 @@ _run_deploy_scripts() {
         export MOD_NAME='fake'
         export BIN_DIR='${TEST_BIN_DIR}'
         export HOME='${TEST_HOME}'
-        source \"\$PRIMER_DIR/lib/ui.zsh\"
-        source \"\$PRIMER_DIR/lib/engine.zsh\"
+        source \"\$PRIMER_DIR/lib/module.zsh\"
         deploy_scripts \"\$BIN_DIR\"
     "
 }

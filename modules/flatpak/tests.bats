@@ -34,9 +34,9 @@ run_flatpak_module() {
         export MOD_ITEMS_FILE='${MOD_ITEMS_FILE}'
         export HOME='${TEST_HOME}'
         export PATH='${MOCK_DIR}:/usr/bin:/bin:/usr/sbin:/sbin'
-        source \"\$PRIMER_DIR/lib/ui.zsh\"
-        source \"\$PRIMER_DIR/lib/engine.zsh\"
-        engine::load_config '${TEST_CONF}'
+        source \"\$PRIMER_DIR/lib/module.zsh\"
+        source \"\$PRIMER_DIR/tests/helpers/module-config.zsh\"
+        test::load_module_config '${TEST_CONF}'
         source \"\$MOD_DIR/module.zsh\"
         ${code}
     "

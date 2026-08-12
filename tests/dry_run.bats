@@ -49,14 +49,6 @@ load 'helpers/common'
     refute_output --partial $'\e[?25h'
 }
 
-@test "primer update --tui falls back to headless output without a TTY" {
-    export PRIMER_LOCAL="$PRIMER_DIR"
-    run zsh "$PRIMER_DIR/bin/primer" update --dry-run --tui
-    assert_success
-    assert_output --partial "primer:"
-    refute_output --partial $'\e[?25h'
-}
-
 @test "primer update supports GNU script during dry-run" {
     local fakebin
     fakebin="$(mktemp -d)"

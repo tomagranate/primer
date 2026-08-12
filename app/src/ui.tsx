@@ -1,5 +1,5 @@
 /**
- * primer update TUI — split panes ("option B" from prototype/tui-prototype.html).
+ * Primer update TUI: task list, focused logs, interactive prompts, and summary.
  *
  * Left: task list. Right: live log tail of the focused node.
  * Follow-along mode is the default; arrows take manual control; esc returns.
@@ -7,7 +7,7 @@
  */
 import { useEffect, useState } from "react";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import type { Engine, EngineNode } from "./engine";
+import type { Engine, EngineItem, EngineNode } from "./engine";
 
 // Moss theme, copied from corsa (src/lib/theme/themes.ts): deep greens with
 // a British racing green accent. Sidebar sits on surface1, content on
@@ -43,6 +43,39 @@ function icon(n: EngineNode): { ch: string; fg: string } {
   }
 }
 
+function itemIcon(item: Pick<EngineItem, "state">): { ch: string; fg: string } {
+  switch (item.state) {
+    case "running": return { ch: spin()!, fg: C.yellow };
+    case "done": return { ch: "✓", fg: C.green };
+    case "failed": return { ch: "✗", fg: C.red };
+    case "skipped": return { ch: "○", fg: C.dim };
+    default: return { ch: "·", fg: C.muted };
+  }
+}
+
+function itemDetail(item: EngineItem): string {
+  if (item.detail) return item.detail;
+  switch (item.state) {
+    case "pending": return "waiting";
+    case "running": return "in progress";
+    case "done": return "complete";
+    case "failed": return "failed";
+    case "skipped": return "skipped";
+    default: return item.state;
+  }
+}
+
+function activeItemIndex(items: EngineItem[]): number {
+  const running = items.findIndex((item) => item.state === "running");
+  if (running >= 0) return running;
+  const failed = items.findIndex((item) => item.state === "failed");
+  if (failed >= 0) return failed;
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i]!.state !== "pending") return i;
+  }
+  return 0;
+}
+
 const elapsed = (n: EngineNode) =>
   n.start == null ? "" : `${(((n.end ?? Date.now()) - n.start) / 1000).toFixed(1)}s`;
 
@@ -64,15 +97,27 @@ interface AppProps {
   onQuit: () => void;
 }
 
+type Screen = "run" | "logs" | "summary" | "summary-items";
+
+interface LogTarget {
+  label: string;
+  state: string;
+  detail: string;
+  logs: string[];
+  returnScreen: Exclude<Screen, "logs">;
+}
+
 export function App({ engine, dryRun, onQuit }: AppProps) {
   const dims = useTerminalDimensions();
   const [, setTick] = useState(0);
   const [follow, setFollow] = useState(true);
   const [cursor, setCursor] = useState(0);
-  const [screen, setScreen] = useState<"run" | "logs" | "summary">("run");
+  const [screen, setScreen] = useState<Screen>("run");
   const [logScroll, setLogScroll] = useState(-1); // -1 = follow tail
-  const [logNode, setLogNode] = useState<EngineNode | null>(null);
-  const [itemTabs, setItemTabs] = useState<Record<string, number>>({});
+  const [logTarget, setLogTarget] = useState<LogTarget | null>(null);
+  const [itemMode, setItemMode] = useState(false);
+  const [itemCursors, setItemCursors] = useState<Record<string, number>>({});
+  const [expandedItems, setExpandedItems] = useState<Record<string, string[]>>({});
 
   useEffect(() => {
     const iv = setInterval(() => {
@@ -92,28 +137,83 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
   useKeyboard((key) => {
     const name = key.name ?? key.sequence;
 
-    if (screen === "logs" && logNode) {
+    if (screen === "logs" && logTarget) {
       const bodyH = dims.height - 2;
-      const maxStart = Math.max(0, logNode.logs.length - bodyH);
-      if (name === "escape" || name === "q") { setScreen(engine.finished() ? "summary" : "run"); setLogScroll(-1); }
+      const maxStart = Math.max(0, logTarget.logs.length - bodyH);
+      if (name === "escape" || name === "q") { setScreen(logTarget.returnScreen); setLogScroll(-1); }
       if (name === "up") setLogScroll((s) => Math.max(0, (s === -1 ? maxStart : s) - 1));
       if (name === "down") setLogScroll((s) => (s === -1 ? -1 : s + 1 >= maxStart ? -1 : s + 1));
       return;
     }
 
     const isSpace = name === "space" || key.sequence === " ";
-    const openLogs = (target: EngineNode | undefined) => {
-      if (target && (target.logs.length || target.state !== "pending")) {
-        setLogNode(target); setLogScroll(-1); setScreen("logs");
-      }
+    const openLogs = (target: EngineNode | EngineItem | undefined, returnScreen: LogTarget["returnScreen"]) => {
+      if (!target) return;
+      setLogTarget({
+        label: "label" in target ? target.label : target.name,
+        state: target.state,
+        detail: target.detail,
+        logs: target.logs,
+        returnScreen,
+      });
+      setLogScroll(-1);
+      setScreen("logs");
     };
+
+    if (screen === "summary-items") {
+      const node = nodes[cursor];
+      if (!node?.items.length) { setScreen("summary"); return; }
+      const current = Math.min(itemCursors[node.id] ?? 0, node.items.length - 1);
+      if (name === "up" || name === "down") {
+        const step = name === "up" ? node.items.length - 1 : 1;
+        setItemCursors((cursors) => ({ ...cursors, [node.id]: (current + step) % node.items.length }));
+      } else if (name === "return" || isSpace) {
+        openLogs(node.items[current], "summary-items");
+      } else if (name === "escape" || name === "left") {
+        setScreen("summary");
+      } else if (name === "q" || (name === "c" && key.ctrl)) {
+        onQuit();
+      }
+      return;
+    }
 
     if (screen === "summary") {
       if (name === "up" || name === "down") {
         setCursor((c) => (c + (name === "up" ? nodes.length - 1 : 1)) % nodes.length);
+      } else if (name === "return" || isSpace) {
+        const node = nodes[cursor];
+        if (node?.items.length) {
+          setItemCursors((cursors) => ({ ...cursors, [node.id]: cursors[node.id] ?? 0 }));
+          setScreen("summary-items");
+        } else {
+          openLogs(node, "summary");
+        }
+      } else if (name === "escape" || name === "q" || (name === "c" && key.ctrl)) {
+        onQuit();
+      }
+      return;
+    }
+
+    if (itemMode && focus.items.length) {
+      const current = Math.min(itemCursors[focus.id] ?? activeItemIndex(focus.items), focus.items.length - 1);
+      if (name === "up" || name === "down") {
+        const step = name === "up" ? focus.items.length - 1 : 1;
+        setItemCursors((cursors) => ({ ...cursors, [focus.id]: (current + step) % focus.items.length }));
+      } else if (name === "return") {
+        const item = focus.items[current]!;
+        setExpandedItems((expanded) => {
+          const names = expanded[focus.id] ?? [];
+          return {
+            ...expanded,
+            [focus.id]: names.includes(item.name) ? names.filter((name) => name !== item.name) : [...names, item.name],
+          };
+        });
+      } else if (name === "escape" || name === "left") {
+        setItemMode(false);
       } else if (isSpace) {
-        openLogs(nodes[cursor]);
-      } else if (name === "return" || name === "escape" || name === "q" || (name === "c" && key.ctrl)) {
+        openLogs(focus.items[current], "run");
+      } else if (name === "c" && key.ctrl) {
+        engine.interrupt();
         onQuit();
       }
       return;
@@ -125,20 +225,27 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
       setCursor((base + (name === "up" ? nodes.length - 1 : 1)) % nodes.length);
     } else if (name === "escape") {
       setFollow(true);
-    } else if ((name === "left" || name === "right" || name === "tab") && focus.items.length) {
-      const tabCount = focus.items.length + 1;
-      const step = name === "left" ? tabCount - 1 : 1;
-      setItemTabs((tabs) => ({
-        ...tabs,
-        [focus.id]: ((tabs[focus.id] ?? 0) + step) % tabCount,
-      }));
+    } else if ((name === "right" || name === "tab") && focus.items.length) {
+      const active = activeItemIndex(focus.items);
+      setFollow(false);
+      setCursor(focusIdx);
+      setItemCursors((cursors) => ({ ...cursors, [focus.id]: cursors[focus.id] ?? active }));
+      setItemMode(true);
     } else if (name === "return") {
       if (engine.finished()) { onQuit(); return; }
       const target = follow ? nodes.find((n) => n.state === "needs-user") ?? focus : focus;
       if (target.state === "needs-user") { void engine.answerInteractive(target); return; }
-      openLogs(target);
+      if (target.items.length) {
+        const active = activeItemIndex(target.items);
+        setFollow(false);
+        setCursor(nodes.indexOf(target));
+        setItemCursors((cursors) => ({ ...cursors, [target.id]: cursors[target.id] ?? active }));
+        setItemMode(true);
+        return;
+      }
+      openLogs(target, "run");
     } else if (isSpace) {
-      openLogs(focus);
+      openLogs(focus, "run");
     } else if (name === "s") {
       const target = focus.state === "needs-user" ? focus : nodes.find((n) => n.state === "needs-user");
       if (target) engine.skipInteractive(target);
@@ -151,17 +258,17 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
   });
 
   /* ── fullscreen logs ── */
-  if (screen === "logs" && logNode) {
+  if (screen === "logs" && logTarget) {
     const bodyH = dims.height - 2;
-    const total = logNode.logs.length;
+    const total = logTarget.logs.length;
     let startLine = logScroll === -1 ? Math.max(0, total - bodyH) : Math.min(logScroll, Math.max(0, total - bodyH));
-    const lines = logNode.logs.slice(startLine, startLine + bodyH);
+    const lines = logTarget.logs.slice(startLine, startLine + bodyH);
     return (
       <box style={{ width: "100%", height: "100%", flexDirection: "column", backgroundColor: C.surface0 }}>
         <box style={{ height: 1, backgroundColor: C.surface1, paddingLeft: 1, flexDirection: "row" }}>
-          <text fg={C.bold}>logs · {logNode.label}</text>
-          <text fg={icon(logNode).fg}>{`  ${icon(logNode).ch} `}</text>
-          <text fg={C.dim}>{`${logNode.state} · ${elapsed(logNode)}`}</text>
+          <text fg={C.bold}>logs · {logTarget.label}</text>
+          <text fg={itemIcon(logTarget).fg}>{`  ${itemIcon(logTarget).ch} `}</text>
+          <text fg={C.dim}>{`${logTarget.state}${logTarget.detail ? ` · ${logTarget.detail}` : ""}`}</text>
         </box>
         <box style={{ flexGrow: 1, flexDirection: "column", paddingLeft: 1 }}>
           {lines.map((line, i) => (
@@ -171,6 +278,32 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
         </box>
         <box style={{ height: 1, backgroundColor: C.surface1, paddingLeft: 1 }}>
           <text fg={C.dim}>{`esc back · ↑↓ scroll · ${logScroll === -1 ? "following" : `line ${startLine + 1}/${total}`}`}</text>
+        </box>
+      </box>
+    );
+  }
+
+  if (screen === "summary-items") {
+    const node = nodes[cursor] ?? nodes[0]!;
+    const selectedIndex = Math.min(itemCursors[node.id] ?? 0, Math.max(0, node.items.length - 1));
+    return (
+      <box style={{ width: "100%", height: "100%", flexDirection: "column", backgroundColor: C.surface0 }}>
+        <box style={{ height: 1, backgroundColor: C.surface1, paddingLeft: 1, flexDirection: "row" }}>
+          <text fg={C.bold}>{`summary · ${node.label}`}</text>
+          <text fg={C.dim}>{`  ${node.items.length} items · ${node.detail}`}</text>
+        </box>
+        <box style={{ flexGrow: 1, flexDirection: "column", paddingLeft: 1 }}>
+          <ItemLedger
+            items={node.items}
+            selectedIndex={selectedIndex}
+            expandedNames={[]}
+            active
+            height={Math.max(3, dims.height - 2)}
+            width={Math.max(20, dims.width - 1)}
+          />
+        </box>
+        <box style={{ height: 1, backgroundColor: C.surface1, paddingLeft: 1 }}>
+          <text fg={C.dim}>↑↓ move · ⏎/space logs · ←/esc modules · q quit</text>
         </box>
       </box>
     );
@@ -205,13 +338,14 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
                 <text fg={ic.fg}>{ic.ch}</text>
                 <text fg={sel ? C.bold : C.text}>{` ${n.label.padEnd(20).slice(0, 20)}`}</text>
                 <text fg={n.state === "failed" ? C.red : C.dim}>{` ${n.detail}`.slice(0, Math.max(10, dims.width - 36))}</text>
+                {n.items.length > 0 && <text fg={C.muted}>{`  ${n.items.length} items`}</text>}
                 <text fg={C.dim}>{`  ${elapsed(n)}`}</text>
               </box>
             );
           })}
         </box>
         <box style={{ height: 1, backgroundColor: C.surface1, paddingLeft: 1 }}>
-          <text fg={C.dim}>↑↓ move · space logs · ⏎ quit</text>
+          <text fg={C.dim}>↑↓ move · ⏎/space inspect · q quit</text>
         </box>
       </box>
     );
@@ -222,9 +356,14 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
   const interactivePane = focus.kind === "interactive" && (focus.state === "needs-user" || focus.state === "interacting");
   const tailCount = Math.max(3, dims.height - (attention ? 7 : 6));
   const instruction = focus.kind === "interactive" ? focus.config["instruction"] : undefined;
-  const itemTab = focus.items.length ? Math.min(itemTabs[focus.id] ?? 0, focus.items.length) : 0;
-  const selectedItem = itemTab > 0 ? focus.items[itemTab - 1] : undefined;
-  const paneLogs = selectedItem ? selectedItem.logs : focus.logs;
+  const selectedItemIndex = focus.items.length
+    ? Math.min(itemMode ? (itemCursors[focus.id] ?? activeItemIndex(focus.items)) : activeItemIndex(focus.items), focus.items.length - 1)
+    : 0;
+  const selectedItem = focus.items[selectedItemIndex];
+  const automaticExpanded = selectedItem && (selectedItem.state === "running" || selectedItem.state === "failed")
+    ? [selectedItem.name]
+    : [];
+  const expandedNames = Object.hasOwn(expandedItems, focus.id) ? expandedItems[focus.id]! : automaticExpanded;
 
   return (
     <box style={{ width: "100%", height: "100%", flexDirection: "column", backgroundColor: C.surface0 }}>
@@ -291,20 +430,23 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
               <text fg={C.bold}>{` ${focus.label}  `}</text>
               <text fg={C.dim}>{`${focus.detail || focus.state}  ${elapsed(focus)}`}</text>
             </box>
-            {focus.items.length > 0 && (
-              <box style={{ height: 1, flexDirection: "row" }}>
-                <text fg={itemTab === 0 ? C.bold : C.dim}>{`  ${itemTab === 0 ? "[module]" : " module "}  `}</text>
-                {focus.items.map((item, i) => (
-                  <text key={item.name} fg={i + 1 === itemTab ? C.bold : C.dim}>
-                    {`${i + 1 === itemTab ? "[" : " "}${item.name}${i + 1 === itemTab ? "]" : " "} `}
-                  </text>
+            {focus.items.length > 0 ? (
+              <ItemLedger
+                items={focus.items}
+                selectedIndex={selectedItemIndex}
+                expandedNames={expandedNames}
+                active={itemMode}
+                height={Math.max(3, dims.height - (attention ? 5 : 4))}
+                width={Math.max(20, dims.width - 34)}
+              />
+            ) : (
+              <>
+                {focus.logs.slice(-tailCount).map((line, i) => (
+                  <text key={i} fg={/error|failed/i.test(line) ? C.red : C.dim}>{`  ${line}`}</text>
                 ))}
-              </box>
+                {focus.logs.length === 0 && <text fg={C.dim}>  waiting for command output</text>}
+              </>
             )}
-            {paneLogs.slice(-tailCount).map((line, i) => (
-              <text key={i} fg={/error|failed/i.test(line) ? C.red : C.dim}>{`  ${line}`}</text>
-            ))}
-            {paneLogs.length === 0 && <text fg={C.dim}>  waiting for command output</text>}
           </box>
         )}
       </box>
@@ -313,11 +455,80 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
         <text fg={C.dim}>
           {engine.finished()
             ? "finished — ⏎ quit"
+            : itemMode
+              ? "items (›) · ↑↓ move · ⏎ toggle output · space full item logs · ←/esc modules"
             : follow
-              ? `following (▸) · ↑↓ take control · ←→ item logs${attention ? " · ⏎ answer input · s skip" : ""} · space logs`
-              : "manual (›) · ↑↓ module · ←→ item logs · space logs · esc follow"}
+              ? `following (▸) · ↑↓ take control · →/tab items${attention ? " · ⏎ answer input · s skip" : ""} · space logs`
+              : "manual (›) · ↑↓ module · →/tab items · space logs · esc follow"}
         </text>
       </box>
+    </box>
+  );
+}
+
+function ItemLedger({ items, selectedIndex, expandedNames, active, height, width }: {
+  items: EngineItem[];
+  selectedIndex: number;
+  expandedNames: string[];
+  active: boolean;
+  height: number;
+  width: number;
+}) {
+  type LedgerLine =
+    | { kind: "item"; item: EngineItem; itemIndex: number }
+    | { kind: "log"; item: EngineItem; text: string; key: string };
+  const lines: LedgerLine[] = [];
+  for (const [itemIndex, item] of items.entries()) {
+    lines.push({ kind: "item", item, itemIndex });
+    if (!expandedNames.includes(item.name)) continue;
+    if (!item.logs.length) {
+      lines.push({ kind: "log", item, text: "no command output · status is the complete result", key: `${item.name}:empty` });
+      continue;
+    }
+    const inlineLogs = item.logs.slice(-5);
+    if (item.logs.length > inlineLogs.length) {
+      lines.push({ kind: "log", item, text: `… ${item.logs.length - inlineLogs.length} earlier lines · space opens full log`, key: `${item.name}:more` });
+    }
+    inlineLogs.forEach((text, index) => lines.push({ kind: "log", item, text, key: `${item.name}:${index}` }));
+  }
+  const selectedLine = Math.max(0, lines.findIndex((line) => line.kind === "item" && line.itemIndex === selectedIndex));
+  const bodyHeight = Math.max(1, height - 1);
+  const maxStart = Math.max(0, lines.length - bodyHeight);
+  const start = Math.min(maxStart, Math.max(0, selectedLine - Math.floor(bodyHeight / 2)));
+  const visible = lines.slice(start, start + bodyHeight);
+  const nameWidth = Math.max(10, Math.min(24, Math.floor(width * 0.38)));
+  const detailWidth = Math.max(8, width - nameWidth - 9);
+  const settled = items.filter((item) => item.state !== "pending" && item.state !== "running").length;
+
+  return (
+    <box style={{ flexGrow: 1, flexDirection: "column" }}>
+      <box style={{ height: 1, flexDirection: "row", border: ["bottom"], borderColor: C.muted }}>
+        <text fg={C.dim}>{`  ${settled}/${items.length} checked`}</text>
+        <text fg={C.muted}>{active ? "  ·  item navigation" : "  ·  ⏎ inspect items"}</text>
+      </box>
+      {visible.map((line) => {
+        if (line.kind === "log") {
+          return (
+            <box key={line.key} style={{ height: 1, flexDirection: "row", paddingLeft: 5, border: ["left"], borderColor: itemIcon(line.item).fg }}>
+              <text fg={/error|failed/i.test(line.text) ? C.red : C.dim}>{line.text}</text>
+            </box>
+          );
+        }
+        const { item, itemIndex } = line;
+        const selected = active && itemIndex === selectedIndex;
+        const ic = itemIcon(item);
+        const detail = itemDetail(item);
+        return (
+          <box key={item.name} style={{ height: 1, flexDirection: "row", backgroundColor: selected ? C.selection : C.surface0 }}>
+            <text fg={selected ? C.green : C.muted}>{selected ? " ›" : "  "}</text>
+            <text fg={ic.fg}>{` ${ic.ch} `}</text>
+            <text fg={selected ? C.bold : item.state === "pending" ? C.dim : C.text}>
+              {item.name.padEnd(nameWidth).slice(0, nameWidth)}
+            </text>
+            <text fg={item.state === "failed" ? C.red : C.dim}>{`  ${detail}`.slice(0, detailWidth)}</text>
+          </box>
+        );
+      })}
     </box>
   );
 }
