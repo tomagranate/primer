@@ -182,6 +182,13 @@ _shell_installers::install_item() {
 }
 
 mod_update() {
+    # Remote installers must never prompt on /dev/tty while Primer owns the
+    # terminal. In particular, the Codex installer bypasses stdin and opens
+    # /dev/tty unless CODEX_NON_INTERACTIVE is set.
+    export CI=1
+    export NONINTERACTIVE=1
+    export CODEX_NON_INTERACTIVE=1
+
     _shell_installers::parse_config
     primer::items_init "${_shell_installer_names[@]}"
 

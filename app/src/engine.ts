@@ -296,6 +296,8 @@ export class Engine {
         HOMEBREW_NO_COLOR: "1",
         HOMEBREW_NO_EMOJI: "1",
         HOMEBREW_NO_ENV_HINTS: "1",
+        CI: "1",
+        CODEX_NON_INTERACTIVE: "1",
         NONINTERACTIVE: "1",
       },
     });

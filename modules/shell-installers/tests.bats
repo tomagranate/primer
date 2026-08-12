@@ -83,6 +83,30 @@ run_shell_installers_with_conf() {
     assert_success
 }
 
+@test "shell-installers: remote installers cannot prompt on the TUI terminal" {
+    cat > "$MOCK_DIR/curl" <<'EOF'
+#!/bin/sh
+cat <<'SCRIPT'
+#!/bin/sh
+if [ "$CI" != 1 ] || [ "$NONINTERACTIVE" != 1 ] || [ "$CODEX_NON_INTERACTIVE" != 1 ]; then
+    echo "installer received interactive environment" >&2
+    exit 1
+fi
+mkdir -p "$HOME/.local/bin"
+cat > "$HOME/.local/bin/sampletool" <<'TOOL'
+#!/bin/sh
+[ "$1" = "--version" ] && echo "1.0.0"
+TOOL
+chmod +x "$HOME/.local/bin/sampletool"
+SCRIPT
+EOF
+    chmod +x "$MOCK_DIR/curl"
+
+    run_shell_installers_with_conf "mod_update"
+    assert_success
+    refute_output --partial "interactive environment"
+}
+
 @test "shell-installers: wet run skips installer when already installed" {
     make_sampletool_mock
     run_shell_installers_with_conf "mod_update"
