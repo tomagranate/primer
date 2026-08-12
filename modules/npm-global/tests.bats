@@ -40,9 +40,9 @@ run_npm_global_with_conf() {
         export ZSH_CONFIG_DIR='${TEST_CONFIG_DIR:-/tmp/primer-test-config}/zsh'
         export BIN_DIR='${TEST_BIN_DIR:-/tmp/primer-test-bin}'
         export HOME='${TEST_HOME:-$HOME}'
-        source \"\$PRIMER_DIR/lib/ui.zsh\"
-        source \"\$PRIMER_DIR/lib/engine.zsh\"
-        engine::load_config '${TEST_CONF}'
+        source \"\$PRIMER_DIR/lib/module.zsh\"
+        source \"\$PRIMER_DIR/tests/helpers/module-config.zsh\"
+        test::load_module_config '${TEST_CONF}'
         source \"\$MOD_DIR/module.zsh\"
         ${action}
     "

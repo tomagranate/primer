@@ -48,6 +48,15 @@ fi
 # Initialize modules.
 source ${ZIM_HOME}/init.zsh
 
+# Zim's completion module replaces compinit with a wrapper that warns whenever
+# another tool calls it later. Installers commonly append a completion directory
+# to fpath and rerun compinit so the new functions are available in this shell.
+# Restore the stock autoload after Zim's initial setup to allow that refresh.
+if (( ${+functions[compinit]} )); then
+  unfunction compinit
+  autoload -Uz compinit
+fi
+
 # ---- Configuration ----
 # history
 HISTFILE=~/.zsh_history

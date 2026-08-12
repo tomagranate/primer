@@ -39,7 +39,6 @@ opening another terminal. `--dry-run` and `status` never reload the shell.
 - `--skip <module>` - skip a module by name; repeatable (valid with `update`)
 - `--only <module>` - run only one module; repeatable (valid with `update`)
 - `--profile <name>` - force a profile; any name with a file in `configs/profiles/`, such as `mac`, `linux-vps`, or `ubuntu-desktop`
-- `--tui` - compatibility alias; the sidebar TUI is already the terminal default
 - `--log` - force plain log output
 - `--help` - show help text
 - `-h` - show help text
@@ -90,7 +89,7 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 
 Each module is a **self-contained folder** that owns its config files, scripts, and install logic. Profile config is split into `configs/common.conf` plus `configs/profiles/<profile>.conf`. Primer loads the common file first, then the profile file. A profile file holds only the keys that differ from the common file.
 
-The compiled TypeScript app in `app/` is the sole command and scheduling engine. CI publishes native standalone executables for macOS and Linux on ARM64 and x64; Bun is a build-time dependency and is not required on managed machines. The launcher downloads and verifies the appropriate release binary. On a terminal it renders the OpenTUI sidebar; without a TTY, or with `--log`, the same engine emits plain line output. Zsh remains only at the module boundary: the TypeScript engine runs each `modules/*/module.zsh` with helpers from `lib/ui.zsh`. The older Zsh engine files remain temporarily for module-level compatibility tests but are not reachable from `primer`.
+The compiled TypeScript app in `app/` is the sole command and scheduling engine. CI publishes native standalone executables for macOS and Linux on ARM64 and x64; Bun is a build-time dependency and is not required on managed machines. The launcher downloads and verifies the appropriate release binary. On a terminal it renders the OpenTUI sidebar; without a TTY, or with `--log`, the same engine emits plain line output. Zsh remains only at the module boundary: the TypeScript engine runs each `modules/*/module.zsh` with helpers from `lib/module.zsh`.
 
 ```
 ├── setup.sh                      # Bootstrap (installs the Primer launcher)
@@ -103,12 +102,7 @@ The compiled TypeScript app in `app/` is the sole command and scheduling engine.
 │   ├── common.conf               # Shared user-level config
 │   └── profiles/                 # mac, linux-vps, ubuntu-desktop fragments
 ├── lib/
-│   ├── engine.zsh                # Retained legacy engine (not a primer call path)
-│   ├── config.zsh                # Global registries + INI config parser
-│   ├── dag.zsh                   # Dependency checks, filters, module lifecycle
-│   ├── logins.zsh                # Interactive login gates, pickers, reports
-│   ├── render.zsh                # Retained legacy renderer
-│   └── ui.zsh                    # Shared Zsh module helpers and status protocol
+│   └── module.zsh                # Shell module runtime and status protocol
 ├── modules/
 │   ├── xcode-cli-tools/
 │   │   └── module.zsh

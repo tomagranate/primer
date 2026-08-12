@@ -43,6 +43,13 @@ teardown() {
     assert_success
 }
 
+@test "zsh: managed startup restores compinit for later completion installers" {
+    run grep -Fq 'unfunction compinit' "$PRIMER_DIR/modules/zsh/files/.zshrc.managed"
+    assert_success
+    run grep -Fq 'autoload -Uz compinit' "$PRIMER_DIR/modules/zsh/files/.zshrc.managed"
+    assert_success
+}
+
 @test "zsh: managed primer wrapper reloads current shell after successful update" {
     mkdir -p "$TEST_HOME/.zim" "$TEST_HOME/bin"
     touch "$TEST_HOME/.zim/zimfw.zsh" "$TEST_HOME/.zim/init.zsh"

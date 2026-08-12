@@ -29,7 +29,6 @@ function parseArgs(argv: string[]): Args {
       case "update": case "status": args.command = a; break;
       case "--dry-run": args.dryRun = true; break;
       case "--log": args.headless = true; break;
-      case "--tui": break; // compatibility: TUI is already the terminal default
       case "--skip": args.skip.push(need(argv, ++i, a)); break;
       case "--only": args.only.push(need(argv, ++i, a)); break;
       case "--profile": args.profile = need(argv, ++i, a); break;
@@ -71,7 +70,6 @@ Flags:
   --only <module>   Run only this module; repeatable (update only)
   --profile <name>  Force profile: mac, linux-vps, ubuntu-desktop
   --log             Plain line output instead of the TUI
-  --tui             Compatibility alias; TUI is already the default
   --help            Show this help message`);
 }
 
@@ -87,6 +85,17 @@ function notify(message: string): void {
   } else if (Bun.which("notify-send")) {
     Bun.spawn(["notify-send", "Primer", message], { stdout: "ignore", stderr: "ignore" });
   }
+}
+
+/** Last-resort terminal restoration. Safe to call repeatedly and during exit. */
+function resetTerminal(): void {
+  try { process.stdin.setRawMode?.(false); } catch { /* stdin may be gone */ }
+  try {
+    process.stdout.write(
+      "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l" +
+      "\x1b[?2027l\x1b[?1049l\x1b[?25h\x1b[0m",
+    );
+  } catch { /* stdout may be gone */ }
 }
 
 /* ── update ── */
@@ -139,13 +148,16 @@ async function runUpdate(args: Args): Promise<never> {
   const { createElement } = await import("react");
   const { App } = await import("./ui");
 
-  const renderer = await createCliRenderer({ exitOnCtrlC: false });
+  const renderer = await createCliRenderer({ exitOnCtrlC: false, exitSignals: [] });
   engine["opts"].suspendUI = () => renderer.suspend();
   engine["opts"].resumeUI = () => renderer.resume();
 
   const root = createRoot(renderer);
 
+  let quitting = false;
   const quit = () => {
+    if (quitting) return;
+    quitting = true;
     engine.stopTimers();
     renderer.stop();
     renderer.destroy();
@@ -153,12 +165,7 @@ async function runUpdate(args: Args): Promise<never> {
     // its own teardown covers, plus grapheme clustering (2027) which it
     // leaves set. Then drain in-flight terminal query responses for a beat
     // so they land here, not in the shell after we exit.
-    process.stdout.write(
-      "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l" + // mouse tracking off
-      "\x1b[?2027l" +                                   // grapheme clustering off
-      "\x1b[?1049l\x1b[?25h\x1b[0m",                    // main screen, cursor, attrs
-    );
-    try { process.stdin.setRawMode?.(false); } catch { /* stdin may be gone */ }
+    resetTerminal();
     const discard = () => { /* swallow stray query responses */ };
     try { process.stdin.on("data", discard); process.stdin.resume(); } catch { /* ok */ }
     setTimeout(() => {
@@ -168,6 +175,18 @@ async function runUpdate(args: Args): Promise<never> {
       process.exit(code);
     }, 75);
   };
+
+  const handleSignal = () => {
+    engine.interrupt();
+    quit();
+  };
+  process.once("SIGINT", handleSignal);
+  process.once("SIGTERM", handleSignal);
+  process.once("SIGQUIT", handleSignal);
+  process.once("exit", () => {
+    resetTerminal();
+    engine.cleanup();
+  });
 
   root.render(createElement(App, { engine, dryRun: args.dryRun, onQuit: quit }));
   return new Promise(() => {}) as Promise<never>; // quit() exits the process
@@ -183,7 +202,7 @@ async function runStatus(args: Args): Promise<never> {
   const results = await Promise.all(defs.map(async (d) => {
     const statusFile = join(process.env.TMPDIR ?? "/tmp", `primer-status-${d.id}-${process.pid}`);
     const proc = Bun.spawn(["zsh", "-c",
-      `source "\${PRIMER_DIR}/lib/ui.zsh"; source "\${MOD_DIR}/module.zsh" || exit 1; mod_status`,
+      `source "\${PRIMER_DIR}/lib/module.zsh"; source "\${MOD_DIR}/module.zsh" || exit 1; mod_status`,
     ], {
       stdout: "ignore", stderr: "ignore",
       env: {

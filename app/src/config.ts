@@ -3,11 +3,10 @@
  * graph. Modules and interactive steps are the same thing here — nodes; an
  * interactive step is a node that needs the user and the terminal.
  *
- * The on-disk format still calls interactive steps "logins" ([logins],
- * logins.<name>_*, depends_on_logins) because the zsh engine reads the same
- * files. Rename the keys when lib/ is retired.
+ * The on-disk format calls interactive steps "logins" ([logins],
+ * logins.<name>_*, depends_on_logins).
  *
- * Format (see lib/config.zsh for the zsh original):
+ * Format:
  *   [section]            starts a module section ("logins" is special)
  *   key = value          sets <section>.<key>
  *   <indented line>      continues the previous key (multi-line value)

@@ -15,7 +15,6 @@ typeset -g PRIMER_DIR=""   # Set after download or from PRIMER_LOCAL
 typeset -g DRY_RUN=false
 typeset -g PRIMER_SKIP=""  # Space-separated modules to skip (--skip <name>)
 typeset -g PRIMER_ONLY=""  # Space-separated modules to run exclusively (--only <name>)
-typeset -g PRIMER_UI_MODE=""  # auto-selected unless --tui or --log is passed
 typeset -g PRIMER_PROFILE="${PRIMER_PROFILE:-}"
 typeset -g PRIMER_RELEASE_VERSION=""
 typeset -gr PRIMER_RELEASE_ROOT="https://github.com/tomagranate/primer/releases/download"
@@ -207,7 +206,6 @@ Flags:
   --skip <module>   Skip a module by name; repeatable (update only)
   --only <module>   Run only this module; repeatable (update only)
   --profile <name>  Force profile: mac, linux-vps, ubuntu-desktop
-  --tui             Compatibility alias; TUI is already the default
   --log             Force plain log output
   --help            Show this help message
 

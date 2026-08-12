@@ -32,7 +32,7 @@ run_login_shell_module() {
         export USER='primer'
         export PRIMER_SHELLS_FILE='${TEST_SHELLS_FILE}'
         export PATH='${MOCK_DIR}:/usr/bin:/bin:/usr/sbin:/sbin'
-        source \"\$PRIMER_DIR/lib/ui.zsh\"
+        source \"\$PRIMER_DIR/lib/module.zsh\"
         source \"\$MOD_DIR/module.zsh\"
         ${code}
     "

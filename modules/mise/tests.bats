@@ -92,9 +92,9 @@ EOF
         export MOD_STATUS_FILE='${status_file}'
         export HOME='${TEST_HOME}'
         export PATH='${PATH}'
-        source \"\$PRIMER_DIR/lib/ui.zsh\"
-        source \"\$PRIMER_DIR/lib/engine.zsh\"
-        engine::load_config \"\$PRIMER_DIR/configs/common.conf\" \"\$PRIMER_DIR/configs/profiles/mac.conf\"
+        source \"\$PRIMER_DIR/lib/module.zsh\"
+        source \"\$PRIMER_DIR/tests/helpers/module-config.zsh\"
+        test::load_module_config \"\$PRIMER_DIR/configs/common.conf\" \"\$PRIMER_DIR/configs/profiles/mac.conf\"
         source \"\$MOD_DIR/module.zsh\"
         mod_status
     "

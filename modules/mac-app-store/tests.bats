@@ -37,9 +37,9 @@ run_mac_app_store_with_conf() {
         export ZSH_CONFIG_DIR='${TEST_CONFIG_DIR:-/tmp/primer-test-config}/zsh'
         export BIN_DIR='${TEST_BIN_DIR:-/tmp/primer-test-bin}'
         export HOME='${TEST_HOME:-$HOME}'
-        source \"\$PRIMER_DIR/lib/ui.zsh\"
-        source \"\$PRIMER_DIR/lib/engine.zsh\"
-        engine::load_config '${TEST_CONF}'
+        source \"\$PRIMER_DIR/lib/module.zsh\"
+        source \"\$PRIMER_DIR/tests/helpers/module-config.zsh\"
+        test::load_module_config '${TEST_CONF}'
         source \"\$MOD_DIR/module.zsh\"
         ${action}
     "
@@ -109,9 +109,9 @@ run_mac_app_store_with_conf() {
         export MOD_ITEMS_FILE='${MOD_ITEMS_FILE}'
         export HOME='${TEST_HOME}'
         export PATH='${no_mas_dir}:/usr/bin:/bin:/usr/sbin:/sbin'
-        source \"\$PRIMER_DIR/lib/ui.zsh\"
-        source \"\$PRIMER_DIR/lib/engine.zsh\"
-        engine::load_config '${TEST_CONF}'
+        source \"\$PRIMER_DIR/lib/module.zsh\"
+        source \"\$PRIMER_DIR/tests/helpers/module-config.zsh\"
+        test::load_module_config '${TEST_CONF}'
         source \"\$MOD_DIR/module.zsh\"
         mod_update
     "

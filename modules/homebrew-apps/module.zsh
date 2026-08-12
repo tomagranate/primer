@@ -112,13 +112,16 @@ _homebrew_apps::install_cask_item() {
     # partial cask installs that left the .app in /Applications.
     if ! brew list --cask "$item" >/dev/null 2>&1; then
         if [[ -d "$resolved_app_path" ]]; then
+            print -r -- "Found existing application: $resolved_app_path"
             primer::parallel_item_result "skipped" "already installed outside brew cask"
             return 0
         fi
 
         local install_output=""
+        print -r -- "$ brew install --quiet --cask $item"
         if HOMEBREW_NO_COLOR=1 _homebrew_apps::run_with_lock_retry install_output \
             brew install --quiet --cask "$item"; then
+            [[ -n "$install_output" ]] && print -r -- "$install_output"
             primer::parallel_item_result "done"
             return 0
         fi
@@ -144,8 +147,10 @@ _homebrew_apps::install_cask_item() {
 
     if brew outdated --cask --quiet "$item" 2>/dev/null | grep -qx "$item"; then
         local upgrade_output=""
+        print -r -- "$ brew upgrade --quiet --cask $item"
         if HOMEBREW_NO_COLOR=1 _homebrew_apps::run_with_lock_retry upgrade_output \
             brew upgrade --quiet --cask "$item"; then
+            [[ -n "$upgrade_output" ]] && print -r -- "$upgrade_output"
             primer::parallel_item_result "done"
             return 0
         fi
@@ -158,6 +163,7 @@ _homebrew_apps::install_cask_item() {
         return 1
     fi
 
+    print -r -- "Homebrew cask is installed and up to date."
     primer::parallel_item_result "done"
 }
 
