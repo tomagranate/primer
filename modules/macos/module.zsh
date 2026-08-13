@@ -77,11 +77,14 @@ _macos::dock_default_apps() {
 /System/Applications/Music.app
 /System/Applications/News.app
 /System/Applications/Notes.app
+/System/Applications/Phone.app
 /System/Applications/Photos.app
 /System/Applications/Podcasts.app
 /System/Applications/Reminders.app
 /System/Applications/System Settings.app
 /System/Applications/TV.app
+/System/Applications/Games.app
+/System/Applications/iPhone Mirroring.app
 EOF
 }
 
