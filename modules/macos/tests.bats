@@ -17,7 +17,6 @@ setup() {
         "$PRIMER_TEST_APPLICATIONS/Helium.app" \
         "$PRIMER_TEST_APPLICATIONS/Codex.app" \
         "$PRIMER_TEST_APPLICATIONS/Ghostty.app" \
-        "$PRIMER_TEST_APPLICATIONS/Cursor.app" \
         "$PRIMER_TEST_APPLICATIONS/Spotify.app" \
         "$PRIMER_TEST_APPLICATIONS/Notes.app" \
         "$PRIMER_TEST_APPLICATIONS/System Settings.app"
@@ -105,6 +104,9 @@ teardown() {
     assert_output --partial "mkdir -p ${TEST_HOME}/Desktop/Screenshots"
     assert_output --partial "defaults write com.apple.screencapture location -string ${TEST_HOME}/Desktop/Screenshots"
     assert_output --partial "dockutil --remove Safari --no-restart"
+    assert_output --partial "dockutil --remove Phone --no-restart"
+    assert_output --partial "dockutil --remove Games --no-restart"
+    assert_output --partial "dockutil --remove iPhone Mirroring --no-restart"
     assert_output --partial "dockutil --add ${PRIMER_TEST_APPLICATIONS}/Codex.app --no-restart"
     assert_output --partial "skip missing Dock app ${PRIMER_TEST_APPLICATIONS}/Missing.app"
     refute_output --partial "dockutil --remove Notes --no-restart"
