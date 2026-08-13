@@ -71,6 +71,10 @@ export interface EngineOptions {
 
 const SETTLED: NodeState[] = ["done", "failed", "skipped"];
 const MAX_LOG_LINES = 10_000;
+export const MODULE_PROCESS_ISOLATION = {
+  detached: true,
+  stdin: "ignore",
+} as const;
 
 export class Engine {
   nodes: EngineNode[] = [];
@@ -281,7 +285,12 @@ export class Engine {
     ].join("\n"));
 
     const proc = Bun.spawn(["zsh", runner], {
-      stdin: "ignore", stdout: "pipe", stderr: "pipe",
+      // A pipe on stdin is insufficient: installers can explicitly open
+      // /dev/tty and steal keyboard input from OpenTUI. Bun's detached mode
+      // calls setsid() on POSIX, so the complete module process tree has no
+      // controlling terminal while stdout/stderr remain available as pipes.
+      ...MODULE_PROCESS_ISOLATION,
+      stdout: "pipe", stderr: "pipe",
       env: {
         ...process.env,
         MOD_STATUS_FILE: statusFile,
