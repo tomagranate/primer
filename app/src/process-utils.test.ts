@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { MODULE_PROCESS_ISOLATION } from "./engine";
 import { parseProcessTree } from "./process-utils";
 
 describe("parseProcessTree", () => {
@@ -9,5 +10,24 @@ describe("parseProcessTree", () => {
         [20, [30]],
       ]),
     );
+  });
+});
+
+describe("detached process isolation", () => {
+  test("module processes are detached with no stdin", () => {
+    expect(MODULE_PROCESS_ISOLATION).toEqual({ detached: true, stdin: "ignore" });
+  });
+
+  test("a detached module cannot open Primer's controlling terminal", async () => {
+    if (process.platform === "win32" || !process.stdin.isTTY) return;
+
+    const proc = Bun.spawn(["sh", "-c", "test ! -r /dev/tty"], {
+      detached: true,
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+
+    expect(await proc.exited).toBe(0);
   });
 });
