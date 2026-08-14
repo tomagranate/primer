@@ -14,11 +14,7 @@ _dnf::coprs() {
 }
 
 _dnf::command() {
-    if command -v dnf5 >/dev/null 2>&1; then
-        print dnf5
-    else
-        print dnf
-    fi
+    print dnf5
 }
 
 _dnf::run_as_root() {
