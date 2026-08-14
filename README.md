@@ -8,6 +8,9 @@ Modular, DAG-based machine setup for macOS, Ubuntu, and Fedora KDE. One command 
 curl -fsSL https://raw.githubusercontent.com/tomagranate/primer/master/setup.sh | sh
 ```
 
+The piped setup cannot replace its parent shell. Open a new terminal after setup,
+or run `exec zsh` to start the configured Zsh and Starship prompt immediately.
+
 Preview what would happen without making changes:
 
 ```sh

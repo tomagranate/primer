@@ -75,14 +75,18 @@ _npm_global::mise_bin() {
 }
 
 _npm_global::run_npm() {
+    local mise_bin
+    if mise_bin="$(_npm_global::mise_bin)"; then
+        "$mise_bin" exec -- npm "$@"
+        return $?
+    fi
+
     if command -v npm >/dev/null 2>&1; then
         npm "$@"
         return $?
     fi
 
-    local mise_bin
-    mise_bin="$(_npm_global::mise_bin)" || return 127
-    "$mise_bin" exec -- npm "$@"
+    return 127
 }
 
 _npm_global::check_command() {
@@ -90,6 +94,13 @@ _npm_global::check_command() {
     local check="${_npm_global_check[$name]}"
     [[ -n "$check" ]] || check="command -v ${_npm_global_command[$name]}"
     [[ -n "$check" ]] || return 1
+
+    local mise_bin
+    if mise_bin="$(_npm_global::mise_bin)"; then
+        "$mise_bin" exec -- zsh -c "$check" >/dev/null 2>&1
+        return $?
+    fi
+
     zsh -c "$check" >/dev/null 2>&1
 }
 

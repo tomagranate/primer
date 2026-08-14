@@ -12,6 +12,7 @@ import { sanitizeLine } from "./ansi";
 import { detectProfile, loadNodes, resolvePrimerDir } from "./config";
 import { Engine, type EngineNode } from "./engine";
 import { shouldPrintLogs } from "./headless-output";
+import { resetTerminal, shutdownRenderer } from "./terminal-lifecycle";
 
 interface Args {
   command: string;
@@ -88,15 +89,10 @@ function notify(message: string): void {
   }
 }
 
-/** Last-resort terminal restoration. Safe to call repeatedly and during exit. */
-function resetTerminal(): void {
-  try { process.stdin.setRawMode?.(false); } catch { /* stdin may be gone */ }
-  try {
-    process.stdout.write(
-      "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l" +
-      "\x1b[?2027l\x1b[?1049l\x1b[?25h\x1b[0m",
-    );
-  } catch { /* stdout may be gone */ }
+function printShellActivationHint(engine: Engine): void {
+  const loginShell = engine.node("login-shell");
+  if (loginShell?.state !== "done" || /(?:^|\/)zsh$/.test(process.env.SHELL ?? "")) return;
+  console.log("Zsh is configured. Open a new terminal or run 'exec zsh' to use it now.");
 }
 
 /* ── update ── */
@@ -132,6 +128,7 @@ async function runUpdate(args: Args): Promise<never> {
     await engine.waitUntilFinished();
     console.log(engine.statusLine());
     console.log(`Logs: ${engine.logDirectory}`);
+    printShellActivationHint(engine);
     const code = engine.exitCode();
     engine.cleanup();
     process.exit(code);
@@ -157,12 +154,13 @@ async function runUpdate(args: Args): Promise<never> {
   const root = createRoot(renderer);
 
   let quitting = false;
-  const quit = () => {
+  const quit = async () => {
     if (quitting) return;
     quitting = true;
     engine.stopTimers();
-    renderer.stop();
-    renderer.destroy();
+    // Linux renders on the main thread. Wait for the current frame before
+    // destroy(), or deferred teardown can paint on the restored main screen.
+    await shutdownRenderer(renderer);
     // Belt and braces: reset every mode the renderer uses, including ones
     // its own teardown covers, plus grapheme clustering (2027) which it
     // leaves set. Then drain in-flight terminal query responses for a beat
@@ -173,6 +171,7 @@ async function runUpdate(args: Args): Promise<never> {
     setTimeout(() => {
       console.log(engine.statusLine());
       console.log(`Logs: ${engine.logDirectory}`);
+      printShellActivationHint(engine);
       const code = engine.exitCode();
       engine.cleanup();
       process.exit(code);
@@ -181,7 +180,7 @@ async function runUpdate(args: Args): Promise<never> {
 
   const handleSignal = () => {
     engine.interrupt();
-    quit();
+    void quit();
   };
   process.once("SIGINT", handleSignal);
   process.once("SIGTERM", handleSignal);
