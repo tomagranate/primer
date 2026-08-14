@@ -5,19 +5,45 @@ load '../helpers/common'
 
 setup() {
     export ITEMS_FILE="$(mktemp)"
+    export ITEM_LOG_DIR="$(mktemp -d)"
 }
 
 teardown() {
-    rm -f "$ITEMS_FILE"
+    rm -rf "$ITEMS_FILE" "$ITEM_LOG_DIR"
 }
 
 items_run() {
     run zsh -c "
         export PRIMER_DIR='${PRIMER_DIR}'
         export MOD_ITEMS_FILE='${ITEMS_FILE}'
+        export MOD_ITEM_LOG_DIR='${ITEM_LOG_DIR}'
         source \"\$PRIMER_DIR/lib/module.zsh\"
         $1
     "
+}
+
+@test "items_init: registers durable logs for every item" {
+    items_run "primer::items_init alpha bravo"
+    assert_success
+    run cat "$ITEM_LOG_DIR/manifest"
+    assert_success
+    assert_output "$(printf '1\talpha\n2\tbravo')"
+    [ -f "$ITEM_LOG_DIR/1.log" ]
+    [ -f "$ITEM_LOG_DIR/2.log" ]
+}
+
+@test "item_log: appends output to the named item" {
+    items_run "primer::items_init alpha bravo && primer::item_log bravo 'installing bravo'"
+    assert_success
+    run cat "$ITEM_LOG_DIR/2.log"
+    assert_success
+    assert_output "installing bravo"
+}
+
+@test "item_state: returns the named item's current state" {
+    items_run "primer::items_init alpha bravo && primer::item_update bravo running && primer::item_state bravo"
+    assert_success
+    assert_output "running"
 }
 
 @test "items_init: writes all names as pending" {

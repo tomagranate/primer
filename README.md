@@ -58,6 +58,37 @@ primer -h
 primer help
 ```
 
+### Linux agent sudo sessions
+
+Linux profiles install `agents-sudo` in `~/bin`.
+Run it in an interactive terminal before privileged agent work:
+
+```sh
+agents-sudo
+```
+
+The command installs `/etc/sudoers.d/agents-session`.
+It creates a global sudo ticket with a 12-hour timeout.
+
+Check or end the session with these commands:
+
+```sh
+agents-sudo --status
+agents-sudo --revoke
+agents-sudo --remove
+```
+
+`--revoke` ends the ticket. `--remove` also deletes the shared sudo policy.
+
+### Run logs
+
+Primer saves each update run under `~/.local/state/primer/runs/`.
+Each run contains one log per module, item logs, an aggregate log, and `summary.json`.
+
+Primer limits this directory to 100 MiB by default.
+It removes the oldest runs when the directory exceeds that limit.
+Set `PRIMER_LOG_MAX_BYTES` to change the limit.
+
 ## What It Does
 
 Modules run in parallel as a DAG -- each starts as soon as its dependencies are met:
@@ -65,7 +96,8 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | Module | Depends On | What It Does |
 | --- | --- | --- |
 | **apt** | -- | Installs configured Debian/Ubuntu packages for VPS profiles |
-| **dnf** | -- | Installs configured Fedora packages and enables COPR repositories |
+| **agents-sudo** | -- | Installs the Linux `agents-sudo` command for shared 12-hour sudo sessions |
+| **dnf** | -- | Installs Fedora packages in DNF5 batches and publishes live package results |
 | **flatpak** | apt / dnf | Installs explicitly configured Flatpak apps |
 | **helium-browser** | apt | Installs Helium Browser from the official Linux apt repository |
 | **github-cli** | apt | Installs GitHub CLI from GitHub's official apt repository |
@@ -172,6 +204,18 @@ privileged entry in `installers`.
 ### Complex module (custom logic)
 
 Write `mod_update()` and `mod_status()` with whatever logic you need. Use `mod_config <key>` to read values from the active profile config.
+
+Use the item protocol for commands that manage many named objects:
+
+```zsh
+primer::items_init "${items[@]}"
+primer::item_update "$item" running "installing"
+primer::item_log "$item" "command output"
+primer::item_update "$item" done "installed"
+```
+
+Primer shows these states and logs while the command runs.
+The same item logs remain available after the run.
 
 ## Profiles
 
