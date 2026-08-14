@@ -1,0 +1,8 @@
+# Keep the AMD B550 chipset xHCI controller awake and wake-capable.
+ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x1022", ATTR{device}=="0x43ee", TEST=="power/control", ATTR{power/control}="on", TEST=="power/wakeup", ATTR{power/wakeup}="enabled"
+
+# Keep the USB 2 root hub on this controller wake-capable.
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="1d6b", ATTR{idProduct}=="0002", KERNELS=="0000:02:00.0", TEST=="power/control", ATTR{power/control}="on", TEST=="power/wakeup", ATTR{power/wakeup}="enabled"
+
+# Keep the Logitech Bolt receiver active and wake-capable.
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="046d", ATTR{idProduct}=="c548", TEST=="power/control", ATTR{power/control}="on", TEST=="power/wakeup", ATTR{power/wakeup}="enabled"
