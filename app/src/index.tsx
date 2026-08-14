@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { sanitizeLine } from "./ansi";
 import { detectProfile, loadNodes, resolvePrimerDir } from "./config";
 import { Engine, type EngineNode } from "./engine";
+import { shouldPrintLogs } from "./headless-output";
 
 interface Args {
   command: string;
@@ -120,7 +121,7 @@ async function runUpdate(args: Args): Promise<never> {
           console.log(`--> ${label}: needs interactive input — skipped (no terminal)`);
           engine.skipInteractive(n);
         } else if (["done", "failed", "skipped"].includes(event)) {
-          if (args.dryRun && n.logs.length) {
+          if (shouldPrintLogs(args.dryRun, event) && n.logs.length) {
             for (const line of n.logs) console.log(line);
           }
           console.log(`--> ${label}: ${n.state}${n.detail ? ` (${n.detail})` : ""}`);

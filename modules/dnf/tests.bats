@@ -8,6 +8,7 @@ setup() {
     export TEST_HOME="$(mktemp -d)"
     export MOCK_DIR="$(mktemp -d)"
     export MOCK_LOG="$(mktemp)"
+    export MOD_STATUS_FILE="$(mktemp)"
     export MOD_ITEMS_FILE="$(mktemp)"
     cat > "$TEST_CONF" <<'EOF'
 [dnf]
@@ -23,7 +24,7 @@ EOF
 }
 
 teardown() {
-    rm -rf "$TEST_CONF" "$TEST_HOME" "$MOCK_DIR" "$MOCK_LOG" "$MOD_ITEMS_FILE"
+    rm -rf "$TEST_CONF" "$TEST_HOME" "$MOCK_DIR" "$MOCK_LOG" "$MOD_STATUS_FILE" "$MOD_ITEMS_FILE"
 }
 
 run_dnf_module() {
@@ -33,7 +34,7 @@ run_dnf_module() {
         export DRY_RUN='${DRY_RUN:-false}'
         export MOD_DIR='${PRIMER_DIR}/modules/dnf'
         export MOD_NAME='dnf'
-        export MOD_STATUS_FILE='$(mktemp)'
+        export MOD_STATUS_FILE='${MOD_STATUS_FILE}'
         export MOD_ITEMS_FILE='${MOD_ITEMS_FILE}'
         export HOME='${TEST_HOME}'
         export PATH='${MOCK_DIR}:/usr/bin:/bin:/usr/sbin:/sbin'
@@ -50,7 +51,7 @@ run_dnf_module() {
     run_dnf_module "mod_update"
     assert_success
     assert_output --partial "sudo dnf install -y dnf5-plugins"
-    assert_output --partial "sudo dnf copr enable -y example/tools"
+    assert_output --partial "sudo dnf --assumeyes copr enable example/tools"
     assert_output --partial "sudo dnf install -y zsh git"
 }
 
@@ -86,12 +87,53 @@ EOF
 
     run_dnf_module "mod_update"
     assert_success
-    run grep -F "dnf copr enable -y example/tools" "$MOCK_LOG"
+    run grep -F "dnf --assumeyes copr enable example/tools" "$MOCK_LOG"
     assert_success
     run grep -F "dnf install -y zsh git" "$MOCK_LOG"
     assert_success
     run grep -F "dnf install -y dnf5-plugins" "$MOCK_LOG"
     assert_failure
+}
+
+@test "dnf: COPR failure reports the failed repository" {
+    cat > "$MOCK_DIR/sudo" <<'EOF'
+#!/bin/sh
+if [ "$1" = "-n" ] && [ "$2" = "true" ]; then
+    exit 0
+fi
+if [ "$1" = "-n" ]; then
+    shift
+fi
+exec "$@"
+EOF
+    chmod +x "$MOCK_DIR/sudo"
+    cat > "$MOCK_DIR/dnf" <<'EOF'
+#!/bin/sh
+if [ "$1" = "repolist" ]; then
+    exit 0
+fi
+if [ "$1" = "--assumeyes" ] && [ "$2" = "copr" ] && [ "$3" = "enable" ]; then
+    echo "COPR enable failed" >&2
+    exit 42
+fi
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/dnf"
+    cat > "$MOCK_DIR/rpm" <<'EOF'
+#!/bin/sh
+if [ "$2" = "dnf5-plugins" ]; then
+    exit 0
+fi
+exit 1
+EOF
+    chmod +x "$MOCK_DIR/rpm"
+
+    run_dnf_module "mod_update"
+    assert_failure 1
+    assert_output --partial "COPR enable failed"
+    run cat "$MOD_STATUS_FILE"
+    assert_success
+    assert_output "failed to enable example/tools"
 }
 
 @test "dnf: wet run skips enabled COPRs and installed packages" {
