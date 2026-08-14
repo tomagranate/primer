@@ -103,6 +103,7 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | **dnf** | -- | Installs Fedora packages in DNF5 batches and publishes live package results |
 | **fedora-desktop-hardware** | dnf | Configures NVIDIA, `s2idle`, USB wake rules, sleep diagnostics, and the Xwayland Video Bridge workaround for Fedora KDE |
 | **flatpak** | apt / dnf | Installs explicitly configured Flatpak apps |
+| **google-chrome** | apt / dnf | Installs Google Chrome from Google's native Linux package |
 | **helium-browser** | apt | Installs Helium Browser from the official Linux apt repository |
 | **github-cli** | apt | Installs GitHub CLI from GitHub's official apt repository |
 | **npm-global** | mise | Installs configured global npm CLIs |
