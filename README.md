@@ -101,6 +101,7 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | **apt** | -- | Installs configured Debian/Ubuntu packages for VPS profiles |
 | **agents-sudo** | -- | Installs the Linux `agents-sudo` command for shared 12-hour sudo sessions |
 | **dnf** | -- | Installs Fedora packages in DNF5 batches and publishes live package results |
+| **fedora-desktop-hardware** | dnf | Configures the NVIDIA driver, `s2idle`, USB wake rules, and sleep diagnostics for Fedora KDE |
 | **flatpak** | apt / dnf | Installs explicitly configured Flatpak apps |
 | **helium-browser** | apt | Installs Helium Browser from the official Linux apt repository |
 | **github-cli** | apt | Installs GitHub CLI from GitHub's official apt repository |
@@ -121,6 +122,12 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | **ssh** | xcode-cli-tools | Creates an SSH key and configures macOS keychain-backed agent support |
 | **touchid** | -- | Enables Touch ID for sudo |
 | **git** | -- | Configures global Git CLI defaults and installs Git helper scripts to ~/bin/ |
+
+### Fedora desktop hardware
+
+The `fedora-desktop-hardware` module does nothing without NVIDIA hardware.
+It does not enroll Secure Boot keys, update BIOS firmware, or restart the computer.
+Its USB wake rules target AMD B550 controller `1022:43ee` and Logitech receiver `046d:c548`.
 
 ## Architecture
 

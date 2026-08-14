@@ -21,6 +21,7 @@ load 'helpers/common'
     assert_output --partial "curl -fsSL https://tailscale.com/install.sh | sudo -n sh"
     assert_output --partial "curl -fsSL https://starship.rs/install.sh | sh -s -- -y -b $HOME/.local/bin"
     refute_output --partial "docker-compose-plugin"
+    refute_output --partial "Fedora desktop hardware"
 }
 
 @test "primer update --dry-run supports ubuntu-desktop profile" {
@@ -37,6 +38,7 @@ load 'helpers/common'
     assert_output --partial "curl -fsSL https://raw.githubusercontent.com/mkasberg/ghostty-ubuntu/HEAD/install.sh | sudo -n bash"
     refute_output --partial "docker-compose-plugin"
     assert_output --partial "Flatpak apps"
+    refute_output --partial "Fedora desktop hardware"
 }
 
 @test "primer update --dry-run supports fedora-kde profile" {
@@ -55,6 +57,11 @@ load 'helpers/common'
     assert_output --partial "helium-bin"
     assert_output --partial "with qdbus-qt6"
     assert_output --partial "Flatpak apps"
+    assert_output --partial "Fedora desktop hardware"
+    assert_output --partial "rpmfusion-free-release"
+    assert_output --partial "akmod-nvidia xorg-x11-drv-nvidia"
+    assert_output --partial "10-reliable-suspend.conf"
+    assert_output --partial "akmods --force --kernels"
     refute_output --partial "sudo apt-get"
     refute_output --partial "ghostty-ubuntu"
 }

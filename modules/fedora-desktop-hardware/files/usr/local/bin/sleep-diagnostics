@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -u
+
+boot="${1:--1}"
+
+printf '%s\n' '=== Sleep timeline ==='
+journalctl -b "$boot" --no-pager | grep -Ei 'suspend|resume|sleep|PM:|wakeup|xhci|usb|nvidia|NVRM|Xid|watchdog' | tail -n 500
+
+printf '%s\n' '=== Kernel warnings ==='
+journalctl -k -b "$boot" -p warning..alert --no-pager | tail -n 300
+
+printf '%s\n' '=== Current wake configuration ==='
+cat /proc/acpi/wakeup
+
+printf '%s\n' '=== Current power diagnostics ==='
+for file in /sys/power/pm_debug_messages /sys/power/pm_print_times /sys/power/pm_wakeup_irq /sys/power/mem_sleep; do
+    if [[ -r "$file" ]]; then
+        printf '%s=%s\n' "$file" "$(<"$file")"
+    fi
+done
+
+printf '%s\n' '=== Suspend statistics ==='
+for file in /sys/power/suspend_stats/*; do
+    if [[ -r "$file" ]]; then
+        printf '%s=%s\n' "$(basename "$file")" "$(<"$file")"
+    fi
+done
