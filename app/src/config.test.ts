@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildNodes, parseConf, type RawConfig } from "./config";
+import { buildNodes, detectLinuxProfile, parseConf, type RawConfig } from "./config";
 
 function nodes(text: string) {
   const config: RawConfig = { order: [], values: new Map() };
@@ -49,5 +49,16 @@ github_command = gh auth login
     parseConf("[tool]\nlabel = Common\n", config);
     parseConf("[tool]\nlabel = Profile\n", config);
     expect(buildNodes(config)[0]?.label).toBe("Profile");
+  });
+});
+
+describe("Linux profile detection", () => {
+  test("selects Fedora KDE from the operating system ID", () => {
+    expect(detectLinuxProfile("fedora", "", {})).toBe("fedora-kde");
+  });
+
+  test("preserves Ubuntu desktop and headless profiles", () => {
+    expect(detectLinuxProfile("ubuntu", "debian", { XDG_CURRENT_DESKTOP: "KDE" })).toBe("ubuntu-desktop");
+    expect(detectLinuxProfile("ubuntu", "debian", {})).toBe("linux-vps");
   });
 });

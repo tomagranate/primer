@@ -205,7 +205,7 @@ Flags:
   --dry-run         Preview changes without applying them (update only)
   --skip <module>   Skip a module by name; repeatable (update only)
   --only <module>   Run only this module; repeatable (update only)
-  --profile <name>  Force profile: mac, linux-vps, ubuntu-desktop
+  --profile <name>  Force profile: mac, linux-vps, ubuntu-desktop, fedora-kde
   --log             Force plain log output
   --help            Show this help message
 
@@ -387,6 +387,10 @@ primer::detect_profile() {
         Linux)
             id="$(primer::os_release_value ID 2>/dev/null || true)"
             id_like="$(primer::os_release_value ID_LIKE 2>/dev/null || true)"
+            if [[ "${id:l}" == fedora ]]; then
+                print fedora-kde
+                return 0
+            fi
             if [[ "${id:l}" == ubuntu ]] && primer::linux_desktop; then
                 print ubuntu-desktop
                 return 0
@@ -400,7 +404,7 @@ primer::detect_profile() {
                 return 0
             fi
             print "Could not infer Linux profile non-interactively." >&2
-            print "Run with --profile linux-vps or --profile ubuntu-desktop." >&2
+            print "Run with --profile linux-vps, --profile ubuntu-desktop, or --profile fedora-kde." >&2
             return 1
             ;;
         *)

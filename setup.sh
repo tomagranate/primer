@@ -104,6 +104,11 @@ ensure_zsh() {
                 run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y zsh curl tar
                 return 0
             fi
+            if command -v dnf >/dev/null 2>&1; then
+                printf "\033[1;34m==>\033[0m Installing zsh with DNF\n"
+                run_as_root dnf install -y zsh curl tar
+                return 0
+            fi
             printf "zsh is required and no supported package manager was found\n" >&2
             return 1
             ;;
