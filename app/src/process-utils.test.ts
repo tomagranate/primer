@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { MODULE_PROCESS_ISOLATION } from "./engine";
+import { MODULE_PROCESS_ISOLATION, moduleProcessIsolation } from "./engine";
 import { parseProcessTree } from "./process-utils";
 
 describe("parseProcessTree", () => {
@@ -16,6 +16,11 @@ describe("parseProcessTree", () => {
 describe("detached process isolation", () => {
   test("module processes are detached with no stdin", () => {
     expect(MODULE_PROCESS_ISOLATION).toEqual({ detached: true, stdin: "ignore" });
+  });
+
+  test("sudo modules retain the terminal ticket without receiving stdin", () => {
+    expect(moduleProcessIsolation(true)).toEqual({ detached: false, stdin: "ignore" });
+    expect(moduleProcessIsolation(false)).toEqual(MODULE_PROCESS_ISOLATION);
   });
 
   test("a detached module cannot open Primer's controlling terminal", async () => {

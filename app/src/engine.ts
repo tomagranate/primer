@@ -76,6 +76,13 @@ export const MODULE_PROCESS_ISOLATION = {
   stdin: "ignore",
 } as const;
 
+export function moduleProcessIsolation(needsSudo: boolean) {
+  // Sudo's default ticket is tied to the controlling terminal. Keep that
+  // terminal for declared sudo modules, but never give modules stdin.
+  if (needsSudo) return { detached: false, stdin: "ignore" } as const;
+  return MODULE_PROCESS_ISOLATION;
+}
+
 export class Engine {
   nodes: EngineNode[] = [];
   startedAt = Date.now();
@@ -285,11 +292,10 @@ export class Engine {
     ].join("\n"));
 
     const proc = Bun.spawn(["zsh", runner], {
-      // A pipe on stdin is insufficient: installers can explicitly open
-      // /dev/tty and steal keyboard input from OpenTUI. Bun's detached mode
-      // calls setsid() on POSIX, so the complete module process tree has no
-      // controlling terminal while stdout/stderr remain available as pipes.
-      ...MODULE_PROCESS_ISOLATION,
+      // Detach regular modules so they cannot open /dev/tty. Sudo modules
+      // retain the controlling terminal because sudo scopes tickets to it.
+      // No module receives stdin. Output remains available through pipes.
+      ...moduleProcessIsolation(n.needsSudo),
       stdout: "pipe", stderr: "pipe",
       env: {
         ...process.env,
