@@ -92,6 +92,52 @@ EOF
     assert_success
 }
 
+@test "npm-global: wet run uses mise instead of a system npm" {
+    local mise_bin="$TEST_HOME/mise-runtime/bin"
+    mkdir -p "$mise_bin"
+
+    cat > "$MOCK_DIR/npm" <<'EOF'
+#!/bin/sh
+echo "system npm $*" >> "$MOCK_LOG"
+exit 1
+EOF
+    chmod +x "$MOCK_DIR/npm"
+
+    cat > "$MOCK_DIR/mise" <<'EOF'
+#!/bin/sh
+echo "mise $*" >> "$MOCK_LOG"
+[ "$1" = "exec" ] && [ "$2" = "--" ] || exit 1
+shift 2
+PATH="$HOME/mise-runtime/bin:$PATH" exec "$@"
+EOF
+    chmod +x "$MOCK_DIR/mise"
+
+    cat > "$mise_bin/npm" <<'EOF'
+#!/bin/sh
+echo "mise npm $*" >> "$MOCK_LOG"
+if [ "$1" = "install" ] && [ "$2" = "-g" ]; then
+    cat > "$HOME/mise-runtime/bin/t3" <<'T3'
+#!/bin/sh
+[ "$1" = "--version" ] && echo "0.0.28"
+exit 0
+T3
+    chmod +x "$HOME/mise-runtime/bin/t3"
+    exit 0
+fi
+exit 1
+EOF
+    chmod +x "$mise_bin/npm"
+
+    run_npm_global_with_conf "mod_update"
+    assert_success
+    run grep -F "mise exec -- npm install -g t3@latest" "$MOCK_LOG"
+    assert_success
+    run grep -F "mise npm install -g t3@latest" "$MOCK_LOG"
+    assert_success
+    run grep -F "system npm" "$MOCK_LOG"
+    assert_failure
+}
+
 @test "npm-global: wet run skips package when command is installed" {
     make_t3_mock
     cat > "$MOCK_DIR/npm" <<'EOF'
