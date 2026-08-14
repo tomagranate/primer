@@ -49,7 +49,7 @@ mod_update() {
             echo "[dry-run] sudo dnf install -y ${bootstrap_packages[*]}"
         local copr
         for copr in "${coprs[@]}"; do
-            echo "[dry-run] sudo dnf copr enable -y $copr"
+            echo "[dry-run] sudo dnf --assumeyes copr enable $copr"
         done
         (( ${#packages[@]} == 0 )) || \
             echo "[dry-run] sudo dnf install -y ${packages[*]}"
@@ -73,7 +73,10 @@ mod_update() {
     for copr in "${coprs[@]}"; do
         if ! _dnf::copr_enabled "$copr"; then
             primer::status_msg "enabling $copr..."
-            _dnf::run_as_root dnf copr enable -y "$copr" || return 1
+            if ! _dnf::run_as_root dnf --assumeyes copr enable "$copr"; then
+                primer::status_msg "failed to enable $copr"
+                return 1
+            fi
         fi
     done
 

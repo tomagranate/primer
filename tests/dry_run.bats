@@ -43,9 +43,9 @@ load 'helpers/common'
     assert_success
     assert_output --partial "DNF packages"
     assert_output --partial "sudo dnf install -y dnf5-plugins"
-    assert_output --partial "sudo dnf copr enable -y scottames/ghostty"
-    assert_output --partial "sudo dnf copr enable -y alternateved/keyd"
-    assert_output --partial "sudo dnf copr enable -y imput/helium"
+    assert_output --partial "sudo dnf --assumeyes copr enable scottames/ghostty"
+    assert_output --partial "sudo dnf --assumeyes copr enable alternateved/keyd"
+    assert_output --partial "sudo dnf --assumeyes copr enable imput/helium"
     assert_output --partial "moby-engine"
     assert_output --partial "docker-compose"
     assert_output --partial "ghostty"
