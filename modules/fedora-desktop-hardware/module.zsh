@@ -1,5 +1,5 @@
 #!/bin/zsh
-# modules/fedora-desktop-hardware -- configure NVIDIA and reliable sleep on Fedora KDE
+# modules/fedora-desktop-hardware -- configure NVIDIA, reliable sleep, and desktop hardware workarounds
 
 typeset -a FEDORA_DESKTOP_HARDWARE_PACKAGES=(
     akmod-nvidia
@@ -21,6 +21,10 @@ typeset -a FEDORA_DESKTOP_HARDWARE_FILES=(
     etc/udev/rules.d/80-usb-wake.rules
     usr/local/bin/sleep-diagnostics
 )
+typeset -a FEDORA_DESKTOP_HARDWARE_USER_FILES=(
+    .config/autostart/org.kde.xwaylandvideobridge.desktop
+)
+typeset FEDORA_DESKTOP_HARDWARE_XWAYLAND_BRIDGE_UNIT='app-org.kde.xwaylandvideobridge@autostart.service'
 
 _fedora_desktop_hardware::root_path() {
     local path="$1" root="${FEDORA_DESKTOP_HARDWARE_ROOT:-/}"
@@ -73,6 +77,32 @@ _fedora_desktop_hardware::system_files_match() {
     done
 }
 
+_fedora_desktop_hardware::install_user_files() {
+    local relative source destination
+    for relative in "${FEDORA_DESKTOP_HARDWARE_USER_FILES[@]}"; do
+        source="$MOD_DIR/files/home/$relative"
+        destination="$HOME/$relative"
+        run install -D -m 0644 "$source" "$destination" || return 1
+    done
+
+    if [[ "$DRY_RUN" == true ]]; then
+        run systemctl --user stop "$FEDORA_DESKTOP_HARDWARE_XWAYLAND_BRIDGE_UNIT"
+    else
+        systemctl --user stop "$FEDORA_DESKTOP_HARDWARE_XWAYLAND_BRIDGE_UNIT" >/dev/null 2>&1 || true
+    fi
+    run systemctl --user daemon-reload
+}
+
+_fedora_desktop_hardware::user_files_match() {
+    local relative source destination
+    for relative in "${FEDORA_DESKTOP_HARDWARE_USER_FILES[@]}"; do
+        source="$MOD_DIR/files/home/$relative"
+        destination="$HOME/$relative"
+        [[ -f "$destination" ]] && cmp -s "$source" "$destination" || return 1
+        [[ "$(stat -c '%a' "$destination" 2>/dev/null)" == 644 ]] || return 1
+    done
+}
+
 _fedora_desktop_hardware::current_kernel_module_ready() {
     modinfo -k "$(uname -r)" nvidia >/dev/null 2>&1
 }
@@ -113,6 +143,7 @@ mod_update() {
 
     _fedora_desktop_hardware::run_as_root dnf5 -y install "${FEDORA_DESKTOP_HARDWARE_PACKAGES[@]}" || return 1
     _fedora_desktop_hardware::install_system_files || return 1
+    _fedora_desktop_hardware::install_user_files || return 1
     _fedora_desktop_hardware::run_as_root systemctl enable "${FEDORA_DESKTOP_HARDWARE_SERVICES[@]}" || return 1
     _fedora_desktop_hardware::run_as_root akmods --force --kernels "$(uname -r)" || return 1
     if [[ "$DRY_RUN" != true ]] && ! _fedora_desktop_hardware::current_kernel_module_ready; then
@@ -164,6 +195,8 @@ mod_status() {
             (( issues++ ))
         fi
     done
+    _fedora_desktop_hardware::user_files_match || (( issues++ ))
+    systemctl --user is-active --quiet "$FEDORA_DESKTOP_HARDWARE_XWAYLAND_BRIDGE_UNIT" && (( issues++ ))
     systemd-analyze cat-config systemd/sleep.conf 2>/dev/null | grep -Eq '^MemorySleepMode[[:space:]]*=[[:space:]]*s2idle[[:space:]]*$' || (( issues++ ))
     for relative in sys/power/pm_debug_messages sys/power/pm_print_times; do
         [[ "$(cat "$(_fedora_desktop_hardware::root_path "$relative")" 2>/dev/null)" == 1 ]] || (( issues++ ))

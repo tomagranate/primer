@@ -50,6 +50,13 @@ EOF
     cat > "$MOCK_DIR/systemctl" <<'EOF'
 #!/bin/sh
 echo "systemctl $*" >> "$MOCK_LOG"
+if [ "$1" = --user ]; then
+  shift
+  [ "$1" = stop ] && exit 0
+  [ "$1" = daemon-reload ] && exit 0
+  [ "$1" = is-active ] && [ "${BRIDGE_ACTIVE:-0}" = 1 ]
+  exit $?
+fi
 if [ "$1" = enable ]; then shift; printf '%s\n' "$@" >> "$MOCK_SERVICES"; exit 0; fi
 [ "$1" = is-enabled ] && grep -Fxq "${3:-$2}" "$MOCK_SERVICES"
 EOF
@@ -81,8 +88,10 @@ module_script() {
 export PRIMER_DIR='$PRIMER_DIR' MOD_DIR='$PRIMER_DIR/modules/fedora-desktop-hardware'
 export MOD_STATUS_FILE='$MOD_STATUS_FILE' DRY_RUN='${DRY_RUN:-false}'
 export FEDORA_DESKTOP_HARDWARE_ROOT='$FEDORA_DESKTOP_HARDWARE_ROOT'
+export HOME='$TEST_HOME'
 export MOCK_LOG='$MOCK_LOG' MOCK_INSTALLED='$MOCK_INSTALLED' MOCK_SERVICES='$MOCK_SERVICES'
 export NO_NVIDIA='${NO_NVIDIA:-0}' SECURE_BOOT='${SECURE_BOOT:-0}' MODULE_READY='${MODULE_READY:-1}' ACTIVE_NVIDIA='${ACTIVE_NVIDIA:-1}'
+export BRIDGE_ACTIVE='${BRIDGE_ACTIVE:-0}'
 export PATH='$MOCK_DIR:/usr/bin:/bin:/usr/sbin:/sbin'
 source '$PRIMER_DIR/lib/module.zsh'
 source '$PRIMER_DIR/modules/fedora-desktop-hardware/module.zsh'
@@ -107,6 +116,9 @@ etc/tmpfiles.d/60-suspend-diagnostics.conf
 etc/udev/rules.d/80-usb-wake.rules
 usr/local/bin/sleep-diagnostics
 EOF
+    mkdir -p "$TEST_HOME/.config/autostart"
+    cp "$PRIMER_DIR/modules/fedora-desktop-hardware/files/home/.config/autostart/org.kde.xwaylandvideobridge.desktop" \
+        "$TEST_HOME/.config/autostart/org.kde.xwaylandvideobridge.desktop"
     printf '1\n' > "$FEDORA_DESKTOP_HARDWARE_ROOT/sys/power/pm_debug_messages"
     printf '1\n' > "$FEDORA_DESKTOP_HARDWARE_ROOT/sys/power/pm_print_times"
 }
@@ -144,7 +156,10 @@ EOF
     assert_output --partial "akmods --force --kernels"
     assert_output --partial "systemd-tmpfiles"
     assert_output --partial "udevadm trigger"
+    assert_output --partial "org.kde.xwaylandvideobridge.desktop"
+    assert_output --partial "systemctl --user stop app-org.kde.xwaylandvideobridge@autostart.service"
     [ ! -e "$FEDORA_DESKTOP_HARDWARE_ROOT/etc/systemd/sleep.conf.d/10-reliable-suspend.conf" ]
+    [ ! -e "$TEST_HOME/.config/autostart/org.kde.xwaylandvideobridge.desktop" ]
 }
 
 @test "update enables RPM Fusion and installs the exact package set" {
@@ -167,6 +182,14 @@ EOF
     run_module mod_update
     assert_success
     grep -F 'systemctl enable nvidia-suspend.service nvidia-resume.service nvidia-hibernate.service' "$MOCK_LOG"
+}
+
+@test "update disables Xwayland Video Bridge autostart" {
+    run_module mod_update
+    assert_success
+    grep -Fx 'Hidden=true' "$TEST_HOME/.config/autostart/org.kde.xwaylandvideobridge.desktop"
+    grep -F 'systemctl --user stop app-org.kde.xwaylandvideobridge@autostart.service' "$MOCK_LOG"
+    grep -F 'systemctl --user daemon-reload' "$MOCK_LOG"
 }
 
 @test "update runs akmods for the current kernel" {
@@ -198,6 +221,22 @@ EOF
     run_module mod_status
     assert_failure
     assert_equal "$(cat "$MOD_STATUS_FILE")" "4 issue(s)"
+}
+
+@test "status reports a missing Xwayland Video Bridge override" {
+    complete_fixture
+    rm "$TEST_HOME/.config/autostart/org.kde.xwaylandvideobridge.desktop"
+    run_module mod_status
+    assert_failure
+    assert_equal "$(cat "$MOD_STATUS_FILE")" "1 issue(s)"
+}
+
+@test "status reports an active Xwayland Video Bridge" {
+    complete_fixture
+    export BRIDGE_ACTIVE=1
+    run_module mod_status
+    assert_failure
+    assert_equal "$(cat "$MOD_STATUS_FILE")" "1 issue(s)"
 }
 
 @test "second update does not reinstall RPM Fusion" {
