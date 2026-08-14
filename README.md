@@ -102,6 +102,7 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | **agents-sudo** | -- | Installs the Linux `agents-sudo` command for shared 12-hour sudo sessions |
 | **dnf** | -- | Installs Fedora packages in DNF5 batches and publishes live package results |
 | **fedora-desktop-hardware** | dnf | Configures NVIDIA, `s2idle`, USB wake rules, sleep diagnostics, and the Xwayland Video Bridge workaround for Fedora KDE |
+| **fedora-gaming** | fedora-desktop-hardware | Installs native Steam, controller rules, GameMode, MangoHud, Gamescope, and Vulkan tools |
 | **flatpak** | apt / dnf | Installs explicitly configured Flatpak apps |
 | **google-chrome** | apt / dnf | Installs Google Chrome from Google's native Linux package |
 | **helium-browser** | apt | Installs Helium Browser from the official Linux apt repository |
@@ -129,6 +130,26 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 The `fedora-desktop-hardware` module does nothing without NVIDIA hardware.
 It does not enroll Secure Boot keys, update BIOS firmware, or restart the computer.
 Its USB wake rules target AMD B550 controller `1022:43ee` and Logitech receiver `046d:c548`.
+
+### Fedora gaming
+
+The Fedora profile installs native Steam from RPM Fusion. It also installs
+32-bit GameMode and MangoHud libraries for older games. Primer tests GameMode
+and hardware Vulkan before it reports the gaming stack as ready. Primer adds
+the desktop user to Fedora's `gamemode` group for privileged tuning.
+
+Use Valve's Steam-provided Proton by default. Apply GameMode, MangoHud, or
+Gamescope per game. Do not force these wrappers globally.
+
+Example Steam launch options:
+
+```text
+gamemoderun %command%
+mangohud gamemoderun %command%
+```
+
+Keep Proton game libraries on a native Linux filesystem. The Fedora profile
+does not configure shared NTFS libraries, Steam accounts, or BIOS settings.
 
 ## Architecture
 

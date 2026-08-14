@@ -62,6 +62,11 @@ load 'helpers/common'
     assert_output --partial "akmod-nvidia xorg-x11-drv-nvidia"
     assert_output --partial "10-reliable-suspend.conf"
     assert_output --partial "akmods --force --kernels"
+    assert_output --partial "Fedora gaming"
+    assert_output --partial "install steam steam-devices gamemode.x86_64 gamemode.i686 mangohud.x86_64 mangohud.i686 gamescope vulkan-tools"
+    assert_output --partial "gamemoded -t"
+    assert_output --partial "vulkaninfo --summary"
+    refute_output --partial "com.valvesoftware.Steam"
     refute_output --partial "sudo apt-get"
     refute_output --partial "ghostty-ubuntu"
 }
