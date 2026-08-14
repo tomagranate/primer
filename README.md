@@ -101,7 +101,7 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | **apt** | -- | Installs configured Debian/Ubuntu packages for VPS profiles |
 | **agents-sudo** | -- | Installs the Linux `agents-sudo` command for shared 12-hour sudo sessions |
 | **dnf** | -- | Installs Fedora packages in DNF5 batches and publishes live package results |
-| **fedora-desktop-hardware** | dnf | Configures the NVIDIA driver, `s2idle`, USB wake rules, and sleep diagnostics for Fedora KDE |
+| **fedora-desktop-hardware** | dnf | Configures NVIDIA, `s2idle`, USB wake rules, sleep diagnostics, and the Xwayland Video Bridge workaround for Fedora KDE |
 | **flatpak** | apt / dnf | Installs explicitly configured Flatpak apps |
 | **helium-browser** | apt | Installs Helium Browser from the official Linux apt repository |
 | **github-cli** | apt | Installs GitHub CLI from GitHub's official apt repository |
