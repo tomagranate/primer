@@ -25,6 +25,18 @@ _kde_desktop_settings::run_as_root() {
     primer::run_as_root "KDE desktop settings" "$@"
 }
 
+_kde_desktop_settings::keyd_command() {
+    local command_name
+    command_name="$(mod_config keyd_command | head -1)"
+    [[ -n "$command_name" ]] && print -r -- "$command_name" || print keyd.rvaiya
+}
+
+_kde_desktop_settings::qdbus_command() {
+    local command_name
+    command_name="$(mod_config qdbus_command | head -1)"
+    [[ -n "$command_name" ]] && print -r -- "$command_name" || print qdbus6
+}
+
 _kde_desktop_settings::upsert_block() {
     local target="$1"
     local block_file="$2"
@@ -118,23 +130,24 @@ _kde_desktop_settings::install_keyd_config() {
     if [[ "$DRY_RUN" == true ]]; then
         echo "[dry-run] install $src -> /etc/keyd/default.conf"
         echo "[dry-run] systemctl enable --now keyd"
-        echo "[dry-run] keyd.rvaiya reload"
+        echo "[dry-run] $(_kde_desktop_settings::keyd_command) reload"
         return 0
     fi
 
     _kde_desktop_settings::run_as_root install -d -m 0755 /etc/keyd || return 1
     _kde_desktop_settings::run_as_root install -m 0644 "$src" /etc/keyd/default.conf || return 1
     _kde_desktop_settings::run_as_root systemctl enable --now keyd || return 1
-    _kde_desktop_settings::run_as_root keyd.rvaiya reload || return 1
+    _kde_desktop_settings::run_as_root "$(_kde_desktop_settings::keyd_command)" reload || return 1
 }
 
 _kde_desktop_settings::install_launcher_script() {
     local user_name="${USER:-$LOGNAME}"
-    local user_id
+    local user_id qdbus_command
     user_id="$(id -u "$user_name" 2>/dev/null || id -u)"
+    qdbus_command="$(_kde_desktop_settings::qdbus_command)"
 
     if [[ "$DRY_RUN" == true ]]; then
-        echo "[dry-run] install /usr/local/bin/desktop-launcher for $user_name ($user_id)"
+        echo "[dry-run] install /usr/local/bin/desktop-launcher for $user_name ($user_id) with $qdbus_command"
         return 0
     fi
 
@@ -144,15 +157,16 @@ _kde_desktop_settings::install_launcher_script() {
 #!/bin/sh
 user_name=$user_name
 user_id=$user_id
+qdbus_command=$qdbus_command
 
 if [ "\$(id -u)" = "\$user_id" ]; then
   exec env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\$user_id/bus" \\
-    qdbus6 org.kde.krunner /App org.kde.krunner.App.display
+    "\$qdbus_command" org.kde.krunner /App org.kde.krunner.App.display
 fi
 
 exec runuser -u "\$user_name" -- env \\
   DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\$user_id/bus" \\
-  qdbus6 org.kde.krunner /App org.kde.krunner.App.display
+  "\$qdbus_command" org.kde.krunner /App org.kde.krunner.App.display
 EOF
 
     _kde_desktop_settings::run_as_root install -m 0755 "$tmp" /usr/local/bin/desktop-launcher
@@ -162,6 +176,7 @@ EOF
 }
 
 _kde_desktop_settings::write_kwin_shortcuts() {
+    local qdbus_command="$(_kde_desktop_settings::qdbus_command)"
     if [[ "$DRY_RUN" == true ]]; then
         echo "[dry-run] configure KRunner, desktop navigation, fullscreen, blur"
         return 0
@@ -178,34 +193,35 @@ _kde_desktop_settings::write_kwin_shortcuts() {
     kwriteconfig6 --file kwinrc --group Effect-blur --key BlurStrength 12
     kwriteconfig6 --file kwinrc --group Effect-blur --key NoiseStrength 2
 
-    if command -v qdbus6 >/dev/null 2>&1; then
-        qdbus6 org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
+    if command -v "$qdbus_command" >/dev/null 2>&1; then
+        "$qdbus_command" org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
     fi
 }
 
 _kde_desktop_settings::ensure_virtual_desktops() {
     local desired="${1:-4}"
+    local qdbus_command="$(_kde_desktop_settings::qdbus_command)"
     [[ "$desired" == <-> ]] || desired=4
 
     if [[ "$DRY_RUN" == true ]]; then
         echo "[dry-run] ensure ${desired} KDE virtual desktops"
         return 0
     fi
-    command -v qdbus6 >/dev/null 2>&1 || return 0
+    command -v "$qdbus_command" >/dev/null 2>&1 || return 0
 
     local count
-    count="$(qdbus6 org.kde.KWin /VirtualDesktopManager org.freedesktop.DBus.Properties.Get org.kde.KWin.VirtualDesktopManager count 2>/dev/null || print 0)"
+    count="$("$qdbus_command" org.kde.KWin /VirtualDesktopManager org.freedesktop.DBus.Properties.Get org.kde.KWin.VirtualDesktopManager count 2>/dev/null || print 0)"
     [[ "$count" == <-> ]] || count=0
 
     local position name
     while (( count < desired )); do
         position="$count"
         name="Desktop $(( count + 1 ))"
-        qdbus6 org.kde.KWin /VirtualDesktopManager org.kde.KWin.VirtualDesktopManager.createDesktop "$position" "$name" >/dev/null 2>&1 || break
+        "$qdbus_command" org.kde.KWin /VirtualDesktopManager org.kde.KWin.VirtualDesktopManager.createDesktop "$position" "$name" >/dev/null 2>&1 || break
         count=$(( count + 1 ))
     done
 
-    qdbus6 org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
+    "$qdbus_command" org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
 }
 
 _kde_desktop_settings::configure_ghostty() {
@@ -236,7 +252,7 @@ mod_update() {
 mod_status() {
     local issues=0
 
-    if ! command -v keyd.rvaiya >/dev/null 2>&1; then
+    if ! command -v "$(_kde_desktop_settings::keyd_command)" >/dev/null 2>&1; then
         issues=$(( issues + 1 ))
     elif [[ ! -f /etc/keyd/default.conf ]] || ! cmp -s "$(_kde_desktop_settings::keyd_src)" /etc/keyd/default.conf; then
         issues=$(( issues + 1 ))

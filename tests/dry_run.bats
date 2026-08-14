@@ -37,6 +37,25 @@ load 'helpers/common'
     assert_output --partial "Flatpak apps"
 }
 
+@test "primer update --dry-run supports fedora-kde profile" {
+    export PRIMER_LOCAL="$PRIMER_DIR"
+    run zsh "$PRIMER_DIR/bin/primer" update --dry-run --log --profile fedora-kde
+    assert_success
+    assert_output --partial "DNF packages"
+    assert_output --partial "sudo dnf install -y dnf5-plugins"
+    assert_output --partial "sudo dnf copr enable -y scottames/ghostty"
+    assert_output --partial "sudo dnf copr enable -y alternateved/keyd"
+    assert_output --partial "sudo dnf copr enable -y imput/helium"
+    assert_output --partial "moby-engine"
+    assert_output --partial "docker-compose"
+    assert_output --partial "ghostty"
+    assert_output --partial "helium-bin"
+    assert_output --partial "with qdbus-qt6"
+    assert_output --partial "Flatpak apps"
+    refute_output --partial "sudo apt-get"
+    refute_output --partial "ghostty-ubuntu"
+}
+
 @test "primer update --log streams plain output without TUI escapes" {
     export PRIMER_LOCAL="$PRIMER_DIR"
     run zsh "$PRIMER_DIR/bin/primer" update --dry-run --log --profile mac --only ghostty

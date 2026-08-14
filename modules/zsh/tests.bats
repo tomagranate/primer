@@ -183,6 +183,20 @@ EOF
     assert_failure
 }
 
+@test "zsh: fedora-kde profile writes zshrc addendum" {
+    export PRIMER_PROFILE=fedora-kde
+    mkdir -p "$TEST_HOME/.zim"
+    touch "$TEST_HOME/.zim/zimfw.zsh"
+
+    zsh_run_module zsh "mod_update"
+    assert_success
+
+    run grep -q "PRIMER MANAGED START (modules/zsh/files/zshrc-addenda/fedora-kde.zsh)" "$TEST_HOME/.zshrc"
+    assert_success
+    run grep -q "bindkey '\^W' backward-kill-word" "$TEST_HOME/.zshrc"
+    assert_success
+}
+
 @test "zsh: mac profile writes only mac zshrc addendum" {
     export PRIMER_PROFILE=mac
     mkdir -p "$TEST_HOME/.zim"

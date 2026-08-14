@@ -1,6 +1,6 @@
 # primer
 
-Modular, DAG-based machine setup for macOS, Ubuntu VPSs, and Ubuntu desktops. One command to install everything, with parallel execution and a rich terminal UI.
+Modular, DAG-based machine setup for macOS, Ubuntu, and Fedora KDE. One command installs everything in parallel with a rich terminal UI.
 
 ## Quick Start
 
@@ -38,7 +38,7 @@ opening another terminal. `--dry-run` and `status` never reload the shell.
 - `--dry-run` - preview changes without applying them (valid with `update`)
 - `--skip <module>` - skip a module by name; repeatable (valid with `update`)
 - `--only <module>` - run only one module; repeatable (valid with `update`)
-- `--profile <name>` - force a profile; any name with a file in `configs/profiles/`, such as `mac`, `linux-vps`, or `ubuntu-desktop`
+- `--profile <name>` - force a profile; any name with a file in `configs/profiles/`, such as `mac`, `linux-vps`, `ubuntu-desktop`, or `fedora-kde`
 - `--log` - force plain log output
 - `--help` - show help text
 - `-h` - show help text
@@ -51,6 +51,7 @@ primer update --dry-run
 primer update --skip mac-app-store
 primer update --profile linux-vps
 primer update --profile ubuntu-desktop
+primer update --profile fedora-kde
 primer status
 primer --help
 primer -h
@@ -64,7 +65,8 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | Module | Depends On | What It Does |
 | --- | --- | --- |
 | **apt** | -- | Installs configured Debian/Ubuntu packages for VPS profiles |
-| **flatpak** | apt | Installs explicitly configured Flatpak apps |
+| **dnf** | -- | Installs configured Fedora packages and enables COPR repositories |
+| **flatpak** | apt / dnf | Installs explicitly configured Flatpak apps |
 | **helium-browser** | apt | Installs Helium Browser from the official Linux apt repository |
 | **github-cli** | apt | Installs GitHub CLI from GitHub's official apt repository |
 | **npm-global** | mise | Installs configured global npm CLIs |
@@ -79,7 +81,7 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | **macos** | homebrew-apps | Applies macOS defaults and configures the Dock |
 | **zsh** | homebrew | Updates managed section in ~/.zshrc, manages ~/.zimrc, installs Zim |
 | **starship** | homebrew | Deploys starship.toml to ~/.config/ |
-| **agents** | homebrew / apt + github login | Initializes the `agents` CLI, private `agents-home` in ~/.agents, and private `chat-archive` in ~/.agents-archive, then runs `agents sync` |
+| **agents** | homebrew / apt / dnf + github login | Initializes the `agents` CLI, private `agents-home` in ~/.agents, and private `chat-archive` in ~/.agents-archive, then runs `agents sync` |
 | **mise** | homebrew | Installs language runtimes (Node, Python, Bun) |
 | **ssh** | xcode-cli-tools | Creates an SSH key and configures macOS keychain-backed agent support |
 | **touchid** | -- | Enables Touch ID for sudo |
@@ -100,7 +102,7 @@ The compiled TypeScript app in `app/` is the sole command and scheduling engine.
 │       └── ui.tsx                # OpenTUI sidebar, logs, and summary screens
 ├── configs/
 │   ├── common.conf               # Shared user-level config
-│   └── profiles/                 # mac, linux-vps, ubuntu-desktop fragments
+│   └── profiles/                 # mac, linux-vps, ubuntu-desktop, fedora-kde fragments
 ├── lib/
 │   └── module.zsh                # Shell module runtime and status protocol
 ├── modules/
@@ -175,22 +177,24 @@ Write `mod_update()` and `mod_status()` with whatever logic you need. Use `mod_c
 
 A profile is a config file in `configs/profiles/`. Primer accepts any profile
 name that has a `configs/profiles/<name>.conf` file. Add a file to add a
-profile. Primer ships three profiles.
+profile. Primer ships four profiles.
 
 Primer auto-detects the profile when it can:
 
 - `mac` on macOS
 - `linux-vps` on Debian/Ubuntu without a desktop session
 - `ubuntu-desktop` on Ubuntu with a desktop session
+- `fedora-kde` on Fedora
 
 For ambiguous Linux machines, interactive runs prompt and default to `linux-vps`. Non-interactive runs should pass `--profile` or set `PRIMER_PROFILE`.
 
 ```sh
 primer update --profile linux-vps
 PRIMER_PROFILE=ubuntu-desktop primer status
+PRIMER_PROFILE=fedora-kde primer status
 ```
 
-Linux profiles install Tailscale through a dedicated `tailscale` module using Tailscale's official Linux installer, because the `tailscale` package is not part of Ubuntu's default apt repositories. They also install GitHub CLI through the `github-cli` module using GitHub's official apt repository, because the Ubuntu `gh` package can lag current CLI features.
+Linux profiles install Tailscale through its official Linux installer. Ubuntu profiles use GitHub's official APT repository for GitHub CLI. Fedora uses its `gh` package. The Fedora KDE profile enables the COPR repositories listed by Ghostty, keyd, and Helium.
 
 ## Configuration
 

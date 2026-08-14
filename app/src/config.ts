@@ -153,6 +153,23 @@ async function osReleaseValue(key: string): Promise<string> {
   return "";
 }
 
+export function detectLinuxProfile(
+  id: string,
+  idLike: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  id = id.toLowerCase();
+  idLike = idLike.toLowerCase();
+  const hasDesktop = !!(env.XDG_CURRENT_DESKTOP || env.DESKTOP_SESSION);
+  if (id === "fedora") return "fedora-kde";
+  if (id === "ubuntu" && hasDesktop) return "ubuntu-desktop";
+  const debianish = id === "debian" || id === "ubuntu" || idLike.includes("debian") || idLike.includes("ubuntu");
+  const headless = !env.DISPLAY && !env.WAYLAND_DISPLAY && !env.XDG_CURRENT_DESKTOP;
+  if (debianish && headless) return "linux-vps";
+  if (hasDesktop || env.DISPLAY) return "ubuntu-desktop";
+  return "linux-vps";
+}
+
 export async function detectProfile(primerDir: string, forced?: string): Promise<string> {
   if (forced) {
     if (availableProfiles(primerDir).includes(forced)) return forced;
@@ -162,15 +179,9 @@ export async function detectProfile(primerDir: string, forced?: string): Promise
   }
   if (process.platform === "darwin") return "mac";
   if (process.platform === "linux") {
-    const id = (await osReleaseValue("ID")).toLowerCase();
-    const idLike = (await osReleaseValue("ID_LIKE")).toLowerCase();
-    const hasDesktop = !!(process.env.XDG_CURRENT_DESKTOP || process.env.DESKTOP_SESSION);
-    if (id === "ubuntu" && hasDesktop) return "ubuntu-desktop";
-    const debianish = id === "debian" || id === "ubuntu" || idLike.includes("debian") || idLike.includes("ubuntu");
-    const headless = !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY && !process.env.XDG_CURRENT_DESKTOP;
-    if (debianish && headless) return "linux-vps";
-    if (hasDesktop || process.env.DISPLAY) return "ubuntu-desktop";
-    return "linux-vps";
+    const id = await osReleaseValue("ID");
+    const idLike = await osReleaseValue("ID_LIKE");
+    return detectLinuxProfile(id, idLike);
   }
   throw new Error(`Unsupported OS: ${process.platform}`);
 }
