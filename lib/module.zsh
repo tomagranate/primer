@@ -59,12 +59,60 @@ primer::status_msg() {
 # Usage: primer::items_init name1 name2 ...
 primer::items_init() {
     [[ -z "$MOD_ITEMS_FILE" ]] && return
-    local name clean
+    local name clean slot=0 manifest=""
+    if [[ -n "${MOD_ITEM_LOG_DIR:-}" ]]; then
+        mkdir -p "$MOD_ITEM_LOG_DIR"
+        manifest="$MOD_ITEM_LOG_DIR/manifest"
+        : > "$manifest"
+    fi
     for name in "$@"; do
+        slot=$(( slot + 1 ))
         clean="${name//$'\r'/}"
         clean="${clean//[$'\t\n']/ }"
         printf 'pending\t%s\n' "$clean"
+        if [[ -n "$manifest" ]]; then
+            printf '%s\t%s\n' "$slot" "$clean" >> "$manifest"
+            : > "$MOD_ITEM_LOG_DIR/${slot}.log"
+        fi
     done > "$MOD_ITEMS_FILE"
+}
+
+# Return the durable log path for one registered item.
+primer::item_log_path() {
+    [[ -n "${MOD_ITEM_LOG_DIR:-}" && -f "$MOD_ITEM_LOG_DIR/manifest" ]] || return 1
+    local wanted="$1" slot name
+    wanted="${wanted//$'\r'/}"
+    wanted="${wanted//[$'\t\n']/ }"
+    while IFS=$'\t' read -r slot name; do
+        if [[ "$name" == "$wanted" ]]; then
+            print -r -- "$MOD_ITEM_LOG_DIR/${slot}.log"
+            return 0
+        fi
+    done < "$MOD_ITEM_LOG_DIR/manifest"
+    return 1
+}
+
+# Append one line to an item's durable log.
+primer::item_log() {
+    local name="$1" path
+    shift
+    path="$(primer::item_log_path "$name")" || return 0
+    print -r -- "$*" >> "$path"
+}
+
+# Return the current state for one item.
+primer::item_state() {
+    [[ -n "${MOD_ITEMS_FILE:-}" && -f "$MOD_ITEMS_FILE" ]] || return 1
+    local wanted="$1" state name detail
+    wanted="${wanted//$'\r'/}"
+    wanted="${wanted//[$'\t\n']/ }"
+    while IFS=$'\t' read -r state name detail; do
+        if [[ "$name" == "$wanted" ]]; then
+            print -r -- "$state"
+            return 0
+        fi
+    done < "$MOD_ITEMS_FILE"
+    return 1
 }
 
 # Update the state of one item in the sub-items list.
@@ -132,7 +180,7 @@ primer::parallel_items() {
     item_log_dir="${MOD_ITEM_LOG_DIR:-$workdir/logs}"
     manifest="$item_log_dir/manifest"
     mkdir -p "$item_log_dir"
-    : > "$manifest"
+    [[ -f "$manifest" ]] || : > "$manifest"
 
     local -A pid_item=() pid_result=() pid_log=()
     local next=1 completed=0 any_failed=false
@@ -144,8 +192,11 @@ primer::parallel_items() {
             item="${items[$next]}"
             slot="$next"
             result="${workdir}/${slot}.result"
-            log="${item_log_dir}/${slot}.log"
-            printf '%s\t%s\n' "$slot" "$item" >> "$manifest"
+            log="$(primer::item_log_path "$item" 2>/dev/null)"
+            if [[ -z "$log" ]]; then
+                log="${item_log_dir}/${slot}.log"
+                printf '%s\t%s\n' "$slot" "$item" >> "$manifest"
+            fi
             primer::item_update "$item" "running"
             (
                 export PRIMER_ITEM_RESULT_FILE="$result"

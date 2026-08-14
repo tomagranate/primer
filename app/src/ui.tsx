@@ -100,10 +100,7 @@ interface AppProps {
 type Screen = "run" | "logs" | "summary" | "summary-items";
 
 interface LogTarget {
-  label: string;
-  state: string;
-  detail: string;
-  logs: string[];
+  target: EngineNode | EngineItem;
   returnScreen: Exclude<Screen, "logs">;
 }
 
@@ -139,7 +136,7 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
 
     if (screen === "logs" && logTarget) {
       const bodyH = dims.height - 2;
-      const maxStart = Math.max(0, logTarget.logs.length - bodyH);
+      const maxStart = Math.max(0, logTarget.target.logs.length - bodyH);
       if (name === "escape" || name === "q") { setScreen(logTarget.returnScreen); setLogScroll(-1); }
       if (name === "up") setLogScroll((s) => Math.max(0, (s === -1 ? maxStart : s) - 1));
       if (name === "down") setLogScroll((s) => (s === -1 ? -1 : s + 1 >= maxStart ? -1 : s + 1));
@@ -150,10 +147,7 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
     const openLogs = (target: EngineNode | EngineItem | undefined, returnScreen: LogTarget["returnScreen"]) => {
       if (!target) return;
       setLogTarget({
-        label: "label" in target ? target.label : target.name,
-        state: target.state,
-        detail: target.detail,
-        logs: target.logs,
+        target,
         returnScreen,
       });
       setLogScroll(-1);
@@ -259,16 +253,17 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
 
   /* ── fullscreen logs ── */
   if (screen === "logs" && logTarget) {
+    const target = logTarget.target;
     const bodyH = dims.height - 2;
-    const total = logTarget.logs.length;
+    const total = target.logs.length;
     let startLine = logScroll === -1 ? Math.max(0, total - bodyH) : Math.min(logScroll, Math.max(0, total - bodyH));
-    const lines = logTarget.logs.slice(startLine, startLine + bodyH);
+    const lines = target.logs.slice(startLine, startLine + bodyH);
     return (
       <box style={{ width: "100%", height: "100%", flexDirection: "column", backgroundColor: C.surface0 }}>
         <box style={{ height: 1, backgroundColor: C.surface1, paddingLeft: 1, flexDirection: "row" }}>
-          <text fg={C.bold}>logs · {logTarget.label}</text>
-          <text fg={itemIcon(logTarget).fg}>{`  ${itemIcon(logTarget).ch} `}</text>
-          <text fg={C.dim}>{`${logTarget.state}${logTarget.detail ? ` · ${logTarget.detail}` : ""}`}</text>
+          <text fg={C.bold}>logs · {"label" in target ? target.label : target.name}</text>
+          <text fg={itemIcon(target).fg}>{`  ${itemIcon(target).ch} `}</text>
+          <text fg={C.dim}>{`${target.state}${target.detail ? ` · ${target.detail}` : ""}`}</text>
         </box>
         <box style={{ flexGrow: 1, flexDirection: "column", paddingLeft: 1 }}>
           {lines.map((line, i) => (
@@ -345,7 +340,7 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
           })}
         </box>
         <box style={{ height: 1, backgroundColor: C.surface1, paddingLeft: 1 }}>
-          <text fg={C.dim}>↑↓ move · ⏎/space inspect · q quit</text>
+          <text fg={C.dim}>{`↑↓ move · ⏎/space inspect · q quit · logs ${engine.logDirectory}`}</text>
         </box>
       </box>
     );

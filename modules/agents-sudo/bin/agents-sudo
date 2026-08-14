@@ -1,0 +1,114 @@
+#!/bin/sh
+set -eu
+
+RULE_PATH="/etc/sudoers.d/agents-session"
+SUDOERS_PATH="/etc/sudoers"
+TIMEOUT_MINUTES=720
+SUDO="/usr/bin/sudo"
+INSTALL="/usr/bin/install"
+RM="/usr/bin/rm"
+MKTEMP="/usr/bin/mktemp"
+ID="/usr/bin/id"
+UNAME="/usr/bin/uname"
+VISUDO="/usr/sbin/visudo"
+
+# Tests replace every privileged boundary and destination together. Never allow
+# individual command overrides in normal use.
+if [ "${AGENTS_SUDO_TESTING:-}" = "1" ]; then
+    RULE_PATH="${AGENTS_SUDO_RULE_PATH:?}"
+    SUDOERS_PATH="${AGENTS_SUDO_SUDOERS_PATH:?}"
+    SUDO="${AGENTS_SUDO_SUDO:?}"
+    INSTALL="${AGENTS_SUDO_INSTALL:-/usr/bin/install}"
+    RM="${AGENTS_SUDO_RM:-/usr/bin/rm}"
+    MKTEMP="${AGENTS_SUDO_MKTEMP:-/usr/bin/mktemp}"
+    VISUDO="${AGENTS_SUDO_VISUDO:-/usr/sbin/visudo}"
+fi
+
+usage() {
+    cat <<'EOF'
+Usage: agents-sudo [--status | --revoke | --remove | --help]
+
+Create or refresh a global sudo ticket for agent work on Linux.
+
+  no option   install the shared sudo policy and refresh the 12-hour ticket
+  --status    check whether non-interactive sudo is available
+  --revoke    invalidate the current sudo ticket
+  --remove    remove the shared policy and invalidate the ticket
+  --help      show this help
+
+Policy: /etc/sudoers.d/agents-session
+EOF
+}
+
+fail() {
+    printf 'agents-sudo: %s\n' "$1" >&2
+    exit 1
+}
+
+os_name="${AGENTS_SUDO_OS:-$($UNAME -s)}"
+[ "$os_name" = "Linux" ] || fail "Linux is required"
+
+case "${1:-}" in
+    --help|-h)
+        usage
+        exit 0
+        ;;
+    --status)
+        if "$SUDO" -n true 2>/dev/null; then
+            printf 'agents-sudo: non-interactive sudo is available\n'
+            exit 0
+        fi
+        printf 'agents-sudo: no active sudo ticket; run agents-sudo in your terminal\n' >&2
+        exit 1
+        ;;
+    --revoke)
+        "$SUDO" -K
+        printf 'agents-sudo: sudo ticket revoked\n'
+        exit 0
+        ;;
+    --remove)
+        "$SUDO" "$RM" -f "$RULE_PATH"
+        "$SUDO" -K
+        printf 'agents-sudo: removed %s and revoked the ticket\n' "$RULE_PATH"
+        exit 0
+        ;;
+    "")
+        ;;
+    *)
+        usage >&2
+        exit 2
+        ;;
+esac
+
+if [ "${AGENTS_SUDO_TESTING:-}" = "1" ]; then
+    user_name="${AGENTS_SUDO_USER:?}"
+else
+    [ "$($ID -u)" -ne 0 ] || fail "run this command as your normal user, without sudo"
+    user_name="$($ID -un)"
+fi
+
+case "$user_name" in
+    ""|*[!a-zA-Z0-9_.-]*) fail "unsupported user name: $user_name" ;;
+esac
+
+umask 077
+rule_tmp="$($MKTEMP "${TMPDIR:-/tmp}/agents-sudo.XXXXXX")"
+trap '"$RM" -f "$rule_tmp"' EXIT HUP INT TERM
+
+printf 'Defaults:%s timestamp_type=global, timestamp_timeout=%s\n' \
+    "$user_name" "$TIMEOUT_MINUTES" > "$rule_tmp"
+
+"$VISUDO" -cf "$rule_tmp" >/dev/null || fail "generated sudo policy is invalid"
+
+printf 'agents-sudo: authenticate to install %s\n' "$RULE_PATH"
+"$SUDO" -v
+"$SUDO" "$INSTALL" -o root -g root -m 0440 "$rule_tmp" "$RULE_PATH"
+"$SUDO" "$VISUDO" -cf "$SUDOERS_PATH" >/dev/null || fail "installed sudo policy did not validate"
+
+# The policy changes the ticket scope from the current terminal to global.
+# Refresh once more so non-interactive agent sessions can use it.
+"$SUDO" -v
+"$SUDO" -n true >/dev/null 2>&1 || fail "global sudo ticket is not active"
+
+printf 'agents-sudo: global sudo ticket active for %s hours\n' "$((TIMEOUT_MINUTES / 60))"
+printf 'agents-sudo: revoke it with: agents-sudo --revoke\n'

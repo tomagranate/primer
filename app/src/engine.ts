@@ -17,6 +17,7 @@ import type { NodeDef } from "./config";
 import { boolDefault } from "./config";
 import { LineParser } from "./line-parser";
 import { signalProcessTree } from "./process-utils";
+import { RunLogStore } from "./run-logs";
 
 export type NodeState =
   | "pending"      // waiting on deps
@@ -67,6 +68,9 @@ export interface EngineOptions {
   notify?: (message: string) => void;
   /** State-change hook (headless mode prints from this). */
   onEvent?: (node: EngineNode, event: string) => void;
+  /** Test and operator overrides for the persistent run-log store. */
+  runLogRoot?: string;
+  runLogMaxBytes?: number;
 }
 
 const SETTLED: NodeState[] = ["done", "failed", "skipped"];
@@ -92,10 +96,15 @@ export class Engine {
   private timer?: ReturnType<typeof setInterval>;
   private sudoTimer?: ReturnType<typeof setInterval>;
   private procs = new Map<string, Bun.Subprocess>();
+  private runLogs: RunLogStore;
+  private logOwners = new WeakMap<string[], string>();
+  readonly logDirectory: string;
 
   constructor(defs: NodeDef[], opts: EngineOptions) {
     this.opts = opts;
     this.tmp = mkdtempSync(join(tmpdir(), "primer-"));
+    this.runLogs = new RunLogStore({ root: opts.runLogRoot, maxBytes: opts.runLogMaxBytes });
+    this.logDirectory = this.runLogs.runDir;
     this.nodes = defs.map((d) => ({
       ...d,
       state: "pending",
@@ -105,6 +114,7 @@ export class Engine {
       notified: false,
       defaultOn: d.kind === "interactive" ? boolDefault(d.config["default"]) : true,
     }));
+    for (const node of this.nodes) this.logOwners.set(node.logs, node.id);
     this.applyFilters();
   }
 
@@ -154,6 +164,19 @@ export class Engine {
     this.stopTimers();
     for (const proc of this.procs.values()) signalProcessTree(proc.pid, "SIGKILL");
     this.procs.clear();
+    this.runLogs.finalize({
+      startedAt: new Date(this.startedAt).toISOString(),
+      endedAt: new Date().toISOString(),
+      exitCode: this.exitCode(),
+      interrupted: this.interrupted,
+      nodes: this.nodes.map((node) => ({
+        id: node.id,
+        label: node.label,
+        state: node.state,
+        detail: node.detail,
+        items: node.items.map((item) => ({ name: item.name, state: item.state, detail: item.detail })),
+      })),
+    });
     try { rmSync(this.tmp, { recursive: true, force: true }); } catch { /* best effort */ }
   }
 
@@ -238,6 +261,8 @@ export class Engine {
     if (replacePrevious && logs.length) logs[logs.length - 1] = clean;
     else logs.push(clean);
     if (logs.length > MAX_LOG_LINES) logs.splice(0, logs.length - MAX_LOG_LINES);
+    const owner = this.logOwners.get(logs);
+    if (owner) this.runLogs.append(owner, clean);
   }
 
   private async readLogs(logs: string[], stream: ReadableStream<Uint8Array>): Promise<void> {
@@ -273,7 +298,7 @@ export class Engine {
     const modDir = join(this.opts.primerDir, "modules", n.id);
     const statusFile = join(this.tmp, `${n.id}.status`);
     const itemsFile = join(this.tmp, `${n.id}.items`);
-    const itemLogDir = join(this.tmp, `${n.id}.item-logs`);
+    const itemLogDir = this.runLogs.itemLogDir(n.id);
     const configFile = join(this.tmp, `${n.id}.config.zsh`);
     const runner = join(this.tmp, `${n.id}.runner.zsh`);
 
@@ -321,10 +346,6 @@ export class Engine {
     const itemStates = new Map<string, string>();
     const pollModuleState = async () => {
       try {
-        const text = sanitizeLine((await readFile(statusFile, "utf8")).trim());
-        if (text) this.updateDetail(n, text);
-      } catch { /* not written yet */ }
-      try {
         const text = await readFile(itemsFile, "utf8");
         for (const { state, name, detail } of parseItemRecords(text)) {
           let item = n.items.find((candidate) => candidate.name === name);
@@ -354,11 +375,23 @@ export class Engine {
             n.items.push(item);
           }
           const text = await readFile(join(itemLogDir, `${slot}.log`), "utf8").catch(() => "");
-          item.logs = text.split(/[\r\n]/).map(sanitizeLine).filter(Boolean).slice(-MAX_LOG_LINES);
+          const lines = text.split(/[\r\n]/).map(sanitizeLine).filter(Boolean).slice(-MAX_LOG_LINES);
+          item.logs.splice(0, item.logs.length, ...lines);
         }
       } catch { /* no parallel items */ }
+      try {
+        const text = sanitizeLine((await readFile(statusFile, "utf8")).trim());
+        if (text) this.updateDetail(n, text);
+      } catch { /* not written yet */ }
     };
-    const statusPoll = setInterval(() => void pollModuleState(), 250);
+    let pollInFlight: Promise<void> | undefined;
+    const poll = () => {
+      if (!pollInFlight) {
+        pollInFlight = pollModuleState().finally(() => { pollInFlight = undefined; });
+      }
+      return pollInFlight;
+    };
+    const statusPoll = setInterval(() => void poll(), 250);
 
     const readers = [
       this.readLogs(n.logs, proc.stdout as ReadableStream<Uint8Array>),
@@ -367,6 +400,7 @@ export class Engine {
     const code = await proc.exited;
     await Promise.all(readers);
     clearInterval(statusPoll);
+    if (pollInFlight) await pollInFlight;
     await pollModuleState();
     this.procs.delete(n.id);
     if (this.interrupted && SETTLED.includes(n.state)) return;

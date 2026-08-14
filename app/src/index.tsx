@@ -131,6 +131,7 @@ async function runUpdate(args: Args): Promise<never> {
     await engine.start();
     await engine.waitUntilFinished();
     console.log(engine.statusLine());
+    console.log(`Logs: ${engine.logDirectory}`);
     const code = engine.exitCode();
     engine.cleanup();
     process.exit(code);
@@ -171,6 +172,7 @@ async function runUpdate(args: Args): Promise<never> {
     try { process.stdin.on("data", discard); process.stdin.resume(); } catch { /* ok */ }
     setTimeout(() => {
       console.log(engine.statusLine());
+      console.log(`Logs: ${engine.logDirectory}`);
       const code = engine.exitCode();
       engine.cleanup();
       process.exit(code);
