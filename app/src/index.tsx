@@ -7,11 +7,13 @@
  *
  * With no TTY, update runs headless and prints one line per state change.
  */
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { sanitizeLine } from "./ansi";
 import { detectProfile, loadNodes, resolvePrimerDir } from "./config";
 import { Engine, type EngineNode } from "./engine";
 import { shouldPrintLogs } from "./headless-output";
+import { runModuleStatus } from "./module-status";
 import { resetTerminal, shutdownRenderer } from "./terminal-lifecycle";
 
 interface Args {
@@ -200,28 +202,13 @@ async function runStatus(args: Args): Promise<never> {
   const primerDir = resolvePrimerDir();
   const profile = await detectProfile(primerDir, args.profile ?? process.env.PRIMER_PROFILE);
   const defs = (await loadNodes(primerDir, profile)).filter((d) => d.kind === "module");
-
-  const results = await Promise.all(defs.map(async (d) => {
-    const statusFile = join(process.env.TMPDIR ?? "/tmp", `primer-status-${d.id}-${process.pid}`);
-    const proc = Bun.spawn(["zsh", "-c",
-      `source "\${PRIMER_DIR}/lib/module.zsh"; source "\${MOD_DIR}/module.zsh" || exit 1; mod_status`,
-    ], {
-      stdout: "ignore", stderr: "ignore",
-      env: {
-        ...process.env,
-        MOD_STATUS_FILE: statusFile,
-        MOD_DIR: join(primerDir, "modules", d.id),
-        MOD_NAME: d.id,
-        PRIMER_DIR: primerDir,
-      },
-    });
-    const code = await proc.exited;
-    let detail = "";
-    try { detail = sanitizeLine((await Bun.file(statusFile).text()).trim()); } catch { /* none */ }
-    try { await Bun.file(statusFile).delete(); } catch { /* best effort */ }
-    if (!detail) detail = code === 0 ? "up to date" : "not found";
-    return { def: d, ok: code === 0, detail };
-  }));
+  const workDir = mkdtempSync(join(tmpdir(), "primer-status-"));
+  let results;
+  try {
+    results = await Promise.all(defs.map((def) => runModuleStatus(def, primerDir, workDir)));
+  } finally {
+    rmSync(workDir, { recursive: true, force: true });
+  }
 
   let issues = 0;
   for (const r of results) {

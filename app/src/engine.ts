@@ -16,6 +16,7 @@ import { sanitizeLine } from "./ansi";
 import type { NodeDef } from "./config";
 import { boolDefault } from "./config";
 import { LineParser } from "./line-parser";
+import { renderModuleConfig } from "./module-config";
 import { signalProcessTree } from "./process-utils";
 import { RunLogStore } from "./run-logs";
 
@@ -284,10 +285,6 @@ export class Engine {
 
   /* ── module execution ── */
 
-  private zshQuote(v: string): string {
-    return `"${v.replace(/[\\$"`]/g, (m) => `\\${m}`)}"`;
-  }
-
   private async runModule(n: EngineNode): Promise<void> {
     n.state = "running";
     n.start = Date.now();
@@ -302,11 +299,7 @@ export class Engine {
     const configFile = join(this.tmp, `${n.id}.config.zsh`);
     const runner = join(this.tmp, `${n.id}.runner.zsh`);
 
-    const configLines = ["typeset -gA _mod_config=()"];
-    for (const [k, v] of Object.entries(n.config)) {
-      configLines.push(`_mod_config[${k}]=${this.zshQuote(v)}`);
-    }
-    await writeFile(configFile, configLines.join("\n") + "\n");
+    await writeFile(configFile, renderModuleConfig(n.config));
     await writeFile(runner, [
       "#!/bin/zsh",
       'source "${PRIMER_DIR}/lib/module.zsh"',

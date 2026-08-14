@@ -32,3 +32,17 @@ teardown() {
     zsh_run_module ghostty "mod_status"
     assert_failure
 }
+
+@test "ghostty: mod_status accepts the managed KDE keybinding block" {
+    zsh_run_module ghostty "mod_update"
+    assert_success
+    cat >> "$TEST_CONFIG_DIR/ghostty/config" <<'EOF'
+
+# >>> PRIMER MANAGED START (modules/kde-desktop-settings/files/ghostty/keybinds.conf) >>>
+keybind = ctrl+alt+shift+t=new_tab
+# <<< PRIMER MANAGED END (modules/kde-desktop-settings/files/ghostty/keybinds.conf) <<<
+EOF
+
+    zsh_run_module ghostty "mod_status"
+    assert_success
+}
