@@ -82,9 +82,7 @@ _t3_code::install_launcher() {
     [[ "$(uname -s)" == Linux ]] || return 0
 
     local browser local_port source_icon icon_path launcher tmp
-    browser="$(_t3_code::browser_command)" || return 1
     local_port="$(_t3_code::local_port)" || return 1
-    source_icon="$(_t3_code::find_icon)" || return 1
     icon_path="$(_t3_code::icon_path)"
     launcher="$(_t3_code::launcher_path)"
 
@@ -93,6 +91,8 @@ _t3_code::install_launcher() {
         return 0
     fi
 
+    browser="$(_t3_code::browser_command)" || return 1
+    source_icon="$(_t3_code::find_icon)" || return 1
     mkdir -p "${launcher:h}" "${icon_path:h}" || return 1
     cp "$source_icon" "$icon_path" || return 1
     tmp="$(mktemp "${launcher:h}/.t3-code.desktop.XXXXXX")" || return 1
