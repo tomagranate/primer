@@ -50,6 +50,11 @@ github_command = gh auth login
     parseConf("[tool]\nlabel = Profile\n", config);
     expect(buildNodes(config)[0]?.label).toBe("Profile");
   });
+
+  test("accepts digits in module names", () => {
+    const result = nodes("[t3-code]\nlabel = T3 Code server\n");
+    expect(result[0]).toMatchObject({ id: "t3-code", label: "T3 Code server" });
+  });
 });
 
 describe("Linux profile detection", () => {
