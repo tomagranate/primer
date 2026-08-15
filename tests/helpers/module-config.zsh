@@ -8,7 +8,7 @@ test::load_module_config() {
     for config in "$@"; do
         while IFS= read -r line; do
             [[ "$line" =~ ^[[:space:]]*# || -z "${line// /}" ]] && continue
-            if [[ "$line" =~ '^\[([a-z_-]+)\]' ]]; then
+            if [[ "$line" =~ '^\[([a-z0-9_-]+)\]' ]]; then
                 section="${match[1]}"
                 key=""
             elif [[ "$line" =~ '^[[:space:]]+(.+)' && -n "$section" && -n "$key" ]]; then

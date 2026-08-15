@@ -108,6 +108,7 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | **helium-browser** | apt | Installs Helium Browser from the official Linux apt repository |
 | **github-cli** | apt | Installs GitHub CLI from GitHub's official apt repository |
 | **npm-global** | mise | Installs configured global npm CLIs |
+| **t3-code** | npm-global + Tailscale login | Runs T3 Code at boot and exposes it through Tailscale Serve |
 | **managed-settings** | shell-installers/homebrew-apps | Applies configured JSON/TOML user settings, including AI CLI permission defaults |
 | **login-shell** | zsh | Changes the user's login shell to zsh when possible |
 | **xcode-cli-tools** | -- | Installs Xcode Command Line Tools and waits for the installer dialog to be accepted |
@@ -150,6 +151,24 @@ mangohud gamemoderun %command%
 
 Keep Proton game libraries on a native Linux filesystem. The Fedora profile
 does not configure shared NTFS libraries, Steam accounts, or BIOS settings.
+
+### T3 Code remote access
+
+The Fedora profile installs T3 Code as a persistent systemd user service.
+User lingering starts the service during boot, before the user logs in.
+Tailscale Serve proxies HTTPS port 443 to the loopback T3 Code server.
+
+Open the server from another device on the same tailnet:
+
+```text
+https://<machine>.<tailnet>.ts.net/
+```
+
+Create a pairing link when a new client needs access:
+
+```sh
+t3 pair --tailscale
+```
 
 ## Architecture
 

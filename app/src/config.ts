@@ -38,7 +38,7 @@ export function parseConf(text: string, into: RawConfig): void {
     if (/^\s*#/.test(line)) continue;
     if (line.trim() === "") continue;
 
-    const sec = line.match(/^\[([a-z_-]+)\]/);
+    const sec = line.match(/^\[([a-z0-9_-]+)\]/);
     if (sec) {
       section = sec[1]!;
       if (section !== "logins" && !into.order.includes(section)) into.order.push(section);
