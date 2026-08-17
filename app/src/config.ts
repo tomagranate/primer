@@ -164,14 +164,11 @@ export function detectLinuxProfile(
 ): string {
   id = id.toLowerCase();
   idLike = idLike.toLowerCase();
-  const hasDesktop = !!(env.XDG_CURRENT_DESKTOP || env.DESKTOP_SESSION);
   if (id === "fedora") return "fedora-kde";
-  if (id === "ubuntu" && hasDesktop) return "ubuntu-desktop";
   const debianish = id === "debian" || id === "ubuntu" || idLike.includes("debian") || idLike.includes("ubuntu");
   const headless = !env.DISPLAY && !env.WAYLAND_DISPLAY && !env.XDG_CURRENT_DESKTOP;
   if (debianish && headless) return "linux-vps";
-  if (hasDesktop || env.DISPLAY) return "ubuntu-desktop";
-  return "linux-vps";
+  throw new Error("Could not infer Linux profile. Use --profile linux-vps or --profile fedora-kde.");
 }
 
 export async function detectProfile(primerDir: string, forced?: string): Promise<string> {

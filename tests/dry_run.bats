@@ -24,24 +24,6 @@ load 'helpers/common'
     refute_output --partial "Fedora desktop hardware"
 }
 
-@test "primer update --dry-run supports ubuntu-desktop profile" {
-    export PRIMER_LOCAL="$PRIMER_DIR"
-    run zsh "$PRIMER_DIR/bin/primer" update --dry-run --log --profile ubuntu-desktop
-    assert_success
-    assert_output --partial "APT packages"
-    assert_output --partial "Agent sudo session"
-    assert_output --partial "ubuntu-desktop-minimal"
-    assert_output --partial "chatgpt_amd64.deb"
-    assert_output --partial "docker-compose-v2"
-    assert_output --partial "Tailscale"
-    assert_output --partial "curl -fsSL https://tailscale.com/install.sh | sudo -n sh"
-    assert_output --partial "curl -fsSL https://starship.rs/install.sh | sh -s -- -y -b $HOME/.local/bin"
-    assert_output --partial "curl -fsSL https://raw.githubusercontent.com/mkasberg/ghostty-ubuntu/HEAD/install.sh | sudo -n bash"
-    refute_output --partial "docker-compose-plugin"
-    assert_output --partial "Flatpak apps"
-    refute_output --partial "Fedora desktop hardware"
-}
-
 @test "primer update --dry-run supports fedora-kde profile" {
     export PRIMER_LOCAL="$PRIMER_DIR"
     run zsh "$PRIMER_DIR/bin/primer" update --dry-run --log --profile fedora-kde
@@ -52,6 +34,7 @@ load 'helpers/common'
     assert_output --partial "sudo dnf5 -y --color=never copr enable scottames/ghostty"
     assert_output --partial "sudo dnf5 -y --color=never copr enable alternateved/keyd"
     assert_output --partial "sudo dnf5 -y --color=never copr enable imput/helium"
+    assert_output --partial "sudo dnf5 -y --color=never copr enable lizardbyte/stable"
     assert_output --partial "moby-engine"
     assert_output --partial "docker-compose"
     assert_output --partial "ghostty"
@@ -61,6 +44,8 @@ load 'helpers/common'
     assert_output --partial "sudo rpm --import https://downloads.1password.com/linux/keys/1password.asc"
     assert_output --partial "write /etc/yum.repos.d/1password.repo"
     assert_output --partial "sudo dnf5 -y --color=never install 1password 1password-cli"
+    assert_output --partial "Sunshine"
+    assert_output --partial "com.moonlight_stream.Moonlight"
     assert_output --partial "with qdbus-qt6"
     assert_output --partial "Flatpak apps"
     assert_output --partial "Fedora desktop hardware"
@@ -134,30 +119,6 @@ EOF
     assert_success
     assert_output --partial "APT packages"
     refute_output --partial "script should not wrap sudo modules"
-}
-
-@test "primer update does not run privileged shell installers through script" {
-    local fakebin
-    fakebin="$(mktemp -d)"
-    cat > "$fakebin/script" <<'EOF'
-#!/usr/bin/env bash
-if [[ "${1:-}" == "--version" ]]; then
-    echo "script from util-linux"
-    exit 0
-fi
-echo "script should not wrap privileged shell installers" >&2
-exit 64
-EOF
-    chmod +x "$fakebin/script"
-
-    export PRIMER_LOCAL="$PRIMER_DIR"
-    PATH="$fakebin:$PATH" run zsh "$PRIMER_DIR/bin/primer" update --dry-run --log --profile ubuntu-desktop --only apt --only shell-installers
-    rm -rf "$fakebin"
-
-    assert_success
-    assert_output --partial "Shell installers"
-    assert_output --partial "sudo -n bash"
-    refute_output --partial "script should not wrap privileged shell installers"
 }
 
 @test "primer status runs without crashing" {

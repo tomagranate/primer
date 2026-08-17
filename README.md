@@ -39,7 +39,7 @@ functions, and aliases pick up any managed config changes.
 - `--dry-run` - preview changes without applying them (valid with `update`)
 - `--skip <module>` - skip a module by name; repeatable (valid with `update`)
 - `--only <module>` - run only one module; repeatable (valid with `update`)
-- `--profile <name>` - force a profile; any name with a file in `configs/profiles/`, such as `mac`, `linux-vps`, `ubuntu-desktop`, or `fedora-kde`
+- `--profile <name>` - force a profile; any name with a file in `configs/profiles/`, such as `mac`, `linux-vps`, or `fedora-kde`
 - `--log` - force plain log output
 - `--help` - show help text
 - `-h` - show help text
@@ -51,7 +51,6 @@ primer update
 primer update --dry-run
 primer update --skip mac-app-store
 primer update --profile linux-vps
-primer update --profile ubuntu-desktop
 primer update --profile fedora-kde
 primer status
 primer --help
@@ -105,7 +104,6 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | **chatgpt** | apt / dnf | Installs the ChatGPT desktop app from OpenAI's native Linux package |
 | **1password** | dnf | Installs 1Password and 1Password CLI from 1Password's official RPM repository |
 | **google-chrome** | apt / dnf | Installs Google Chrome from Google's native Linux package |
-| **helium-browser** | apt | Installs Helium Browser from the official Linux apt repository |
 | **github-cli** | apt | Installs GitHub CLI from GitHub's official apt repository |
 | **npm-global** | mise | Installs configured global npm CLIs |
 | **t3-code** | npm-global + Tailscale login | Runs T3 Code at boot and exposes it through Tailscale Serve |
@@ -198,7 +196,7 @@ The compiled TypeScript app in `app/` is the sole command and scheduling engine.
 │       └── ui.tsx                # OpenTUI sidebar, logs, and summary screens
 ├── configs/
 │   ├── common.conf               # Shared user-level config
-│   └── profiles/                 # mac, linux-vps, ubuntu-desktop, fedora-kde fragments
+│   └── profiles/                 # mac, linux-vps, and fedora-kde fragments
 ├── lib/
 │   └── module.zsh                # Shell module runtime and status protocol
 ├── modules/
@@ -285,24 +283,22 @@ The same item logs remain available after the run.
 
 A profile is a config file in `configs/profiles/`. Primer accepts any profile
 name that has a `configs/profiles/<name>.conf` file. Add a file to add a
-profile. Primer ships four profiles.
+profile. Primer ships three profiles.
 
 Primer auto-detects the profile when it can:
 
 - `mac` on macOS
 - `linux-vps` on Debian/Ubuntu without a desktop session
-- `ubuntu-desktop` on Ubuntu with a desktop session
 - `fedora-kde` on Fedora
 
-For ambiguous Linux machines, interactive runs prompt and default to `linux-vps`. Non-interactive runs should pass `--profile` or set `PRIMER_PROFILE`.
+For other Linux systems, pass `--profile` or set `PRIMER_PROFILE`.
 
 ```sh
 primer update --profile linux-vps
-PRIMER_PROFILE=ubuntu-desktop primer status
 PRIMER_PROFILE=fedora-kde primer status
 ```
 
-Linux profiles install Tailscale through its official Linux installer. Ubuntu profiles use GitHub's official APT repository for GitHub CLI. Fedora uses its `gh` package. The Fedora KDE profile enables the COPR repositories listed by Ghostty, keyd, and Helium. That profile also installs 1Password and 1Password CLI from 1Password's official RPM repository. GitHub CLI login and Tailscale login wait until the 1Password login finishes.
+Linux profiles install Tailscale through its official Linux installer. The VPS profile uses GitHub's official APT repository for GitHub CLI. Fedora uses its `gh` package. The Fedora KDE profile enables the COPR repositories for Ghostty, keyd, Helium, and Sunshine. That profile also installs 1Password and 1Password CLI from 1Password's official RPM repository. GitHub CLI login and Tailscale login wait until the 1Password login finishes.
 
 ## Configuration
 

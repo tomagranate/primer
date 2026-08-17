@@ -140,14 +140,6 @@ github_command = gh auth login
     expect(result.find((node) => node.id === "kde-desktop-settings")?.needsSudo).toBe(true);
   });
 
-  test("Ubuntu desktop profile keeps KDE settings on the sudo ticket", async () => {
-    const primerDir = join(import.meta.dir, "..", "..");
-    const config: RawConfig = { order: [], values: new Map() };
-    parseConf(await readFile(join(primerDir, "configs", "common.conf"), "utf8"), config);
-    parseConf(await readFile(join(primerDir, "configs", "profiles", "ubuntu-desktop.conf"), "utf8"), config);
-    expect(buildNodes(config).find((node) => node.id === "kde-desktop-settings")?.needsSudo).toBe(true);
-    expect(buildNodes(config).find((node) => node.id === "interactive:tailscale")?.config.mode).toBe("pane");
-  });
 });
 
 describe("Linux profile detection", () => {
@@ -155,8 +147,11 @@ describe("Linux profile detection", () => {
     expect(detectLinuxProfile("fedora", "", {})).toBe("fedora-kde");
   });
 
-  test("preserves Ubuntu desktop and headless profiles", () => {
-    expect(detectLinuxProfile("ubuntu", "debian", { XDG_CURRENT_DESKTOP: "KDE" })).toBe("ubuntu-desktop");
+  test("selects the VPS profile for headless Ubuntu", () => {
     expect(detectLinuxProfile("ubuntu", "debian", {})).toBe("linux-vps");
+  });
+
+  test("rejects unsupported Linux desktops", () => {
+    expect(() => detectLinuxProfile("ubuntu", "debian", { XDG_CURRENT_DESKTOP: "KDE" })).toThrow();
   });
 });

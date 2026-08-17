@@ -72,7 +72,7 @@ Flags:
   --dry-run         Preview changes without applying them (update only)
   --skip <module>   Skip a module by name; repeatable (update only)
   --only <module>   Run only this module; repeatable (update only)
-  --profile <name>  Force profile: mac, linux-vps, ubuntu-desktop, fedora-kde
+  --profile <name>  Force profile: mac, linux-vps, fedora-kde
   --log             Plain line output instead of the TUI
   --help            Show this help message`);
 }
