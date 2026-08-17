@@ -121,7 +121,10 @@ export function buildNodes(cfg: RawConfig): NodeDef[] {
       id: interactiveId(name),
       kind: "interactive",
       label: get("label") ?? name,
-      deps: splitList(get("depends_on")),
+      deps: [
+        ...splitList(get("depends_on")),
+        ...splitList(get("depends_on_logins")).map(interactiveId),
+      ],
       config,
       needsSudo: false,
     });

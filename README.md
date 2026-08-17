@@ -104,6 +104,7 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | **fedora-desktop-hardware** | dnf | Configures NVIDIA, `s2idle`, USB wake rules, sleep diagnostics, and the Xwayland Video Bridge workaround for Fedora KDE |
 | **fedora-gaming** | fedora-desktop-hardware | Installs native Steam, controller rules, GameMode, MangoHud, Gamescope, and Vulkan tools |
 | **flatpak** | apt / dnf | Installs explicitly configured Flatpak apps |
+| **1password** | dnf | Installs 1Password and 1Password CLI from 1Password's official RPM repository |
 | **google-chrome** | apt / dnf | Installs Google Chrome from Google's native Linux package |
 | **helium-browser** | apt | Installs Helium Browser from the official Linux apt repository |
 | **github-cli** | apt | Installs GitHub CLI from GitHub's official apt repository |
@@ -151,6 +152,13 @@ mangohud gamemoderun %command%
 
 Keep Proton game libraries on a native Linux filesystem. The Fedora profile
 does not configure shared NTFS libraries, Steam accounts, or BIOS settings.
+
+### 1Password
+
+The Fedora profile installs the 1Password desktop app and CLI from 1Password's
+official RPM repository. A later interactive step launches the app, asks you to
+sign in, and links the CLI with **Settings > Developer > Integrate with
+1Password CLI**. GitHub CLI login waits until that step finishes.
 
 ### T3 Code remote access
 
@@ -289,7 +297,7 @@ PRIMER_PROFILE=ubuntu-desktop primer status
 PRIMER_PROFILE=fedora-kde primer status
 ```
 
-Linux profiles install Tailscale through its official Linux installer. Ubuntu profiles use GitHub's official APT repository for GitHub CLI. Fedora uses its `gh` package. The Fedora KDE profile enables the COPR repositories listed by Ghostty, keyd, and Helium.
+Linux profiles install Tailscale through its official Linux installer. Ubuntu profiles use GitHub's official APT repository for GitHub CLI. Fedora uses its `gh` package. The Fedora KDE profile enables the COPR repositories listed by Ghostty, keyd, and Helium. That profile also installs 1Password and 1Password CLI from 1Password's official RPM repository. GitHub CLI login waits until the 1Password login finishes.
 
 ## Configuration
 
@@ -376,9 +384,10 @@ settings =
 Interactive logins are configured in `[logins]`. Logins that modules list in
 `depends_on_logins` run as soon as their module deps finish, so later modules
 can use the account. Other logins run after installation finishes.
-`*_depends_on` names Primer modules that must complete first, `*_requires`
-names commands that must exist, `*_status` detects whether the account is
-already logged in, and `*_command` starts the login flow.
+`*_depends_on` names Primer modules that must complete first, `*_depends_on_logins`
+names other logins that must complete first, `*_requires` names commands that
+must exist, `*_status` detects whether the account is already logged in, and
+`*_command` starts the login flow.
 Linux profiles also use this flow for Tailscale. After the Tailscale module
 installs the client, Primer runs `sudo tailscale up` when the machine is not
 connected and then `sudo tailscale set --operator="$USER"` so local tools such
