@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import type { Engine, EngineItem, EngineNode } from "./engine";
-import { ensureVisible, listWindow } from "./list-window";
+import { ensureVisible, isScrolledToEnd, listWindow } from "./list-window";
 
 // Moss theme, copied from corsa (src/lib/theme/themes.ts): deep greens with
 // a British racing green accent. Sidebar sits on surface1, content on
@@ -117,6 +117,7 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
   const [itemCursors, setItemCursors] = useState<Record<string, number>>({});
   const [expandedItems, setExpandedItems] = useState<Record<string, string[]>>({});
   const [summaryScroll, setSummaryScroll] = useState(0);
+  const [runScroll, setRunScroll] = useState(0);
 
   useEffect(() => {
     const iv = setInterval(() => {
@@ -133,15 +134,26 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
   const focusIdx = follow ? followIndex(nodes) : cursor;
   const focus = nodes[focusIdx] ?? nodes[0]!;
 
-  // Summary chrome: header + counts + footer + gutter (+ spacers when tall enough).
+  // Summary chrome: header + counts + footer (+ spacers when tall enough).
+  // End blank is content (only visible when scrolled to the end), not chrome.
   const summaryCompact = dims.height < 12;
-  const summaryListHeight = Math.max(1, dims.height - (summaryCompact ? 4 : 6));
+  const summaryListHeight = Math.max(1, dims.height - (summaryCompact ? 3 : 5));
+  const summaryEndPad = nodes.length > 0 ? 1 : 0;
+
+  // Run sidebar: header + footer (+ attention banner).
+  const runSidebarHeight = Math.max(1, dims.height - (attention ? 3 : 2));
+  const runEndPad = nodes.length > 0 ? 1 : 0;
 
   // Keep the selected module on-screen as the cursor moves or the terminal resizes.
   useEffect(() => {
     if (screen !== "summary") return;
-    setSummaryScroll((start) => ensureVisible(start, cursor, nodes.length, summaryListHeight));
-  }, [screen, cursor, nodes.length, summaryListHeight]);
+    setSummaryScroll((start) => ensureVisible(start, cursor, nodes.length, summaryListHeight, summaryEndPad));
+  }, [screen, cursor, nodes.length, summaryListHeight, summaryEndPad]);
+
+  useEffect(() => {
+    if (screen !== "run") return;
+    setRunScroll((start) => ensureVisible(start, focusIdx, nodes.length, runSidebarHeight, runEndPad));
+  }, [screen, focusIdx, nodes.length, runSidebarHeight, runEndPad]);
 
   useKeyboard((key) => {
     const name = key.name ?? key.sequence;
@@ -328,12 +340,16 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
   if (screen === "summary") {
     const c = engine.counts();
     const ok = c.failed === 0 && !engine.interrupted;
-    const listStart = ensureVisible(summaryScroll, cursor, nodes.length, summaryListHeight);
-    const visibleNodes = nodes.slice(listStart, listStart + summaryListHeight);
-    const scrolled = nodes.length > summaryListHeight;
-    const rangeHint = scrolled
-      ? ` · ${listStart + 1}–${Math.min(nodes.length, listStart + summaryListHeight)}/${nodes.length}`
-      : "";
+    const listStart = ensureVisible(summaryScroll, cursor, nodes.length, summaryListHeight, summaryEndPad);
+    const showEndGutter = isScrolledToEnd(listStart, nodes.length, summaryListHeight, summaryEndPad)
+      && summaryListHeight > 1
+      && summaryEndPad > 0;
+    // Content rows in the viewport: modules (and a trailing blank only at the end).
+    const itemSlots = showEndGutter ? summaryListHeight - 1 : summaryListHeight;
+    const visibleNodes = nodes.slice(listStart, Math.min(nodes.length, listStart + itemSlots));
+    const lastShown = Math.min(nodes.length, listStart + visibleNodes.length);
+    const scrolled = nodes.length + summaryEndPad > summaryListHeight;
+    const rangeHint = scrolled ? ` · ${listStart + 1}–${lastShown}/${nodes.length}` : "";
     return (
       <box style={{ width: "100%", height: "100%", flexDirection: "column", backgroundColor: C.surface0 }}>
         <box style={{ height: 1, backgroundColor: C.surface1, paddingLeft: 1, flexDirection: "row" }}>
@@ -365,9 +381,8 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
               </box>
             );
           })}
+          {showEndGutter && <box style={{ height: 1 }} />}
         </box>
-        {/* Gutter between the last list row and the help bar */}
-        <box style={{ height: 1 }} />
         <box style={{ height: 1, backgroundColor: C.surface1, paddingLeft: 1 }}>
           <text fg={C.dim}>{`↑↓ move${rangeHint} · ⏎ inspect · space logs · q quit · logs ${engine.logDirectory}`}</text>
         </box>
@@ -412,21 +427,33 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
       ))}
 
       <box style={{ flexGrow: 1, flexDirection: "row" }}>
-        <box style={{ width: 33, flexDirection: "column", paddingLeft: 1, backgroundColor: C.surface1, border: ["right"], borderColor: C.muted }}>
-          {nodes.map((n, i) => {
-            const marked = i === focusIdx;
-            const ptr = follow ? (marked ? "▸ " : "  ") : (marked ? "› " : "  ");
-            const ic = icon(n);
-            return (
-              <box key={n.id} style={{ height: 1, flexDirection: "row", backgroundColor: marked ? C.selection : C.surface1 }}>
-                <text fg={C.green}>{marked ? ptr : "  "}</text>
-                <text fg={ic.fg}>{ic.ch}</text>
-                <text fg={marked ? C.bold : n.state === "pending" ? C.dim : C.text}>{` ${n.label.padEnd(18).slice(0, 18)}`}</text>
-                <text fg={C.dim}>{elapsed(n)}</text>
-              </box>
-            );
-          })}
-        </box>
+        {(() => {
+          const sideStart = ensureVisible(runScroll, focusIdx, nodes.length, runSidebarHeight, runEndPad);
+          const showEndGutter = isScrolledToEnd(sideStart, nodes.length, runSidebarHeight, runEndPad)
+            && runSidebarHeight > 1
+            && runEndPad > 0;
+          const itemSlots = showEndGutter ? runSidebarHeight - 1 : runSidebarHeight;
+          const visible = nodes.slice(sideStart, Math.min(nodes.length, sideStart + itemSlots));
+          return (
+            <box style={{ width: 33, height: runSidebarHeight, flexDirection: "column", paddingLeft: 1, backgroundColor: C.surface1, border: ["right"], borderColor: C.muted }}>
+              {visible.map((n, offset) => {
+                const i = sideStart + offset;
+                const marked = i === focusIdx;
+                const ptr = follow ? (marked ? "▸ " : "  ") : (marked ? "› " : "  ");
+                const ic = icon(n);
+                return (
+                  <box key={n.id} style={{ height: 1, flexDirection: "row", backgroundColor: marked ? C.selection : C.surface1 }}>
+                    <text fg={C.green}>{marked ? ptr : "  "}</text>
+                    <text fg={ic.fg}>{ic.ch}</text>
+                    <text fg={marked ? C.bold : n.state === "pending" ? C.dim : C.text}>{` ${n.label.padEnd(18).slice(0, 18)}`}</text>
+                    <text fg={C.dim}>{elapsed(n)}</text>
+                  </box>
+                );
+              })}
+              {showEndGutter && <box style={{ height: 1 }} />}
+            </box>
+          );
+        })()}
 
         {interactivePane ? (
           <box

@@ -149,6 +149,138 @@ EOF
     refute_output --partial 'gpgkey="'
 }
 
+@test "1password: skips key import when the signing key is already present" {
+    cat > "$MOCK_DIR/rpm" <<'EOF'
+#!/bin/sh
+echo "rpm $*" >> "$MOCK_LOG"
+if [ "$1" = "--import" ]; then
+    echo "unexpected import" >> "$MOCK_LOG"
+    exit 1
+fi
+if [ "$1" = "-q" ] && [ "$2" = "gpg-pubkey" ]; then
+    echo "Code signing for 1Password <codesign@1password.com> public key"
+    exit 0
+fi
+if [ "$1" = "-q" ]; then
+    grep -Fxq "$2" "$MOCK_INSTALLED" && exit 0
+    exit 1
+fi
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/rpm"
+    printf '%s\n' 1password 1password-cli > "$MOCK_INSTALLED"
+    cat > "$MOCK_DIR/1password" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/1password"
+    cat > "$MOCK_DIR/op" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/op"
+    cat > "$MOCK_DIR/install" <<'EOF'
+#!/bin/sh
+echo "install $*" >> "$MOCK_LOG"
+src=""; dest=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -m) shift ;;
+        *) if [ -z "$src" ]; then src="$1"; else dest="$1"; fi ;;
+    esac
+    shift
+done
+[ -n "$src" ] && [ -n "$dest" ] && cp "$src" "$dest"
+EOF
+    chmod +x "$MOCK_DIR/install"
+    cat > "$MOCK_DIR/dnf5" <<'EOF'
+#!/bin/sh
+echo "dnf5 $*" >> "$MOCK_LOG"
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/dnf5"
+
+    run_1password_module "mod_update"
+
+    assert_success
+    # Key already in the RPM keyring: must not call rpm --import (avoids the lock).
+    run grep -F "rpm --import" "$MOCK_LOG"
+    assert_failure
+    run grep -F "dnf5 -y --color=never install" "$MOCK_LOG"
+    assert_failure
+}
+
+@test "1password: retries key import when the RPM lock is busy" {
+    export PRIMER_RPM_LOCK_RETRIES=5
+    export PRIMER_RPM_LOCK_RETRY_DELAY=0
+    export PRIMER_PACKAGE_LOCK="$MOCK_DIR/package.lock"
+    export IMPORT_COUNT_FILE="$MOCK_DIR/import-count"
+    : > "$IMPORT_COUNT_FILE"
+    cat > "$MOCK_DIR/rpm" <<'EOF'
+#!/bin/sh
+echo "rpm $*" >> "$MOCK_LOG"
+if [ "$1" = "--import" ]; then
+    count=0
+    if [ -f "$IMPORT_COUNT_FILE" ]; then
+        count="$(cat "$IMPORT_COUNT_FILE")"
+    fi
+    count=$(( count + 1 ))
+    echo "$count" > "$IMPORT_COUNT_FILE"
+    if [ "$count" -lt 3 ]; then
+        echo "error: can't create transaction lock on /usr/lib/sysimage/rpm/.rpm.lock (Resource temporarily unavailable)" >&2
+        exit 1
+    fi
+    exit 0
+fi
+if [ "$1" = "-q" ] && [ "$2" = "gpg-pubkey" ]; then
+    exit 1
+fi
+if [ "$1" = "-q" ]; then
+    grep -Fxq "$2" "$MOCK_INSTALLED" && exit 0
+    exit 1
+fi
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/rpm"
+    cat > "$MOCK_DIR/dnf5" <<'EOF'
+#!/bin/sh
+echo "dnf5 $*" >> "$MOCK_LOG"
+printf '%s\n' 1password 1password-cli > "$MOCK_INSTALLED"
+cat > "$MOCK_DIR/1password" <<'APP'
+#!/bin/sh
+exit 0
+APP
+chmod +x "$MOCK_DIR/1password"
+cat > "$MOCK_DIR/op" <<'OP'
+#!/bin/sh
+exit 0
+OP
+chmod +x "$MOCK_DIR/op"
+EOF
+    chmod +x "$MOCK_DIR/dnf5"
+    cat > "$MOCK_DIR/install" <<'EOF'
+#!/bin/sh
+echo "install $*" >> "$MOCK_LOG"
+src=""; dest=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -m) shift ;;
+        *) if [ -z "$src" ]; then src="$1"; else dest="$1"; fi ;;
+    esac
+    shift
+done
+[ -n "$src" ] && [ -n "$dest" ] && cp "$src" "$dest"
+EOF
+    chmod +x "$MOCK_DIR/install"
+
+    run_1password_module "mod_update"
+
+    assert_success
+    # Two lock failures then success.
+    run cat "$IMPORT_COUNT_FILE"
+    assert_output "3"
+}
+
 @test "1password: skips package install when both packages are present" {
     printf '%s\n' 1password 1password-cli > "$MOCK_INSTALLED"
     cat > "$MOCK_DIR/1password" <<'EOF'

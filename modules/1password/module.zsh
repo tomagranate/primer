@@ -59,12 +59,25 @@ _1password::run_as_root() {
     primer::run_as_root "1Password" "$@"
 }
 
+# Root RPM/DNF ops share one database lock. Retry (and hold Primer's package
+# flock) so concurrent modules or PackageKit do not fail key import/install.
+_1password::run_rpm() {
+    primer::run_with_rpm_retry _1password::run_as_root "$@"
+}
+
 _1password::package_installed() {
     rpm -q "$1" >/dev/null 2>&1
 }
 
 _1password::command_available() {
     command -v "$1" >/dev/null 2>&1
+}
+
+# rpm --import needs the RPM lock even when the key is already present.
+# Skip the import when 1Password's signing key is already in the keyring.
+_1password::key_imported() {
+    rpm -q gpg-pubkey --qf '%{SUMMARY}\n' 2>/dev/null \
+        | grep -qiE '1[Pp]assword|codesign@1password\.com|AgileBits'
 }
 
 _1password::installed() {
@@ -122,19 +135,23 @@ mod_update() {
     fi
 
     primer::status_msg "configuring repo..."
-    _1password::run_as_root rpm --import "$key_url" || {
-        local package
-        for package in "${packages[@]}"; do
-            primer::item_update "$package" "failed" "key import failed"
-        done
-        primer::status_msg "key failed"
-        return 1
-    }
+    if _1password::key_imported; then
+        primer::status_msg "key already present"
+    else
+        if ! _1password::run_rpm rpm --import "$key_url"; then
+            local package
+            for package in "${packages[@]}"; do
+                primer::item_update "$package" "failed" "key import failed"
+            done
+            primer::status_msg "key failed"
+            return 1
+        fi
+    fi
 
     local source_tmp
     source_tmp="$(mktemp)" || return 1
     _1password::repo_body > "$source_tmp"
-    _1password::run_as_root install -m 0644 "$source_tmp" "$repo_path" || {
+    if ! _1password::run_as_root install -m 0644 "$source_tmp" "$repo_path"; then
         rm -f "$source_tmp"
         local package
         for package in "${packages[@]}"; do
@@ -142,7 +159,7 @@ mod_update() {
         done
         primer::status_msg "repo failed"
         return 1
-    }
+    fi
     rm -f "$source_tmp"
 
     if _1password::installed; then
@@ -159,7 +176,7 @@ mod_update() {
     for package in "${packages[@]}"; do
         primer::item_update "$package" "running" "installing"
     done
-    if _1password::run_as_root dnf5 -y --color=never install "${packages[@]}"; then
+    if _1password::run_rpm dnf5 -y --color=never install "${packages[@]}"; then
         if _1password::installed; then
             for package in "${packages[@]}"; do
                 primer::item_update "$package" "done" "installed"
