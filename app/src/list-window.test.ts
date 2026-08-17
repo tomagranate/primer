@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { ensureVisible, listWindow } from "./list-window";
+import { ensureVisible, isScrolledToEnd, listWindow } from "./list-window";
 
 describe("listWindow", () => {
   test("returns the full range when the list fits", () => {
@@ -53,5 +53,28 @@ describe("ensureVisible", () => {
     expect(ensureVisible(10, 0, 5, 5)).toBe(0);
     expect(ensureVisible(0, 19, 20, 5)).toBe(15);
     expect(ensureVisible(100, 19, 20, 5)).toBe(15);
+  });
+
+  test("with end pad, selecting the last item scrolls to show the pad", () => {
+    // 20 items + 1 pad, height 5 → maxStart = 16
+    expect(ensureVisible(0, 19, 20, 5, 1)).toBe(16);
+    expect(isScrolledToEnd(16, 20, 5, 1)).toBe(true);
+  });
+
+  test("with end pad and height 1, keeps the last item (pad cannot fit)", () => {
+    expect(ensureVisible(0, 19, 20, 1, 1)).toBe(19);
+  });
+
+  test("with end pad, mid-list selection does not force the pad into view", () => {
+    expect(ensureVisible(0, 5, 20, 5, 1)).toBe(1);
+    expect(isScrolledToEnd(1, 20, 5, 1)).toBe(false);
+  });
+});
+
+describe("isScrolledToEnd", () => {
+  test("is true when content fits or start is at max", () => {
+    expect(isScrolledToEnd(0, 3, 10)).toBe(true);
+    expect(isScrolledToEnd(15, 20, 5)).toBe(true);
+    expect(isScrolledToEnd(0, 20, 5)).toBe(false);
   });
 });

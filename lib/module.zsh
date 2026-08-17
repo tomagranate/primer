@@ -31,6 +31,79 @@ primer::run_as_root() {
     sudo -n "$@"
 }
 
+# True when command output shows RPM/DNF database lock contention.
+# Parallel Primer modules (and PackageKit) share one rpm/.rpm.lock.
+primer::is_rpm_lock_error() {
+    local output="$1"
+    [[ "$output" == *"can't create transaction lock"* \
+        || "$output" == *".rpm.lock"* \
+        || "$output" == *"Resource temporarily unavailable"* \
+        || "$output" == *"Waiting for process"* \
+        || "$output" == *"Failed to obtain lock"* \
+        || "$output" == *"Could not open lock file"* \
+        || "$output" == *"database is locked"* \
+        || "$output" == *" steals the lock "* ]]
+}
+
+# Serialize Primer package operations across concurrent modules.
+# Uses an FD flock so shell functions work (exec-style flock cannot).
+primer::with_package_lock() {
+    local lock_path="${PRIMER_PACKAGE_LOCK:-${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/primer-package.lock}"
+    local fd rc
+
+    if ! command -v flock >/dev/null 2>&1; then
+        "$@"
+        return $?
+    fi
+
+    mkdir -p "${lock_path:h}" 2>/dev/null || true
+    exec {fd}>"$lock_path" || return 1
+    if ! flock "$fd"; then
+        exec {fd}>&-
+        return 1
+    fi
+    "$@"
+    rc=$?
+    exec {fd}>&-
+    return "$rc"
+}
+
+# Run a command, retrying when the RPM/DNF lock is busy.
+# Prints the command's combined stdout/stderr on success or final failure.
+# Env: PRIMER_RPM_LOCK_RETRIES (default 30), PRIMER_RPM_LOCK_RETRY_DELAY (default 2s).
+primer::run_with_rpm_retry() {
+    local max_retries="${PRIMER_RPM_LOCK_RETRIES:-30}"
+    local delay="${PRIMER_RPM_LOCK_RETRY_DELAY:-2}"
+    local attempt=0 output rc
+
+    primer::with_package_lock _primer::run_with_rpm_retry_inner "$max_retries" "$delay" "$@"
+}
+
+_primer::run_with_rpm_retry_inner() {
+    local max_retries="$1" delay="$2"
+    shift 2
+    local attempt=0 output rc
+
+    while true; do
+        output="$("$@" 2>&1)"
+        rc=$?
+        if (( rc == 0 )); then
+            [[ -n "$output" ]] && print -r -- "$output"
+            return 0
+        fi
+
+        if primer::is_rpm_lock_error "$output" && (( attempt < max_retries )); then
+            attempt=$(( attempt + 1 ))
+            primer::status_msg "waiting for package lock (${attempt}/${max_retries})..."
+            sleep "$delay"
+            continue
+        fi
+
+        [[ -n "$output" ]] && print -r -- "$output"
+        return "$rc"
+    done
+}
+
 # Set the one-line status message displayed next to the module name.
 # Write a temp file, then move it over the target. A move on one filesystem is
 # atomic, so a concurrent reader always sees the old text or the new text.
