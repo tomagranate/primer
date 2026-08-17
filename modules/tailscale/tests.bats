@@ -45,6 +45,7 @@ run_tailscale_module() {
     run_tailscale_module "mod_update"
     assert_success
     assert_output --partial "curl -fsSL https://tailscale.com/install.sh | sudo -n sh"
+    assert_output --partial "sudo tailscale set --ssh"
 }
 
 @test "tailscale: wet run pipes official installer through sudo sh" {
@@ -78,6 +79,9 @@ if [ "$1" = "version" ]; then
     echo "1.0.0"
     exit 0
 fi
+if [ "$1" = "status" ]; then
+    exit 1
+fi
 exit 0
 TAILSCALE
 chmod +x "$TEST_HOME/bin/tailscale"
@@ -93,6 +97,72 @@ EOF
     assert_success
 }
 
+@test "tailscale: enables ssh when the client is already connected" {
+    cat > "$MOCK_DIR/tailscale" <<'EOF'
+#!/bin/sh
+echo "tailscale $*" >> "$MOCK_LOG"
+case "$1 $2" in
+    "version ")
+        echo "1.0.0"
+        exit 0
+        ;;
+    "status ")
+        exit 0
+        ;;
+    "debug prefs")
+        if [ -s "$MOCK_DIR/ssh-on" ]; then
+            echo '{"RunSSH": true}'
+        else
+            echo '{"RunSSH": false}'
+        fi
+        exit 0
+        ;;
+    "set --ssh")
+        echo on > "$MOCK_DIR/ssh-on"
+        exit 0
+        ;;
+esac
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/tailscale"
+    cat > "$MOCK_DIR/sudo" <<'EOF'
+#!/bin/sh
+if [ "$1" = "-n" ] && [ "$2" = "true" ]; then
+    exit 0
+fi
+if [ "$1" = "-n" ]; then
+    shift
+fi
+exec "$@"
+EOF
+    chmod +x "$MOCK_DIR/sudo"
+
+    run_tailscale_module "mod_update"
+    assert_success
+    run grep "tailscale set --ssh" "$MOCK_LOG"
+    assert_success
+}
+
+@test "tailscale: skips ssh until the machine is connected" {
+    cat > "$MOCK_DIR/tailscale" <<'EOF'
+#!/bin/sh
+if [ "$1" = "version" ]; then
+    echo "1.0.0"
+    exit 0
+fi
+if [ "$1" = "status" ]; then
+    exit 1
+fi
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/tailscale"
+
+    run_tailscale_module "mod_update"
+    assert_success
+    run grep "$(printf 'skipped\tssh\twaiting for login')" "$MOD_ITEMS_FILE"
+    assert_success
+}
+
 @test "tailscale: mod_status succeeds when tailscale is installed" {
     mkdir -p "$MOCK_DIR"
     cat > "$MOCK_DIR/tailscale" <<'EOF'
@@ -101,12 +171,37 @@ if [ "$1" = "version" ]; then
     echo "1.0.0"
     exit 0
 fi
+if [ "$1" = "status" ]; then
+    exit 1
+fi
 exit 0
 EOF
     chmod +x "$MOCK_DIR/tailscale"
 
     run_tailscale_module "mod_status"
     assert_success
+}
+
+@test "tailscale: mod_status fails when connected without ssh" {
+    cat > "$MOCK_DIR/tailscale" <<'EOF'
+#!/bin/sh
+if [ "$1" = "version" ]; then
+    echo "1.0.0"
+    exit 0
+fi
+if [ "$1" = "status" ]; then
+    exit 0
+fi
+if [ "$1" = "debug" ]; then
+    echo '{"RunSSH": false}'
+    exit 0
+fi
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/tailscale"
+
+    run_tailscale_module "mod_status"
+    assert_failure
 }
 
 @test "tailscale: mod_status fails when tailscale is missing" {

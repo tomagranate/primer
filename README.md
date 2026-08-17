@@ -397,9 +397,10 @@ must exist, `*_status` detects whether the account is already logged in,
 `*_command` starts the login flow. Interactive steps stay in the Primer pane
 by default. Set `*_mode = terminal` to pause Primer and use the terminal.
 Linux profiles also use this flow for Tailscale. After the Tailscale module
-installs the client, Primer runs `sudo -n tailscale up` when the machine is not
-connected and then `sudo -n tailscale set --operator="$USER"` so local tools such
-as T3 Code can configure Tailscale Serve without requiring sudo.
+installs the client, Primer runs `sudo -n tailscale up --ssh` when the machine
+is not connected and then `sudo -n tailscale set --operator="$USER" --ssh`.
+That enables Tailscale SSH on the box and lets local tools such as T3 Code
+configure Tailscale Serve without requiring sudo.
 
 ```ini
 [logins]
