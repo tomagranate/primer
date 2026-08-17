@@ -25,10 +25,8 @@ After the initial setup, `primer` is installed to `~/bin/`:
 primer <command> [options]
 ```
 
-The managed Zsh configuration wraps `primer update` so that, after a successful
-update, the current shell immediately re-sources `~/.zshrc`. New PATH entries,
-functions, aliases, and runtime activations are therefore available without
-opening another terminal. `--dry-run` and `status` never reload the shell.
+After `primer update`, open a new terminal or run `source ~/.zshrc` so PATH,
+functions, and aliases pick up any managed config changes.
 
 ### Commands
 

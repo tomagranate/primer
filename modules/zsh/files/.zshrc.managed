@@ -11,24 +11,6 @@ path=(
   $path
 )
 
-# Run updates through the executable, then apply PATH/functions/aliases to this
-# shell immediately. A child process cannot modify its parent environment, so
-# this wrapper owns the reload in the calling interactive Zsh process.
-primer() {
-  local primer_rc arg reload=false dry_run=false
-  for arg in "$@"; do
-    [[ "$arg" == update ]] && reload=true
-    [[ "$arg" == --dry-run ]] && dry_run=true
-  done
-
-  command primer "$@"
-  primer_rc=$?
-  if (( primer_rc == 0 )) && $reload && ! $dry_run; then
-    source "${ZDOTDIR:-$HOME}/.zshrc"
-  fi
-  return $primer_rc
-}
-
 # ------- Zim Setup -------
 
 # Initialize zim
