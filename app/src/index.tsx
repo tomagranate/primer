@@ -14,7 +14,7 @@ import { detectProfile, loadNodes, resolvePrimerDir } from "./config";
 import { Engine, type EngineNode } from "./engine";
 import { shouldPrintLogs } from "./headless-output";
 import { runModuleStatus } from "./module-status";
-import { resetTerminal, shutdownRenderer } from "./terminal-lifecycle";
+import { createTerminalRestorer, shutdownRenderer } from "./terminal-lifecycle";
 
 interface Args {
   command: string;
@@ -154,6 +154,7 @@ async function runUpdate(args: Args): Promise<never> {
   engine["opts"].resumeUI = () => renderer.resume();
 
   const root = createRoot(renderer);
+  const restoreTerminal = createTerminalRestorer();
 
   let quitting = false;
   const quit = async () => {
@@ -167,7 +168,7 @@ async function runUpdate(args: Args): Promise<never> {
     // its own teardown covers, plus grapheme clustering (2027) which it
     // leaves set. Then drain in-flight terminal query responses for a beat
     // so they land here, not in the shell after we exit.
-    resetTerminal();
+    restoreTerminal();
     const discard = () => { /* swallow stray query responses */ };
     try { process.stdin.on("data", discard); process.stdin.resume(); } catch { /* ok */ }
     setTimeout(() => {
@@ -188,7 +189,7 @@ async function runUpdate(args: Args): Promise<never> {
   process.once("SIGTERM", handleSignal);
   process.once("SIGQUIT", handleSignal);
   process.once("exit", () => {
-    resetTerminal();
+    restoreTerminal();
     engine.cleanup();
   });
 
