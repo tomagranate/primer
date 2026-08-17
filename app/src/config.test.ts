@@ -105,6 +105,8 @@ github_command = gh auth login
       label: "1Password",
       deps: ["1password"],
     });
+    expect(result.find((node) => node.id === "interactive:onepassword")?.config.status)
+      .toContain("length > 0");
     expect(result.find((node) => node.id === "interactive:github")?.deps)
       .toEqual(["ssh", "git", "dnf", "interactive:onepassword"]);
     expect(result.find((node) => node.id === "kde-desktop-settings")?.needsSudo).toBe(true);
