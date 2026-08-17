@@ -47,7 +47,7 @@ run_flatpak_module() {
     run_flatpak_module "mod_update"
     assert_success
     assert_output --partial "flatpak remote-add --if-not-exists flathub"
-    assert_output --partial "flatpak install -y flathub com.spotify.Client com.discordapp.Discord"
+    assert_output --partial "sudo flatpak install -y flathub com.spotify.Client com.discordapp.Discord"
 }
 
 @test "flatpak: wet run configures remote through sudo and installs apps" {
@@ -75,6 +75,8 @@ EOF
     run grep "flatpak remote-add --if-not-exists flathub" "$MOCK_LOG"
     assert_success
     run grep "flatpak install -y flathub com.spotify.Client com.discordapp.Discord" "$MOCK_LOG"
+    assert_success
+    run grep "sudo -n flatpak install -y flathub com.spotify.Client com.discordapp.Discord" "$MOCK_LOG"
     assert_success
 }
 
