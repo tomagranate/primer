@@ -158,7 +158,7 @@ does not configure shared NTFS libraries, Steam accounts, or BIOS settings.
 The Fedora profile installs the 1Password desktop app and CLI from 1Password's
 official RPM repository. A later interactive step launches the app, asks you to
 sign in, and links the CLI with **Settings > Developer > Integrate with
-1Password CLI**. GitHub CLI login waits until that step finishes.
+1Password CLI**. GitHub CLI login and Tailscale login wait until that step finishes.
 
 ### T3 Code remote access
 
@@ -297,7 +297,7 @@ PRIMER_PROFILE=ubuntu-desktop primer status
 PRIMER_PROFILE=fedora-kde primer status
 ```
 
-Linux profiles install Tailscale through its official Linux installer. Ubuntu profiles use GitHub's official APT repository for GitHub CLI. Fedora uses its `gh` package. The Fedora KDE profile enables the COPR repositories listed by Ghostty, keyd, and Helium. That profile also installs 1Password and 1Password CLI from 1Password's official RPM repository. GitHub CLI login waits until the 1Password login finishes.
+Linux profiles install Tailscale through its official Linux installer. Ubuntu profiles use GitHub's official APT repository for GitHub CLI. Fedora uses its `gh` package. The Fedora KDE profile enables the COPR repositories listed by Ghostty, keyd, and Helium. That profile also installs 1Password and 1Password CLI from 1Password's official RPM repository. GitHub CLI login and Tailscale login wait until the 1Password login finishes.
 
 ## Configuration
 
