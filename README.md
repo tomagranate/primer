@@ -104,6 +104,7 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | **fedora-desktop-hardware** | dnf | Configures NVIDIA, `s2idle`, USB wake rules, sleep diagnostics, and the Xwayland Video Bridge workaround for Fedora KDE |
 | **fedora-gaming** | fedora-desktop-hardware | Installs native Steam, controller rules, GameMode, MangoHud, Gamescope, and Vulkan tools |
 | **flatpak** | apt / dnf | Installs explicitly configured Flatpak apps |
+| **chatgpt** | apt / dnf | Installs the ChatGPT desktop app from OpenAI's native Linux package |
 | **1password** | dnf | Installs 1Password and 1Password CLI from 1Password's official RPM repository |
 | **google-chrome** | apt / dnf | Installs Google Chrome from Google's native Linux package |
 | **helium-browser** | apt | Installs Helium Browser from the official Linux apt repository |
