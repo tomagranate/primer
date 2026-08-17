@@ -129,22 +129,6 @@ EOF
     assert_failure
 }
 
-@test "zsh: ubuntu-desktop profile writes zshrc addendum" {
-    export PRIMER_PROFILE=ubuntu-desktop
-    mkdir -p "$TEST_HOME/.zim"
-    touch "$TEST_HOME/.zim/zimfw.zsh"
-
-    zsh_run_module zsh "mod_update"
-    assert_success
-
-    run grep -q "PRIMER MANAGED START (modules/zsh/files/zshrc-addenda/ubuntu-desktop.zsh)" "$TEST_HOME/.zshrc"
-    assert_success
-    run grep -q "bindkey '\\^W' backward-kill-word" "$TEST_HOME/.zshrc"
-    assert_success
-    run grep -q "bindkey '\\\\ew' backward-kill-line" "$TEST_HOME/.zshrc"
-    assert_failure
-}
-
 @test "zsh: fedora-kde profile writes zshrc addendum" {
     export PRIMER_PROFILE=fedora-kde
     mkdir -p "$TEST_HOME/.zim"
@@ -169,8 +153,6 @@ EOF
 
     run grep -q "PRIMER MANAGED START (modules/zsh/files/zshrc-addenda/mac.zsh)" "$TEST_HOME/.zshrc"
     assert_success
-    run grep -q "zshrc-addenda/ubuntu-desktop.zsh" "$TEST_HOME/.zshrc"
-    assert_failure
     run grep -q "bindkey '\\^W' backward-kill-word" "$TEST_HOME/.zshrc"
     assert_failure
     run grep -q "bindkey '\\\\ew' backward-kill-line" "$TEST_HOME/.zshrc"
@@ -178,7 +160,7 @@ EOF
 }
 
 @test "zsh: mod_status fails when profile zshrc addendum is drifted" {
-    export PRIMER_PROFILE=ubuntu-desktop
+    export PRIMER_PROFILE=fedora-kde
     mkdir -p "$TEST_HOME/.zim"
     touch "$TEST_HOME/.zim/zimfw.zsh"
     zsh_run_module zsh "mod_update"

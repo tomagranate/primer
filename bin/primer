@@ -205,7 +205,7 @@ Flags:
   --dry-run         Preview changes without applying them (update only)
   --skip <module>   Skip a module by name; repeatable (update only)
   --only <module>   Run only this module; repeatable (update only)
-  --profile <name>  Force profile: mac, linux-vps, ubuntu-desktop, fedora-kde
+  --profile <name>  Force profile: mac, linux-vps, fedora-kde
   --log             Force plain log output
   --help            Show this help message
 
@@ -330,33 +330,12 @@ primer::os_release_value() {
     ' "$file"
 }
 
-primer::linux_desktop() {
-    local desktop="${XDG_CURRENT_DESKTOP:-${DESKTOP_SESSION:-}}"
-    [[ -n "$desktop" ]]
-}
-
 primer::linux_vps_signal() {
     local id="${1:l}" id_like="${2:l}"
     if [[ "$id" == debian || "$id" == ubuntu || "$id_like" == *debian* || "$id_like" == *ubuntu* ]]; then
         [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" && -z "${XDG_CURRENT_DESKTOP:-}" ]] && return 0
     fi
     return 1
-}
-
-primer::prompt_linux_profile() {
-    local input="/dev/stdin" answer
-    [[ ! -t 0 ]] && input="/dev/tty"
-
-    print "" >/dev/tty
-    print "Primer could not safely infer this Linux machine's profile." >/dev/tty
-    print -n "Use linux-vps? [Y/n] " >/dev/tty
-    IFS= read -r answer < "$input" || answer=""
-    answer="${answer:l}"
-    case "$answer" in
-        ""|y|yes) print linux-vps ;;
-        n|no) print ubuntu-desktop ;;
-        *) print linux-vps ;;
-    esac
 }
 
 primer::detect_profile() {
@@ -391,20 +370,12 @@ primer::detect_profile() {
                 print fedora-kde
                 return 0
             fi
-            if [[ "${id:l}" == ubuntu ]] && primer::linux_desktop; then
-                print ubuntu-desktop
-                return 0
-            fi
             if primer::linux_vps_signal "$id" "$id_like"; then
                 print linux-vps
                 return 0
             fi
-            if primer::has_prompt_tty; then
-                primer::prompt_linux_profile
-                return 0
-            fi
             print "Could not infer Linux profile non-interactively." >&2
-            print "Run with --profile linux-vps, --profile ubuntu-desktop, or --profile fedora-kde." >&2
+            print "Run with --profile linux-vps or --profile fedora-kde." >&2
             return 1
             ;;
         *)

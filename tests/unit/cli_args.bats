@@ -108,7 +108,7 @@ setup() {
     run env PRIMER_LOCAL="$PRIMER_DIR" zsh "$PRIMER_DIR/bin/primer" update --dry-run --profile bogus
     assert_failure
     assert_output --partial "Unknown profile: bogus"
-    assert_output --partial "Valid profiles: fedora-kde, linux-vps, mac, ubuntu-desktop"
+    assert_output --partial "Valid profiles: fedora-kde, linux-vps, mac"
 }
 
 @test "cli: --log is accepted without a command and shows help" {
