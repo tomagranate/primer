@@ -156,9 +156,11 @@ does not configure shared NTFS libraries, Steam accounts, or BIOS settings.
 ### 1Password
 
 The Fedora profile installs the 1Password desktop app and CLI from 1Password's
-official RPM repository. A later interactive step launches the app, asks you to
-sign in, and links the CLI with **Settings > Developer > Integrate with
-1Password CLI**. GitHub CLI login and Tailscale login wait until that step finishes.
+official RPM repository. A later interactive step launches the app and waits
+in the Primer pane until you sign in and enable **Settings > Developer >
+Integrate with 1Password CLI**. GitHub CLI login and Tailscale login wait
+until that step finishes. Those logins stay in the Primer pane. They do not
+pause the terminal.
 
 ### T3 Code remote access
 
@@ -181,6 +183,10 @@ t3 pair --tailscale
 ## Architecture
 
 Each module is a **self-contained folder** that owns its config files, scripts, and install logic. Profile config is split into `configs/common.conf` plus `configs/profiles/<profile>.conf`. Primer loads the common file first, then the profile file. A profile file holds only the keys that differ from the common file.
+
+Each module process loads the current mise environment before it runs. A later
+module can therefore find tools that an earlier module just installed with mise,
+including global npm CLIs such as `t3`, without opening a new shell.
 
 The compiled TypeScript app in `app/` is the sole command and scheduling engine. CI publishes native standalone executables for macOS and Linux on ARM64 and x64; Bun is a build-time dependency and is not required on managed machines. The launcher downloads and verifies the appropriate release binary. On a terminal it renders the OpenTUI sidebar; without a TTY, or with `--log`, the same engine emits plain line output. Zsh remains only at the module boundary: the TypeScript engine runs each `modules/*/module.zsh` with helpers from `lib/module.zsh`.
 
@@ -386,11 +392,12 @@ Interactive logins are configured in `[logins]`. Logins that modules list in
 can use the account. Other logins run after installation finishes.
 `*_depends_on` names Primer modules that must complete first, `*_depends_on_logins`
 names other logins that must complete first, `*_requires` names commands that
-must exist, `*_status` detects whether the account is already logged in, and
-`*_command` starts the login flow.
+must exist, `*_status` detects whether the account is already logged in,
+`*_command` starts the login flow. Interactive steps stay in the Primer pane
+by default. Set `*_mode = terminal` to pause Primer and use the terminal.
 Linux profiles also use this flow for Tailscale. After the Tailscale module
-installs the client, Primer runs `sudo tailscale up` when the machine is not
-connected and then `sudo tailscale set --operator="$USER"` so local tools such
+installs the client, Primer runs `sudo -n tailscale up` when the machine is not
+connected and then `sudo -n tailscale set --operator="$USER"` so local tools such
 as T3 Code can configure Tailscale Serve without requiring sudo.
 
 ```ini

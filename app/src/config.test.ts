@@ -26,6 +26,27 @@ depends_on = alpha
     expect(result[1]?.deps).toEqual(["alpha"]);
   });
 
+  test("defaults interactive steps to pane mode", () => {
+    const result = nodes(`
+[logins]
+order =
+  github
+github_command = gh auth login
+`);
+    expect(result[0]?.config.mode).toBe("pane");
+  });
+
+  test("keeps an explicit terminal login mode", () => {
+    const result = nodes(`
+[logins]
+order =
+  github
+github_mode = terminal
+github_command = gh auth login
+`);
+    expect(result[0]?.config.mode).toBe("terminal");
+  });
+
   test("turns login dependencies into interactive graph nodes", () => {
     const result = nodes(`
 [tool]
@@ -107,8 +128,13 @@ github_command = gh auth login
     });
     expect(result.find((node) => node.id === "interactive:onepassword")?.config.status)
       .toContain("length > 0");
+    expect(result.find((node) => node.id === "interactive:onepassword")?.config.mode).toBe("pane");
+    expect(result.find((node) => node.id === "interactive:onepassword")?.config.command)
+      .not.toContain("read -r");
+    expect(result.find((node) => node.id === "interactive:github")?.config.mode).toBe("pane");
     expect(result.find((node) => node.id === "interactive:github")?.deps)
       .toEqual(["ssh", "git", "dnf", "interactive:onepassword"]);
+    expect(result.find((node) => node.id === "interactive:tailscale")?.config.mode).toBe("pane");
     expect(result.find((node) => node.id === "interactive:tailscale")?.deps)
       .toEqual(["tailscale", "interactive:onepassword"]);
     expect(result.find((node) => node.id === "kde-desktop-settings")?.needsSudo).toBe(true);
@@ -120,6 +146,7 @@ github_command = gh auth login
     parseConf(await readFile(join(primerDir, "configs", "common.conf"), "utf8"), config);
     parseConf(await readFile(join(primerDir, "configs", "profiles", "ubuntu-desktop.conf"), "utf8"), config);
     expect(buildNodes(config).find((node) => node.id === "kde-desktop-settings")?.needsSudo).toBe(true);
+    expect(buildNodes(config).find((node) => node.id === "interactive:tailscale")?.config.mode).toBe("pane");
   });
 });
 

@@ -163,6 +163,8 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
         setItemCursors((cursors) => ({ ...cursors, [node.id]: (current + step) % node.items.length }));
       } else if (name === "return" || isSpace) {
         openLogs(node.items[current], "summary-items");
+      } else if (name === "l") {
+        openLogs(node, "summary-items");
       } else if (name === "escape" || name === "left") {
         setScreen("summary");
       } else if (name === "q" || (name === "c" && key.ctrl)) {
@@ -174,7 +176,7 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
     if (screen === "summary") {
       if (name === "up" || name === "down") {
         setCursor((c) => (c + (name === "up" ? nodes.length - 1 : 1)) % nodes.length);
-      } else if (name === "return" || isSpace) {
+      } else if (name === "return") {
         const node = nodes[cursor];
         if (node?.items.length) {
           setItemCursors((cursors) => ({ ...cursors, [node.id]: cursors[node.id] ?? 0 }));
@@ -182,6 +184,8 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
         } else {
           openLogs(node, "summary");
         }
+      } else if (isSpace) {
+        openLogs(nodes[cursor], "summary");
       } else if (name === "escape" || name === "q" || (name === "c" && key.ctrl)) {
         onQuit();
       }
@@ -281,6 +285,9 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
   if (screen === "summary-items") {
     const node = nodes[cursor] ?? nodes[0]!;
     const selectedIndex = Math.min(itemCursors[node.id] ?? 0, Math.max(0, node.items.length - 1));
+    const bodyHeight = Math.max(3, dims.height - 2);
+    const showModuleLogs = node.logs.length > 0 || node.state === "failed";
+    const logHeight = showModuleLogs ? Math.min(8, Math.max(3, Math.floor(bodyHeight / 3))) : 0;
     return (
       <box style={{ width: "100%", height: "100%", flexDirection: "column", backgroundColor: C.surface0 }}>
         <box style={{ height: 1, backgroundColor: C.surface1, paddingLeft: 1, flexDirection: "row" }}>
@@ -291,14 +298,15 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
           <ItemLedger
             items={node.items}
             selectedIndex={selectedIndex}
-            expandedNames={[]}
+            expandedNames={node.items.filter((item) => item.state === "failed" || item.state === "running").map((item) => item.name)}
             active
-            height={Math.max(3, dims.height - 2)}
+            height={Math.max(3, bodyHeight - logHeight)}
             width={Math.max(20, dims.width - 1)}
           />
+          {logHeight > 0 && <ModuleLogTail logs={node.logs} height={logHeight} />}
         </box>
         <box style={{ height: 1, backgroundColor: C.surface1, paddingLeft: 1 }}>
-          <text fg={C.dim}>↑↓ move · ⏎/space logs · ←/esc modules · q quit</text>
+          <text fg={C.dim}>↑↓ move · ⏎/space item logs · l module logs · ←/esc modules · q quit</text>
         </box>
       </box>
     );
@@ -340,7 +348,7 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
           })}
         </box>
         <box style={{ height: 1, backgroundColor: C.surface1, paddingLeft: 1 }}>
-          <text fg={C.dim}>{`↑↓ move · ⏎/space inspect · q quit · logs ${engine.logDirectory}`}</text>
+          <text fg={C.dim}>{`↑↓ move · ⏎ inspect · space logs · q quit · logs ${engine.logDirectory}`}</text>
         </box>
       </box>
     );
@@ -350,6 +358,9 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
   const c = engine.counts();
   const interactivePane = focus.kind === "interactive" && (focus.state === "needs-user" || focus.state === "interacting");
   const tailCount = Math.max(3, dims.height - (attention ? 7 : 6));
+  const paneBodyHeight = Math.max(3, dims.height - (attention ? 5 : 4));
+  const showModuleLogs = focus.logs.length > 0 || focus.state === "failed";
+  const moduleLogHeight = showModuleLogs ? Math.min(8, Math.max(3, Math.floor(paneBodyHeight / 3))) : 0;
   const instruction = focus.kind === "interactive" ? focus.config["instruction"] : undefined;
   const selectedItemIndex = focus.items.length
     ? Math.min(itemMode ? (itemCursors[focus.id] ?? activeItemIndex(focus.items)) : activeItemIndex(focus.items), focus.items.length - 1)
@@ -426,14 +437,17 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
               <text fg={C.dim}>{`${focus.detail || focus.state}  ${elapsed(focus)}`}</text>
             </box>
             {focus.items.length > 0 ? (
-              <ItemLedger
-                items={focus.items}
-                selectedIndex={selectedItemIndex}
-                expandedNames={expandedNames}
-                active={itemMode}
-                height={Math.max(3, dims.height - (attention ? 5 : 4))}
-                width={Math.max(20, dims.width - 34)}
-              />
+              <>
+                <ItemLedger
+                  items={focus.items}
+                  selectedIndex={selectedItemIndex}
+                  expandedNames={expandedNames}
+                  active={itemMode}
+                  height={Math.max(3, paneBodyHeight - moduleLogHeight)}
+                  width={Math.max(20, dims.width - 34)}
+                />
+                {moduleLogHeight > 0 && <ModuleLogTail logs={focus.logs} height={moduleLogHeight} />}
+              </>
             ) : (
               <>
                 {focus.logs.slice(-tailCount).map((line, i) => (
@@ -457,6 +471,18 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
               : "manual (›) · ↑↓ module · →/tab items · space logs · esc follow"}
         </text>
       </box>
+    </box>
+  );
+}
+
+function ModuleLogTail({ logs, height }: { logs: string[]; height: number }) {
+  const lines = logs.slice(-Math.max(1, height));
+  return (
+    <box style={{ height, flexDirection: "column", paddingLeft: 1, border: ["top"], borderColor: C.muted }}>
+      {lines.map((line, i) => (
+        <text key={i} fg={/error|failed|not found/i.test(line) ? C.red : C.dim}>{line || " "}</text>
+      ))}
+      {logs.length === 0 && <text fg={C.dim}>no module output</text>}
     </box>
   );
 }

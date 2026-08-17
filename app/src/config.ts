@@ -117,6 +117,7 @@ export function buildNodes(cfg: RawConfig): NodeDef[] {
     for (const [k, v] of cfg.values) {
       if (k.startsWith(`logins.${name}_`)) config[k.replace(`logins.${name}_`, "")] = v;
     }
+    if (!config["mode"]) config["mode"] = "pane";
     nodes.push({
       id: interactiveId(name),
       kind: "interactive",

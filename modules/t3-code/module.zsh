@@ -1,6 +1,51 @@
 #!/bin/zsh
 # modules/t3-code -- Persistent T3 Code server over Tailscale Serve
 
+_t3_code::mise_bin() {
+    if command -v mise >/dev/null 2>&1; then
+        command -v mise
+        return 0
+    fi
+    local candidate
+    for candidate in \
+        "$HOME/.local/bin/mise" \
+        "$HOME/.mise/bin/mise" \
+        "$HOME/bin/mise" \
+        "/opt/homebrew/bin/mise" \
+        "/usr/local/bin/mise"; do
+        [[ -x "$candidate" ]] || continue
+        print -r -- "$candidate"
+        return 0
+    done
+    return 1
+}
+
+_t3_code::run() {
+    if command -v "$1" >/dev/null 2>&1; then
+        "$@"
+        return $?
+    fi
+    local mise_bin
+    mise_bin="$(_t3_code::mise_bin)" || return 127
+    "$mise_bin" exec -- "$@"
+}
+
+_t3_code::have() {
+    command -v "$1" >/dev/null 2>&1 && return 0
+    local mise_bin
+    mise_bin="$(_t3_code::mise_bin)" || return 1
+    "$mise_bin" exec -- command -v "$1" >/dev/null 2>&1
+}
+
+_t3_code::fail_items() {
+    local detail="$1" item
+    print -r -- "$detail"
+    for item in service tailscale-serve desktop-app; do
+        primer::item_update "$item" "failed" "$detail"
+        primer::item_log "$item" "$detail"
+    done
+}
+
 _t3_code::port() {
     local key="$1" fallback="$2" value
     value="$(mod_config "$key" | head -1)"
@@ -187,14 +232,15 @@ mod_update() {
 
     local command
     for command in t3 tailscale systemctl; do
-        if ! command -v "$command" >/dev/null 2>&1; then
+        if ! _t3_code::have "$command"; then
+            _t3_code::fail_items "$command not found"
             primer::status_msg "$command not found"
             return 1
         fi
     done
 
     primer::status_msg "installing service..."
-    if ! t3 service install; then
+    if ! _t3_code::run t3 service install; then
         primer::item_update "service" "failed" "service install failed"
         primer::status_msg "service install failed"
         return 1
@@ -240,10 +286,10 @@ mod_status() {
         return 1
     }
 
-    command -v t3 >/dev/null 2>&1 \
+    _t3_code::have t3 \
         && command -v tailscale >/dev/null 2>&1 \
         && command -v systemctl >/dev/null 2>&1 \
-        && t3 service status 2>/dev/null | grep -Fq "Status: installed" \
+        && _t3_code::run t3 service status 2>/dev/null | grep -Fq "Status: installed" \
         && systemctl --user is-enabled --quiet t3code.service \
         && systemctl --user is-active --quiet t3code.service \
         && _t3_code::drop_in_matches "$local_port" \
