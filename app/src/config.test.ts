@@ -88,7 +88,7 @@ github_command = gh auth login
       .toEqual(["ssh", "git", "interactive:onepassword"]);
   });
 
-  test("fedora KDE profile makes GitHub login wait for 1Password login", async () => {
+  test("fedora KDE profile makes GitHub and Tailscale logins wait for 1Password", async () => {
     const primerDir = join(import.meta.dir, "..", "..");
     const config: RawConfig = { order: [], values: new Map() };
     parseConf(await readFile(join(primerDir, "configs", "common.conf"), "utf8"), config);
@@ -109,6 +109,8 @@ github_command = gh auth login
       .toContain("length > 0");
     expect(result.find((node) => node.id === "interactive:github")?.deps)
       .toEqual(["ssh", "git", "dnf", "interactive:onepassword"]);
+    expect(result.find((node) => node.id === "interactive:tailscale")?.deps)
+      .toEqual(["tailscale", "interactive:onepassword"]);
     expect(result.find((node) => node.id === "kde-desktop-settings")?.needsSudo).toBe(true);
   });
 
