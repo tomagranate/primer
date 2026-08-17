@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import type { Engine, EngineItem, EngineNode } from "./engine";
+import { ensureVisible, listWindow } from "./list-window";
 
 // Moss theme, copied from corsa (src/lib/theme/themes.ts): deep greens with
 // a British racing green accent. Sidebar sits on surface1, content on
@@ -115,6 +116,7 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
   const [itemMode, setItemMode] = useState(false);
   const [itemCursors, setItemCursors] = useState<Record<string, number>>({});
   const [expandedItems, setExpandedItems] = useState<Record<string, string[]>>({});
+  const [summaryScroll, setSummaryScroll] = useState(0);
 
   useEffect(() => {
     const iv = setInterval(() => {
@@ -130,6 +132,16 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
   const attention = waiting.length > 0 || !!inTerminal;
   const focusIdx = follow ? followIndex(nodes) : cursor;
   const focus = nodes[focusIdx] ?? nodes[0]!;
+
+  // Summary chrome: header + counts + footer + gutter (+ spacers when tall enough).
+  const summaryCompact = dims.height < 12;
+  const summaryListHeight = Math.max(1, dims.height - (summaryCompact ? 4 : 6));
+
+  // Keep the selected module on-screen as the cursor moves or the terminal resizes.
+  useEffect(() => {
+    if (screen !== "summary") return;
+    setSummaryScroll((start) => ensureVisible(start, cursor, nodes.length, summaryListHeight));
+  }, [screen, cursor, nodes.length, summaryListHeight]);
 
   useKeyboard((key) => {
     const name = key.name ?? key.sequence;
@@ -316,6 +328,12 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
   if (screen === "summary") {
     const c = engine.counts();
     const ok = c.failed === 0 && !engine.interrupted;
+    const listStart = ensureVisible(summaryScroll, cursor, nodes.length, summaryListHeight);
+    const visibleNodes = nodes.slice(listStart, listStart + summaryListHeight);
+    const scrolled = nodes.length > summaryListHeight;
+    const rangeHint = scrolled
+      ? ` · ${listStart + 1}–${Math.min(nodes.length, listStart + summaryListHeight)}/${nodes.length}`
+      : "";
     return (
       <box style={{ width: "100%", height: "100%", flexDirection: "column", backgroundColor: C.surface0 }}>
         <box style={{ height: 1, backgroundColor: C.surface1, paddingLeft: 1, flexDirection: "row" }}>
@@ -324,15 +342,16 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
           </text>
           <text fg={C.dim}>{`  ${((Date.now() - engine.startedAt) / 1000).toFixed(0)}s${dryRun ? " · dry run" : ""}`}</text>
         </box>
-        <box style={{ height: 1 }} />
+        {!summaryCompact && <box style={{ height: 1 }} />}
         <box style={{ height: 1, flexDirection: "row", paddingLeft: 2 }}>
           <text fg={C.green}>{`✓ ${c.done} done`}</text>
           {c.failed > 0 && <text fg={C.red}>{`   ✗ ${c.failed} failed`}</text>}
           {c.skipped > 0 && <text fg={C.yellow}>{`   ○ ${c.skipped} skipped`}</text>}
         </box>
-        <box style={{ height: 1 }} />
-        <box style={{ flexGrow: 1, flexDirection: "column" }}>
-          {nodes.map((n, i) => {
+        {!summaryCompact && <box style={{ height: 1 }} />}
+        <box style={{ height: summaryListHeight, flexDirection: "column" }}>
+          {visibleNodes.map((n, offset) => {
+            const i = listStart + offset;
             const sel = i === cursor;
             const ic = icon(n);
             return (
@@ -347,8 +366,10 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
             );
           })}
         </box>
+        {/* Gutter between the last list row and the help bar */}
+        <box style={{ height: 1 }} />
         <box style={{ height: 1, backgroundColor: C.surface1, paddingLeft: 1 }}>
-          <text fg={C.dim}>{`↑↓ move · ⏎ inspect · space logs · q quit · logs ${engine.logDirectory}`}</text>
+          <text fg={C.dim}>{`↑↓ move${rangeHint} · ⏎ inspect · space logs · q quit · logs ${engine.logDirectory}`}</text>
         </box>
       </box>
     );
@@ -514,9 +535,8 @@ function ItemLedger({ items, selectedIndex, expandedNames, active, height, width
   }
   const selectedLine = Math.max(0, lines.findIndex((line) => line.kind === "item" && line.itemIndex === selectedIndex));
   const bodyHeight = Math.max(1, height - 1);
-  const maxStart = Math.max(0, lines.length - bodyHeight);
-  const start = Math.min(maxStart, Math.max(0, selectedLine - Math.floor(bodyHeight / 2)));
-  const visible = lines.slice(start, start + bodyHeight);
+  const { start, count } = listWindow(selectedLine, lines.length, bodyHeight);
+  const visible = lines.slice(start, start + count);
   const nameWidth = Math.max(10, Math.min(24, Math.floor(width * 0.38)));
   const detailWidth = Math.max(8, width - nameWidth - 9);
   const settled = items.filter((item) => item.state !== "pending" && item.state !== "running").length;
