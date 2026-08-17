@@ -22,7 +22,7 @@ export async function runModuleStatus(
   const proc = Bun.spawn([
     "zsh",
     "-c",
-    'source "${PRIMER_DIR}/lib/module.zsh"; source "${MOD_CONFIG_FILE}"; source "${MOD_DIR}/module.zsh" || exit 1; mod_status',
+    'source "${PRIMER_DIR}/lib/module.zsh"; ensure_mise; source "${MOD_CONFIG_FILE}"; source "${MOD_DIR}/module.zsh" || exit 1; mod_status',
   ], {
     stdout: "ignore",
     stderr: "ignore",

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseItemRecords } from "./engine";
+import { inheritModuleFailure, parseItemRecords, type EngineItem } from "./engine";
 
 describe("item protocol", () => {
   test("keeps the initial pending items in their published order", () => {
@@ -19,5 +19,20 @@ describe("item protocol", () => {
   test("ignores incomplete records", () => {
     expect(parseItemRecords("\tpending\nmissing-state\n\n"))
       .toEqual([]);
+  });
+
+  test("failed modules stamp leftover pending items with their logs", () => {
+    const items: EngineItem[] = [
+      { name: "service", state: "pending", detail: "", logs: [] },
+      { name: "proxy", state: "done", detail: "ready", logs: ["ok"] },
+    ];
+    inheritModuleFailure(items, "t3 not found", ["starting...", "t3 not found"]);
+    expect(items[0]).toMatchObject({
+      name: "service",
+      state: "failed",
+      detail: "t3 not found",
+      logs: ["starting...", "t3 not found"],
+    });
+    expect(items[1]).toMatchObject({ name: "proxy", state: "done", detail: "ready", logs: ["ok"] });
   });
 });

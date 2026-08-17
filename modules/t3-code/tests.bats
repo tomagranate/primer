@@ -121,3 +121,14 @@ EOF
     run_t3_code_module "mod_status"
     assert_failure
 }
+
+@test "t3-code: missing t3 fails every item with a visible log" {
+    rm -f "$MOCK_DIR/t3"
+    run_t3_code_module "mod_update"
+    assert_failure
+    assert_output --partial "t3 not found"
+    run grep "$(printf 'failed\tservice\tt3 not found')" "$MOD_ITEMS_FILE"
+    assert_success
+    run grep "$(printf 'failed\ttailscale-serve\tt3 not found')" "$MOD_ITEMS_FILE"
+    assert_success
+}

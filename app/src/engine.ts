@@ -46,6 +46,15 @@ export interface EngineItem {
   logs: string[];
 }
 
+export function inheritModuleFailure(items: EngineItem[], detail: string, logs: string[]): void {
+  for (const item of items) {
+    if (item.state !== "pending") continue;
+    item.state = "failed";
+    item.detail = detail || "module failed";
+    if (item.logs.length === 0 && logs.length) item.logs.push(...logs.slice(-20));
+  }
+}
+
 export function parseItemRecords(text: string): Array<Omit<EngineItem, "logs">> {
   const records: Array<Omit<EngineItem, "logs">> = [];
   for (const record of text.split("\n")) {
@@ -303,6 +312,7 @@ export class Engine {
     await writeFile(runner, [
       "#!/bin/zsh",
       'source "${PRIMER_DIR}/lib/module.zsh"',
+      "ensure_mise",
       'source "${MOD_CONFIG_FILE}"',
       'source "${MOD_DIR}/module.zsh" || { echo "Failed to load module: ${MOD_NAME}"; exit 1; }',
       '"mod_${MOD_ACTION}"',
@@ -402,8 +412,9 @@ export class Engine {
       const text = sanitizeLine((await readFile(statusFile, "utf8")).trim());
       if (text) this.updateDetail(n, text);
     } catch { /* keep last detail */ }
-    this.settle(n, code === 0 ? "done" : "failed",
-      n.detail || (code === 0 ? "done" : "failed"));
+    const detail = n.detail || (code === 0 ? "done" : "failed");
+    if (code !== 0) inheritModuleFailure(n.items, detail, n.logs);
+    this.settle(n, code === 0 ? "done" : "failed", detail);
   }
 
   /* ── interactive execution ── */
@@ -451,8 +462,8 @@ export class Engine {
     n.detail = "signing in";
     this.opts.onEvent?.(n, "interacting");
 
-    if (n.config["mode"] === "pane") {
-      this.appendLog(n.logs, "Starting browser sign-in.");
+    if ((n.config["mode"] ?? "pane") !== "terminal") {
+      this.appendLog(n.logs, "Starting sign-in.");
       const proc = Bun.spawn(["zsh", "-c", command], {
         stdin: "ignore", stdout: "pipe", stderr: "pipe",
         env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" },

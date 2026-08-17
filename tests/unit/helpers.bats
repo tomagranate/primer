@@ -117,6 +117,48 @@ _run_deploy_scripts() {
     assert_output --partial "bun:latest"
 }
 
+# ── ensure_mise ──────────────────────────────────────────────────────────────
+
+@test "ensure_mise: prepends local bin dirs from HOME" {
+    mkdir -p "$TEST_HOME/.local/bin"
+    run zsh -c "
+        export HOME='${TEST_HOME}'
+        export PATH='/usr/bin:/bin'
+        source '${PRIMER_DIR}/lib/module.zsh'
+        print -r -- \$path[1]
+    "
+    assert_success
+    assert_output "$TEST_HOME/.local/bin"
+}
+
+@test "ensure_mise: applies mise env so first-run tool bins are on PATH" {
+    local mise_root t3_bin
+    mise_root="$TEST_HOME/mise-root"
+    t3_bin="$TEST_HOME/mise-node/bin"
+    mkdir -p "$mise_root" "$t3_bin"
+    cat > "$mise_root/mise" <<EOF
+#!/bin/sh
+if [ "\$1" = env ]; then
+    printf "export PATH='%s:\$PATH'\\n" "$t3_bin"
+    exit 0
+fi
+exit 1
+EOF
+    cat > "$t3_bin/t3" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+    chmod +x "$mise_root/mise" "$t3_bin/t3"
+    run zsh -c "
+        export HOME='${TEST_HOME}'
+        export PATH='${mise_root}:/usr/bin:/bin'
+        source '${PRIMER_DIR}/lib/module.zsh'
+        command -v t3
+    "
+    assert_success
+    assert_output "$t3_bin/t3"
+}
+
 @test "mod_config: returns empty for nonexistent key" {
     zsh_run_module xcode '
         result=$(mod_config nonexistent)

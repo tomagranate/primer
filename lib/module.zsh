@@ -281,6 +281,41 @@ ensure_brew() {
     fi
 }
 
+# Put mise and its tool bins on PATH. Later modules then see CLIs that an
+# earlier module just installed with `mise exec -- npm install -g`.
+ensure_mise() {
+    typeset -gU path
+    local dir mise_bin=""
+    for dir in \
+        "$HOME/bin" \
+        "$HOME/.local/bin" \
+        "$HOME/.mise/bin" \
+        "$HOME/.local/share/mise/shims"; do
+        [[ -d "$dir" ]] || continue
+        path=("$dir" $path)
+    done
+
+    if command -v mise >/dev/null 2>&1; then
+        mise_bin="$(command -v mise)"
+    else
+        for dir in \
+            "$HOME/.local/bin/mise" \
+            "$HOME/.mise/bin/mise" \
+            "$HOME/bin/mise" \
+            "/opt/homebrew/bin/mise" \
+            "/usr/local/bin/mise"; do
+            [[ -x "$dir" ]] || continue
+            mise_bin="$dir"
+            break
+        done
+    fi
+    [[ -n "$mise_bin" ]] || return 0
+
+    eval "$("$mise_bin" env -s zsh 2>/dev/null)" || true
+}
+
+ensure_mise
+
 # ── Config Helper ─────────────────────────────────────────────────────────────
 
 # Read a config key for the current module, one item per line
