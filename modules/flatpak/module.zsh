@@ -30,7 +30,7 @@ mod_update() {
 
     if [[ "$DRY_RUN" == true ]]; then
         echo "[dry-run] flatpak remote-add --if-not-exists $remote https://dl.flathub.org/repo/flathub.flatpakrepo"
-        echo "[dry-run] flatpak install -y $remote ${apps[*]}"
+        echo "[dry-run] sudo flatpak install -y $remote ${apps[*]}"
         local app
         for app in "${apps[@]}"; do
             primer::item_update "$app" "done"
@@ -45,7 +45,7 @@ mod_update() {
     fi
 
     _flatpak::run_as_root flatpak remote-add --if-not-exists "$remote" https://dl.flathub.org/repo/flathub.flatpakrepo || return 1
-    if flatpak install -y "$remote" "${apps[@]}"; then
+    if _flatpak::run_as_root flatpak install -y "$remote" "${apps[@]}"; then
         local app
         for app in "${apps[@]}"; do
             if _flatpak::installed "$app"; then
