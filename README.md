@@ -58,7 +58,9 @@ primer -h
 primer help
 ```
 
-On Linux, `agents sudo` in the agents CLI creates 12-hour sudo tickets.
+### Linux agent sudo sessions
+
+On Linux, `agents sudo` creates 12-hour sudo tickets.
 
 ### Run logs
 
