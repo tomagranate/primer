@@ -2,4 +2,7 @@
 # Ubuntu's global zshrc runs compinit before user zshrc unless this is set.
 # Zim's completion module owns compinit for Primer-managed shells.
 skip_global_compinit=1
+# Non-interactive shells (ssh commands, agent harnesses) only source .zshenv,
+# and Primer-installed CLIs like `agents` live in ~/.local/bin.
+export PATH="$HOME/.local/bin:$PATH"
 # <<< PRIMER MANAGED END (modules/zsh/files/.zshenv.managed) <<<
