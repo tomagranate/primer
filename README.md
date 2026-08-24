@@ -60,25 +60,7 @@ primer help
 
 ### Linux agent sudo sessions
 
-Linux profiles install `agents-sudo` in `~/bin`.
-Run it in an interactive terminal before privileged agent work:
-
-```sh
-agents-sudo
-```
-
-The command installs `/etc/sudoers.d/agents-session`.
-It creates a global sudo ticket with a 12-hour timeout.
-
-Check or end the session with these commands:
-
-```sh
-agents-sudo --status
-agents-sudo --revoke
-agents-sudo --remove
-```
-
-`--revoke` ends the ticket. `--remove` also deletes the shared sudo policy.
+On Linux, `agents sudo` creates 12-hour sudo tickets.
 
 ### Run logs
 
@@ -96,7 +78,6 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | Module | Depends On | What It Does |
 | --- | --- | --- |
 | **apt** | -- | Installs configured Debian/Ubuntu packages for VPS profiles |
-| **agents-sudo** | -- | Installs the Linux `agents-sudo` command for shared 12-hour sudo sessions |
 | **dnf** | -- | Installs Fedora packages in DNF5 batches and publishes live package results |
 | **fedora-desktop-hardware** | dnf | Configures NVIDIA, `s2idle`, USB wake rules, sleep diagnostics, and the Xwayland Video Bridge workaround for Fedora KDE |
 | **fedora-gaming** | fedora-desktop-hardware | Installs native Steam, controller rules, GameMode, MangoHud, Gamescope, and Vulkan tools |

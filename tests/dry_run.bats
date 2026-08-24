@@ -14,7 +14,6 @@ load 'helpers/common'
     run zsh "$PRIMER_DIR/bin/primer" update --dry-run --log --profile linux-vps
     assert_success
     assert_output --partial "APT packages"
-    assert_output --partial "Agent sudo session"
     assert_output --partial "sudo apt-get install -y"
     assert_output --partial "docker-compose-v2"
     assert_output --partial "Tailscale"
@@ -29,7 +28,6 @@ load 'helpers/common'
     run zsh "$PRIMER_DIR/bin/primer" update --dry-run --log --profile fedora-kde
     assert_success
     assert_output --partial "DNF packages"
-    assert_output --partial "Agent sudo session"
     assert_output --partial "sudo dnf5 -y --color=never install dnf5-plugins"
     assert_output --partial "sudo dnf5 -y --color=never copr enable scottames/ghostty"
     assert_output --partial "sudo dnf5 -y --color=never copr enable alternateved/keyd"
