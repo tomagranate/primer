@@ -211,7 +211,8 @@ github_command = gh auth login
     expect(fedora.find((node) => node.id === "caddy")?.config["caddy.dns_names"])
       .toBe("\nt3.{machine}.tomagranate.com");
     expect(vps.find((node) => node.id === "caddy")?.deps)
-      .toEqual(["tailscale", "mise", "agents", "interactive:tailscale", "interactive:agents-sudo"]);
+      .toEqual(["tailscale", "mise", "interactive:tailscale"]);
+    expect(vps.some((node) => node.id === "interactive:agents-sudo")).toBe(false);
   });
 
   test("selects Plans and Basil addons and appends their owned routes", async () => {

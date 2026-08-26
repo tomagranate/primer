@@ -242,7 +242,13 @@ _t3_code::install_route() {
 }
 
 _t3_code::route_ready() {
-    _t3_code::root "$(_t3_code::route_helper)" status t3-code
+    local local_port="$1" temp
+    temp="$(mktemp)" || return 1
+    _t3_code::route_contents "$local_port" >"$temp" || { rm -f "$temp"; return 1; }
+    _t3_code::root "$(_t3_code::route_helper)" status t3-code "$temp"
+    local rc=$?
+    rm -f "$temp"
+    return "$rc"
 }
 
 mod_update() {
@@ -321,7 +327,7 @@ mod_status() {
         && systemctl --user is-enabled --quiet t3code.service \
         && systemctl --user is-active --quiet t3code.service \
         && _t3_code::drop_in_matches "$local_port" \
-        && _t3_code::route_ready \
+        && _t3_code::route_ready "$local_port" \
         && _t3_code::launcher_matches || {
             primer::status_msg "service or proxy not ready"
             return 1

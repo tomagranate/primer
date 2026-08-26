@@ -14,6 +14,14 @@ valid_name() {
     [[ "$1" =~ ^[a-z0-9][a-z0-9-]*$ ]]
 }
 
+route_ready() {
+    local name="$1" source="${2:-}" target
+    valid_name "$name" || return 2
+    target="$apps_dir/$name.caddy"
+    grep -Fxq "$name" "$manifest" && [[ -f "$target" ]] || return 1
+    [[ -z "$source" ]] || { [[ -f "$source" ]] && cmp -s "$source" "$target"; }
+}
+
 read_manifest() {
     [[ -f "$manifest" ]] && sed -n '/^[a-z0-9][a-z0-9-]*$/p' "$manifest" || true
 }
@@ -158,10 +166,14 @@ case "$command" in
         reconcile_routes "$@"
         ;;
     status)
-        [[ $# -eq 1 ]] && valid_name "$1" && grep -Fxq "$1" "$manifest" && [[ -f "$apps_dir/$1.caddy" ]]
+        [[ $# -ge 1 && $# -le 2 ]] || {
+            echo "usage: primer-caddy-route status NAME [SOURCE]" >&2
+            exit 2
+        }
+        route_ready "$@"
         ;;
     *)
-        echo "usage: primer-caddy-route {install NAME SOURCE|reconcile [NAME...]|status NAME}" >&2
+        echo "usage: primer-caddy-route {install NAME SOURCE|reconcile [NAME...]|status NAME [SOURCE]}" >&2
         exit 2
         ;;
 esac

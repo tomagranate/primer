@@ -268,6 +268,19 @@ run_caddy_function() {
     [ "$(grep -c 'systemctl reload caddy.service' "$MOCK_LOG")" -eq 1 ]
 }
 
+@test "caddy: route status compares the generated and installed fragments" {
+    printf 'http://example.test { respond "current" }\n' > "$TEST_ROOT/route"
+    route_helper install example "$TEST_ROOT/route"
+    assert_success
+
+    route_helper status example "$TEST_ROOT/route"
+    assert_success
+
+    printf 'http://example.test { respond "changed" }\n' > "$TEST_ROOT/changed-route"
+    route_helper status example "$TEST_ROOT/changed-route"
+    assert_failure
+}
+
 @test "caddy: invalid replacement restores the last valid route without reload" {
     printf 'http://example.test { respond "ok" }\n' > "$TEST_ROOT/good"
     route_helper install example "$TEST_ROOT/good"

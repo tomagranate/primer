@@ -120,6 +120,7 @@ EOF
     assert_success
     run_t3_code_module "mod_status"
     assert_success
+    grep -E 'primer-caddy-route status t3-code /tmp/' "$MOCK_LOG"
 }
 
 @test "t3-code: status fails without the managed service settings" {

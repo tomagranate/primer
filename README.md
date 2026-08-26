@@ -339,7 +339,7 @@ launchers +=
 Primer ships three addons:
 
 - `gaming` adds the Fedora gaming module and Steam taskbar pin.
-- `plans-media` adds the private Plans and Media gateway on either Linux profile.
+- `plans-media` adds the private Plans and Media gateway on Fedora KDE.
 - `basil` adds Basil services and routes on Fedora KDE.
 
 The Caddy module reuses the Cloudflare token in `/etc/agents-infra/plans.env`

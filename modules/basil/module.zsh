@@ -166,17 +166,21 @@ mod_update() {
 }
 
 mod_status() {
-    local unit
+    local unit route
     for unit in hermes-gateway.service basil-tunnel.service basil-webhook-shim.service basil-brain-sync.timer; do
         systemctl --user is-enabled --quiet "$unit" && systemctl --user is-active --quiet "$unit" || {
             primer::status_msg "$unit not ready"
             return 1
         }
     done
+    route="$(mktemp)" || return 1
+    _basil::route_contents >"$route" || { rm -f "$route"; return 1; }
     _basil::containers_ready \
-        && _basil::root "check Basil routes" "$(_basil::route_helper)" status basil || {
+        && _basil::root "check Basil routes" "$(_basil::route_helper)" status basil "$route" || {
+            rm -f "$route"
             primer::status_msg "containers or route not ready"
             return 1
         }
+    rm -f "$route"
     primer::status_msg "Basil ready"
 }
