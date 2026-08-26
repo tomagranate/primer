@@ -1,7 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildNodes, detectLinuxProfile, parseConf, type RawConfig } from "./config";
+import {
+  availableAddons,
+  buildNodes,
+  detectLinuxProfile,
+  loadNodes,
+  parseConf,
+  type RawConfig,
+} from "./config";
 
 function nodes(text: string) {
   const config: RawConfig = { order: [], values: new Map() };
@@ -74,6 +82,14 @@ github_command = gh auth login
     expect(buildNodes(config)[0]?.label).toBe("Profile");
   });
 
+  test("appends fresh, existing, and multiline values with +=", () => {
+    const config: RawConfig = { order: [], values: new Map() };
+    parseConf("[tool]\nfresh += first\nitems = one\n", config);
+    parseConf("[tool]\nitems += two\nitems +=\n  three\n  four\n", config);
+    expect(config.values.get("tool.fresh")).toBe("first");
+    expect(config.values.get("tool.items")).toBe("one\ntwo\nthree\nfour");
+  });
+
   test("accepts digits in module names", () => {
     const result = nodes("[t3-code]\nlabel = T3 Code server\n");
     expect(result[0]).toMatchObject({ id: "t3-code", label: "T3 Code server" });
@@ -140,6 +156,74 @@ github_command = gh auth login
     expect(result.find((node) => node.id === "kde-desktop-settings")?.needsSudo).toBe(true);
   });
 
+  test("keeps desktop hardware in the base and gaming behind the addon", async () => {
+    const primerDir = join(import.meta.dir, "..", "..");
+    const base = await loadNodes(primerDir, "fedora-kde");
+    const gaming = await loadNodes(primerDir, "fedora-kde", ["gaming"]);
+    expect(base.some((node) => node.id === "fedora-desktop-hardware")).toBe(true);
+    expect(base.some((node) => node.id === "fedora-gaming")).toBe(false);
+    expect(base.find((node) => node.id === "kde-taskbar-pins")?.config["kde-taskbar-pins.launchers"])
+      .not.toContain("steam.desktop");
+    expect(gaming.some((node) => node.id === "fedora-desktop-hardware")).toBe(true);
+    expect(gaming.some((node) => node.id === "fedora-gaming")).toBe(true);
+    expect(gaming.find((node) => node.id === "kde-taskbar-pins")?.config["kde-taskbar-pins.launchers"])
+      .toContain("steam.desktop");
+  });
+
+});
+
+describe("addons", () => {
+  async function fixture(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "primer-config-"));
+    await mkdir(join(root, "configs", "profiles"), { recursive: true });
+    await mkdir(join(root, "configs", "addons"), { recursive: true });
+    await writeFile(join(root, "configs", "common.conf"), "[task]\nitems = common\n");
+    await writeFile(join(root, "configs", "profiles", "desktop.conf"), "[task]\nitems += profile\n");
+    await writeFile(join(root, "configs", "profiles", "server.conf"), "[server]\nlabel = Server\n");
+    await writeFile(join(root, "configs", "addons", "extras.conf"), `
+[addon]
+label = Extras
+description = Extra tasks.
+profiles = desktop
+
+[task]
+items +=
+  addon
+
+[extra]
+label = Extra
+depends_on = task
+`);
+    return root;
+  }
+
+  test("discovers metadata and merges applicable addons after the profile", async () => {
+    const root = await fixture();
+    try {
+      expect(await availableAddons(root)).toEqual([{
+        name: "extras",
+        label: "Extras",
+        description: "Extra tasks.",
+        profiles: ["desktop"],
+      }]);
+      const result = await loadNodes(root, "desktop", ["extras"]);
+      expect(result.map((node) => node.id)).toEqual(["task", "extra"]);
+      expect(result[0]?.config["task.items"]).toBe("common\nprofile\naddon");
+      expect(result[1]?.deps).toEqual(["task"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects unknown and inapplicable addons", async () => {
+    const root = await fixture();
+    try {
+      await expect(loadNodes(root, "desktop", ["missing"])).rejects.toThrow("Unknown addon");
+      await expect(loadNodes(root, "server", ["extras"])).rejects.toThrow("not available");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("Linux profile detection", () => {

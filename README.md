@@ -32,6 +32,8 @@ functions, and aliases pick up any managed config changes.
 
 - `update` - install/update all enabled modules (idempotent)
 - `status` - check install/health status for all enabled modules
+- `profile` - show the resolved profile, source, active addons, and available addons
+- `profile set [profile] [addon ...]` - select and save a profile and its addons
 - `help` - show help text (same as `--help`/`-h`)
 
 ### Options
@@ -40,6 +42,7 @@ functions, and aliases pick up any managed config changes.
 - `--skip <module>` - skip a module by name; repeatable (valid with `update`)
 - `--only <module>` - run only one module; repeatable (valid with `update`)
 - `--profile <name>` - force a profile; any name with a file in `configs/profiles/`, such as `mac`, `linux-vps`, or `fedora-kde`
+- `--addon <name>` - enable an addon for one run; repeatable
 - `--log` - force plain log output
 - `--help` - show help text
 - `-h` - show help text
@@ -51,8 +54,10 @@ primer update
 primer update --dry-run
 primer update --skip mac-app-store
 primer update --profile linux-vps
-primer update --profile fedora-kde
+primer update --profile fedora-kde --addon gaming
 primer status
+primer profile
+primer profile set fedora-kde gaming
 primer --help
 primer -h
 primer help
@@ -79,8 +84,8 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | --- | --- | --- |
 | **apt** | -- | Installs configured Debian/Ubuntu packages for VPS profiles |
 | **dnf** | -- | Installs Fedora packages in DNF5 batches and publishes live package results |
-| **fedora-desktop-hardware** | dnf | Configures NVIDIA, `s2idle`, USB wake rules, sleep diagnostics, and the Xwayland Video Bridge workaround for Fedora KDE |
-| **fedora-gaming** | fedora-desktop-hardware | Installs native Steam, controller rules, GameMode, MangoHud, Gamescope, and Vulkan tools |
+| **fedora-desktop-hardware** | dnf | Fedora base: configures NVIDIA, `s2idle`, USB wake rules, sleep diagnostics, and the Xwayland Video Bridge workaround |
+| **fedora-gaming** | fedora-desktop-hardware | Gaming addon: installs native Steam, controller rules, GameMode, MangoHud, Gamescope, and Vulkan tools |
 | **flatpak** | apt / dnf | Installs explicitly configured Flatpak apps |
 | **chatgpt** | apt / dnf | Installs the ChatGPT desktop app from OpenAI's native Linux package |
 | **1password** | dnf | Installs 1Password and 1Password CLI from 1Password's official RPM repository |
@@ -113,7 +118,7 @@ Its USB wake rules target AMD B550 controller `1022:43ee` and Logitech receiver 
 
 ### Fedora gaming
 
-The Fedora profile installs native Steam from RPM Fusion. It also installs
+The Fedora `gaming` addon installs native Steam from RPM Fusion. It also installs
 32-bit GameMode and MangoHud libraries for older games. Primer tests GameMode
 and hardware Vulkan before it reports the gaming stack as ready. Primer adds
 the desktop user to Fedora's `gamemode` group for privileged tuning.
@@ -128,7 +133,7 @@ gamemoderun %command%
 mangohud gamemoderun %command%
 ```
 
-Keep Proton game libraries on a native Linux filesystem. The Fedora profile
+Keep Proton game libraries on a native Linux filesystem. The gaming addon
 does not configure shared NTFS libraries, Steam accounts, or BIOS settings.
 
 ### 1Password
@@ -160,7 +165,7 @@ t3 pair --tailscale
 
 ## Architecture
 
-Each module is a **self-contained folder** that owns its config files, scripts, and install logic. Profile config is split into `configs/common.conf` plus `configs/profiles/<profile>.conf`. Primer loads the common file first, then the profile file. A profile file holds only the keys that differ from the common file.
+Each module is a **self-contained folder** that owns its config files, scripts, and install logic. Profile config is split into `configs/common.conf` plus `configs/profiles/<profile>.conf`. Primer loads the common file first, then the profile file, then selected addon files. A profile file holds only the keys that differ from the common file.
 
 Each module process loads the current mise environment before it runs. A later
 module can therefore find tools that an earlier module just installed with mise,
@@ -177,7 +182,8 @@ The compiled TypeScript app in `app/` is the sole command and scheduling engine.
 │       └── ui.tsx                # OpenTUI sidebar, logs, and summary screens
 ├── configs/
 │   ├── common.conf               # Shared user-level config
-│   └── profiles/                 # mac, linux-vps, and fedora-kde fragments
+│   ├── profiles/                 # mac, linux-vps, and fedora-kde fragments
+│   └── addons/                   # Optional profile-compatible overlays
 ├── lib/
 │   └── module.zsh                # Shell module runtime and status protocol
 ├── modules/
@@ -279,11 +285,61 @@ primer update --profile linux-vps
 PRIMER_PROFILE=fedora-kde primer status
 ```
 
+Primer resolves selections in this order: CLI flags, environment variables,
+the machine config, then operating system detection. `PRIMER_ADDONS` accepts a
+comma-separated addon list. Flags and environment variables are transient.
+
+When applicable addons exist, the first interactive `primer update` asks which
+ones to enable. It then writes the choice to
+`${XDG_CONFIG_HOME:-~/.config}/primer/machine.conf`.
+A headless update or `primer status` never writes this file. They use no addons
+on a first run and print a hint to run `primer profile set`.
+
+```ini
+# Written by primer. Edit by hand or run: primer profile set
+[machine]
+profile = fedora-kde
+addons = gaming
+```
+
+Use `primer profile set` to reopen the addon picker for the current profile.
+You can also set all names without a prompt:
+
+```sh
+primer profile set fedora-kde gaming
+```
+
+Primer lists modules that leave its management after a selection change.
+Primer does not uninstall those modules. Remove them manually if needed.
+
+### Addons
+
+An addon is an additive config overlay in `configs/addons/`. Its `[addon]`
+section names the compatible profiles. Primer validates every selected addon.
+
+```ini
+[addon]
+label = Gaming
+description = Steam, GameMode, MangoHud, Gamescope, and the Steam pin.
+profiles = fedora-kde
+
+[kde-taskbar-pins]
+launchers +=
+    applications:steam.desktop
+```
+
+Primer ships the `gaming` addon for `fedora-kde`. It adds the Fedora gaming
+module and the Steam taskbar pin. Desktop hardware and Sunshine stay in the
+base Fedora profile.
+
 Linux profiles install Tailscale through its official Linux installer. The VPS profile uses GitHub's official APT repository for GitHub CLI. Fedora uses its `gh` package. The Fedora KDE profile enables the COPR repositories for Ghostty, keyd, Helium, and Sunshine. That profile also installs 1Password and 1Password CLI from 1Password's official RPM repository. GitHub CLI login and Tailscale login wait until the 1Password login finishes.
 
 ## Configuration
 
-Module settings live in `configs/common.conf` and `configs/profiles/*.conf`. Each `[section]` activates a module. Remove a section from the selected profile/common config to disable it. Indented lines continue the previous key's value.
+Module settings live in `configs/common.conf`, `configs/profiles/*.conf`, and
+`configs/addons/*.conf`. Each module section activates a module. Indented lines
+continue the previous key's value. A later `key = value` replaces the value.
+Use `key += value` to append with a newline.
 
 ```ini
 [homebrew]
