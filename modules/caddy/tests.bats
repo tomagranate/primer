@@ -291,6 +291,22 @@ run_caddy_function() {
     assert_failure
 }
 
+@test "caddy: tailnet changes preserve a gateway restart requirement" {
+    mkdir -p "$TEST_ROOT/usr/local/libexec"
+    cat > "$TEST_ROOT/usr/local/libexec/primer-caddy-tailnet" <<'EOF'
+#!/bin/sh
+mkdir -p "$TEST_ROOT/etc/caddy" "$TEST_ROOT/run/caddy"
+printf 'new binding\n' > "$TEST_ROOT/etc/caddy/tailnet.caddy"
+printf 'TAILSCALE_HOSTNAME=new.example.ts.net\n' > "$TEST_ROOT/run/caddy/tailnet.env"
+EOF
+    chmod +x "$TEST_ROOT/usr/local/libexec/primer-caddy-tailnet"
+
+    run_caddy_function '_caddy::tailnet_ready() { return 1; }; _caddy::refresh_tailnet'
+
+    assert_success
+    [ -f "$TEST_ROOT/var/lib/caddy/primer-gateway-restart-required" ]
+}
+
 @test "caddy: creates DNS-only A and AAAA records for each private host" {
     mkdir -p "$TEST_ROOT/etc/caddy/env.d"
     printf '%s\n' \

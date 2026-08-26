@@ -139,6 +139,8 @@ run_module() {
     chmod 0600 "$repo/deploy/infra/tunnel.env" "$repo/deploy/infra/webhook-shim.env"
     run_module _basil::install_cloudflared
     assert_success
+    run_module _basil::reconcile_credentials
+    assert_success
     : > "$BASIL_ROOT_LOG"
 
     run_module '_basil::root() { return 99; }; mod_status'
@@ -198,6 +200,25 @@ run_module() {
 
     assert_success
     grep -Fx "systemctl --user restart basil-tunnel.service" "$MOCK_LOG"
+}
+
+@test "basil: restarts an active service when its credential changes" {
+    repo="$TEST_HOME/code/basil"
+    mkdir -p "$repo/deploy/infra"
+    printf 'tunnel-one\n' > "$repo/deploy/infra/tunnel.env"
+    printf 'webhook-one\n' > "$repo/deploy/infra/webhook-shim.env"
+    chmod 0600 "$repo/deploy/infra/tunnel.env" "$repo/deploy/infra/webhook-shim.env"
+    run_module _basil::reconcile_credentials
+    assert_success
+    : > "$MOCK_LOG"
+
+    printf 'tunnel-two\n' > "$repo/deploy/infra/tunnel.env"
+    run_module _basil::reconcile_credentials
+
+    assert_success
+    grep -Fx "systemctl --user restart basil-tunnel.service" "$MOCK_LOG"
+    run grep -Fx "systemctl --user restart basil-webhook-shim.service" "$MOCK_LOG"
+    assert_failure
 }
 
 @test "basil: verifies linger and Docker boot settings" {

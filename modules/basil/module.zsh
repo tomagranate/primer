@@ -101,10 +101,35 @@ _basil::required_credentials() {
 }
 
 _basil::credentials_ready() {
-    local repo="$(_basil::repo)" file
+    local repo="$(_basil::repo)" state_dir="$(_basil::config_dir)/credentials" file name digest
     for file in deploy/infra/tunnel.env deploy/infra/webhook-shim.env; do
         [[ -s "$repo/$file" ]] \
             && [[ "$(stat -c %a "$repo/$file" 2>/dev/null)" == 600 ]] || return 1
+        name="${file:t:r}"
+        digest="$(sha256sum "$repo/$file" 2>/dev/null | awk '{print $1}')" || return 1
+        [[ -n "$digest" && -f "$state_dir/$name.sha256" ]] \
+            && [[ "$(<"$state_dir/$name.sha256")" == "$digest" ]] || return 1
+    done
+}
+
+_basil::reconcile_credentials() {
+    local repo="$(_basil::repo)" state_dir="$(_basil::config_dir)/credentials"
+    local file name unit digest state temp
+    mkdir -p "$state_dir" || return 1
+    for file in deploy/infra/tunnel.env deploy/infra/webhook-shim.env; do
+        name="${file:t:r}"
+        unit="basil-$name.service"
+        state="$state_dir/$name.sha256"
+        digest="$(sha256sum "$repo/$file" | awk '{print $1}')" || return 1
+        if [[ ! -f "$state" || "$(<"$state")" != "$digest" ]]; then
+            if systemctl --user is-active --quiet "$unit"; then
+                systemctl --user restart "$unit" || return 1
+            fi
+            temp="$(mktemp "$state_dir/.$name.XXXXXX")" || return 1
+            print -r -- "$digest" > "$temp"
+            chmod 0600 "$temp" || { rm -f "$temp"; return 1; }
+            mv -f "$temp" "$state" || { rm -f "$temp"; return 1; }
+        fi
     done
 }
 
@@ -218,6 +243,7 @@ mod_update() {
     _basil::install_cloudflared || return 1
     _basil::required_sources && _basil::required_credentials || return 1
     _basil::install_units || return 1
+    _basil::reconcile_credentials || return 1
     _basil::root "enable Basil user services at boot" loginctl enable-linger "${USER:-$LOGNAME}" || return 1
     _basil::enable_services || return 1
     primer::item_update gateway done

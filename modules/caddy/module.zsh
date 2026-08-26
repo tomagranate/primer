@@ -413,6 +413,24 @@ _caddy::tailnet_ready() {
         "$(_caddy::root_path /usr/local/libexec/primer-caddy-tailnet)" status
 }
 
+_caddy::tailnet_fingerprint() {
+    local file
+    for file in \
+        "$(_caddy::root_path /etc/caddy/tailnet.caddy)" \
+        "$(_caddy::root_path /run/caddy/tailnet.env)"; do
+        [[ -f "$file" ]] && sha256sum "$file" || print -r -- "missing $file"
+    done
+}
+
+_caddy::refresh_tailnet() {
+    local before after
+    before="$(_caddy::tailnet_fingerprint)"
+    _caddy::root "$(_caddy::root_path /usr/local/libexec/primer-caddy-tailnet)" || return 1
+    after="$(_caddy::tailnet_fingerprint)"
+    # Keep the restart requirement if a later validation or migration step fails.
+    [[ "$before" == "$after" ]] || _caddy::mark_restart gateway
+}
+
 _caddy::desired_routes() {
     mod_config routes
 }
@@ -843,7 +861,7 @@ mod_update() {
         _caddy::root systemctl restart tailscaled.service || return 1
         _caddy::clear_restart tailscale || return 1
     fi
-    _caddy::root "$(_caddy::root_path /usr/local/libexec/primer-caddy-tailnet)" || return 1
+    _caddy::refresh_tailnet || return 1
     _caddy::stage_migration_routes || return 1
     _caddy::root systemctl start --wait caddy-validate.service || return 1
     _caddy::check_listener_migration || return 1

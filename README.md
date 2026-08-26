@@ -342,11 +342,11 @@ Primer ships three addons:
 - `plans-media` adds the private Plans and Media gateway on Fedora KDE.
 - `basil` adds Basil services and routes on Fedora KDE.
 
-The Caddy module reuses the Cloudflare token in `/etc/agents-infra/plans.env`
-when it exists. On a new machine, Primer uses the Cloudflare Token Minter in
-the 1Password `Agents` vault. It creates one token for that machine. The token
-has Zone Read and DNS Write access only for `tomagranate.com`. Primer stores it
-only in the root-owned mode `0600` Caddy environment file.
+The Caddy module replaces any Cloudflare token in
+`/etc/agents-infra/plans.env`. Primer uses the Cloudflare Token Minter in the
+1Password `Agents` vault. It creates one token for that machine. The token has
+Zone Read and DNS Write access only for `tomagranate.com`. Primer stores it only
+in the root-owned mode `0600` Caddy environment file.
 
 The Plans addon also reuses its gate secret from the legacy file. Set
 `plans-media.gate_secret_ref` when the file does not exist. Primer never stores
