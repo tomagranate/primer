@@ -357,6 +357,22 @@ _caddy::definitions_ready() {
     done
 }
 
+_caddy::routes_ready() {
+    local manifest desired actual route
+    manifest="$(_caddy::root_path /etc/caddy/primer-routes)"
+    [[ -f "$manifest" ]] || return 1
+    desired="$(_caddy::desired_routes | sed '/^$/d' | sort -u)"
+    actual="$(sed -n '/^[a-z0-9][a-z0-9-]*$/p' "$manifest" | sort -u)"
+    [[ "$actual" == "$desired" ]] || return 1
+    while IFS= read -r route; do
+        [[ -n "$route" ]] || continue
+        CADDY_CONFIG_DIR="$(_caddy::root_path /etc/caddy)" \
+        CADDY_APPS_DIR="$(_caddy::root_path /etc/caddy/apps.d)" \
+        CADDY_ROUTE_MANIFEST="$manifest" \
+            "$(_caddy::route_helper)" status "$route" || return 1
+    done <<< "$desired"
+}
+
 _caddy::desired_routes() {
     mod_config routes
 }
@@ -814,16 +830,9 @@ mod_status() {
         primer::status_msg "Cloudflare DNS records need update"
         return 1
     fi
-    local route
-    while IFS= read -r route; do
-        [[ -n "$route" ]] || continue
-        CADDY_CONFIG_DIR="$(_caddy::root_path /etc/caddy)" \
-        CADDY_APPS_DIR="$(_caddy::root_path /etc/caddy/apps.d)" \
-        CADDY_ROUTE_MANIFEST="$(_caddy::root_path /etc/caddy/primer-routes)" \
-            "$(_caddy::route_helper)" status "$route" || {
-            primer::status_msg "route missing: $route"
-            return 1
-        }
-    done < <(_caddy::desired_routes)
+    _caddy::routes_ready || {
+        primer::status_msg "routes need update"
+        return 1
+    }
     primer::status_msg "gateway ready"
 }

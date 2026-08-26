@@ -383,6 +383,12 @@ EOF
     run grep -F 'sudo ' "$MOCK_LOG"
     assert_failure
 
+    printf 'stale-addon\n' >> "$TEST_ROOT/etc/caddy/primer-routes"
+    printf 'stale route\n' > "$TEST_ROOT/etc/caddy/apps.d/stale-addon.caddy"
+    run_caddy_function mod_status
+    assert_failure
+    printf 't3-code\n' > "$TEST_ROOT/etc/caddy/primer-routes"
+
     printf 'drift\n' >> "$TEST_ROOT/etc/systemd/system/caddy.service"
     run_caddy_function mod_status
     assert_failure
