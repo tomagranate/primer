@@ -556,6 +556,19 @@ _caddy::plans_migration_needed() {
 }
 
 _caddy::serve_migration_needed() {
+    local serve_port serve_target serve_status
+    serve_port="$(mod_config migrate_tailscale_serve_port | head -1)"
+    serve_target="$(mod_config migrate_tailscale_serve_target | head -1)"
+    [[ -n "$serve_port" ]] || return 1
+    serve_status="$(tailscale serve status --json 2>/dev/null)" || return 1
+    print -r -- "$serve_status" | jq -e --arg port "$serve_port" --arg target "$serve_target" \
+        '.TCP[$port] != null and
+         ([.Web | to_entries[]? |
+           select(.key | endswith(":" + $port)) |
+           .value.Handlers["/"].Proxy] == [$target])' >/dev/null 2>&1
+}
+
+_caddy::serve_port_present() {
     local serve_port serve_status
     serve_port="$(mod_config migrate_tailscale_serve_port | head -1)"
     [[ -n "$serve_port" ]] || return 1
@@ -575,6 +588,11 @@ _caddy::check_listener_migration() {
     if $plans_managed && ! $plans_selected; then
         print "Legacy plans.service is active, but the plans-media addon is not selected." >&2
         print "Select plans-media before Primer migrates the Plans listener." >&2
+        return 1
+    fi
+    if _caddy::serve_port_present && ! _caddy::serve_migration_needed; then
+        print "Tailscale Serve port $(mod_config migrate_tailscale_serve_port | head -1) does not target $(mod_config migrate_tailscale_serve_target | head -1)." >&2
+        print "Primer will not replace an unrelated listener." >&2
         return 1
     fi
 }
@@ -642,7 +660,7 @@ _caddy::stage_migration_routes() {
 }
 
 _caddy::migrate_listeners() {
-    local serve_port serve_target serve_status plans_present=false plans_selected=false
+    local serve_port serve_target plans_present=false plans_selected=false
     _CADDY_MIGRATED_SERVE=false
     _CADDY_MIGRATED_PLANS=false
     _CADDY_PLANS_WAS_ACTIVE=false
@@ -653,17 +671,13 @@ _caddy::migrate_listeners() {
     _caddy::desired_routes | grep -Fxq plans-media && plans_selected=true
     serve_port="$(mod_config migrate_tailscale_serve_port | head -1)"
     serve_target="$(mod_config migrate_tailscale_serve_target | head -1)"
-    if [[ -n "$serve_port" ]]; then
-        serve_status="$(tailscale serve status --json 2>/dev/null || true)"
-        if print -r -- "$serve_status" | jq -e --arg port "$serve_port" \
-            '.TCP[$port] != null' >/dev/null 2>&1; then
-            [[ -n "$serve_target" ]] || {
-                print "caddy.migrate_tailscale_serve_target is required for rollback" >&2
-                return 1
-            }
-            _caddy::root tailscale serve --https="$serve_port" off || return 1
-            _CADDY_MIGRATED_SERVE=true
-        fi
+    if _caddy::serve_migration_needed; then
+        [[ -n "$serve_target" ]] || {
+            print "caddy.migrate_tailscale_serve_target is required for rollback" >&2
+            return 1
+        }
+        _caddy::root tailscale serve --https="$serve_port" off || return 1
+        _CADDY_MIGRATED_SERVE=true
     fi
     if $plans_present && $plans_selected; then
         systemctl is-active --quiet plans.service && _CADDY_PLANS_WAS_ACTIVE=true
@@ -738,6 +752,12 @@ _caddy::reconcile_routes_with_rollback() {
     return 1
 }
 
+_caddy::verify_gateway_with_rollback() {
+    _caddy::root systemctl is-active --quiet caddy.service && return 0
+    _caddy::rollback_migration
+    return 1
+}
+
 mod_update() {
     primer::items_init "binary" "configuration" "credentials" "dns" "routes" "service"
     if [[ "$DRY_RUN" == true ]]; then
@@ -794,7 +814,7 @@ mod_update() {
         return 1
     }
     primer::item_update routes done
-    _caddy::root systemctl is-active --quiet caddy.service || return 1
+    _caddy::verify_gateway_with_rollback || return 1
     primer::item_update service done
     primer::status_msg "gateway ready"
 }

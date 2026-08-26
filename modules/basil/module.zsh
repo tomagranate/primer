@@ -87,11 +87,16 @@ _basil::required_credentials() {
 
 _basil::install_units() {
     local repo="$(_basil::repo)" unit_dir="$(_basil::unit_dir)" unit
+    local -a restart_units=()
     mkdir -p "$unit_dir"
     for unit in basil-tunnel.service basil-webhook-shim.service basil-brain-sync.service basil-brain-sync.timer; do
+        if [[ ! -f "$unit_dir/$unit" ]] || ! cmp -s "$repo/deploy/$unit" "$unit_dir/$unit"; then
+            systemctl --user is-active --quiet "$unit" && restart_units+=("$unit")
+        fi
         install -m 0644 "$repo/deploy/$unit" "$unit_dir/$unit" || return 1
     done
-    systemctl --user daemon-reload
+    systemctl --user daemon-reload || return 1
+    (( ${#restart_units[@]} == 0 )) || systemctl --user restart "${restart_units[@]}"
 }
 
 _basil::definitions_match() {

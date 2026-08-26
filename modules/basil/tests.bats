@@ -125,3 +125,19 @@ run_module() {
     run_module _basil::definitions_match
     assert_failure
 }
+
+@test "basil: restarts an active service when its unit changes" {
+    repo="$TEST_HOME/code/basil"
+    unit_dir="$TEST_HOME/.config/systemd/user"
+    mkdir -p "$repo/deploy" "$unit_dir"
+    for unit in basil-tunnel.service basil-webhook-shim.service basil-brain-sync.service basil-brain-sync.timer; do
+        printf 'unit=%s\n' "$unit" > "$repo/deploy/$unit"
+        cp "$repo/deploy/$unit" "$unit_dir/$unit"
+    done
+    printf 'changed=true\n' >> "$repo/deploy/basil-tunnel.service"
+
+    run_module _basil::install_units
+
+    assert_success
+    grep -Fx "systemctl --user restart basil-tunnel.service" "$MOCK_LOG"
+}

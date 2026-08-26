@@ -21,6 +21,9 @@ printf 'systemctl %s\n' "$*" >> "$MOCK_LOG"
 if { [ "$1" = "is-active" ] || [ "$1" = "is-enabled" ]; } && [ -e "$TEST_ROOT/plans-disabled" ]; then
     exit 1
 fi
+if [ "$1 $2 $3" = "is-active --quiet caddy.service" ] && [ -e "$TEST_ROOT/reject-health" ]; then
+    exit 1
+fi
 if [ "$1 $2" = "start --wait" ] && { [ -e "$TEST_ROOT/reject" ] || grep -Rqs INVALID "$CADDY_APPS_DIR"; }; then
     exit 1
 fi
@@ -444,7 +447,7 @@ cat > "$MOCK_DIR/tailscale" <<'EOF'
 #!/bin/sh
 printf 'tailscale %s\n' "$*" >> "$MOCK_LOG"
 case "$*" in
-    "serve status --json") printf '%s\n' '{"TCP":{"443":{"HTTPS":true}}}' ;;
+    "serve status --json") printf '%s\n' '{"TCP":{"443":{"HTTPS":true}},"Web":{"host:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:3773"}}}}}' ;;
 esac
 exit 0
 EOF
@@ -464,6 +467,26 @@ EOF
     grep -F "systemctl disable --now plans.service" "$MOCK_LOG"
 }
 
+@test "caddy: refuses to replace an unrelated Tailscale Serve target" {
+    touch "$TEST_ROOT/plans-disabled"
+    cat > "$MOCK_DIR/tailscale" <<'EOF'
+#!/bin/sh
+printf 'tailscale %s\n' "$*" >> "$MOCK_LOG"
+case "$*" in
+    "serve status --json") printf '%s\n' '{"TCP":{"443":{"HTTPS":true}},"Web":{"host:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:9999"}}}}}' ;;
+esac
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/tailscale"
+
+    run_caddy_function _caddy::check_listener_migration
+
+    assert_failure
+    assert_output --partial "will not replace an unrelated listener"
+    run grep -F "tailscale serve --https=443 off" "$MOCK_LOG"
+    assert_failure
+}
+
 @test "caddy: failed activation restores legacy listeners" {
     cat >> "$TEST_CONF" <<'EOF'
     plans-media
@@ -473,7 +496,7 @@ EOF
 #!/bin/sh
 printf 'tailscale %s\n' "$*" >> "$MOCK_LOG"
 case "$*" in
-    "serve status --json") printf '%s\n' '{"TCP":{"443":{"HTTPS":true}}}' ;;
+    "serve status --json") printf '%s\n' '{"TCP":{"443":{"HTTPS":true}},"Web":{"host:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:3773"}}}}}' ;;
 esac
 exit 0
 EOF
@@ -519,7 +542,7 @@ EOF
     cat > "$MOCK_DIR/tailscale" <<'EOF'
 #!/bin/sh
 case "$*" in
-    "serve status --json") printf '%s\n' '{"TCP":{"443":{"HTTPS":true}}}' ;;
+    "serve status --json") printf '%s\n' '{"TCP":{"443":{"HTTPS":true}},"Web":{"host:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:3773"}}}}}' ;;
 esac
 exit 0
 EOF
@@ -548,6 +571,24 @@ EOF
     chmod +x "$MOCK_DIR/tailscale"
 
     run_caddy_function '_CADDY_MIGRATED_SERVE=true; _CADDY_MIGRATED_PLANS=true; _CADDY_PLANS_WAS_ACTIVE=true; _CADDY_PLANS_WAS_ENABLED=true; _caddy::reconcile_routes_with_rollback'
+
+    assert_failure
+    grep -F "systemctl disable --now caddy.service" "$MOCK_LOG"
+    grep -F "systemctl enable plans.service" "$MOCK_LOG"
+    grep -F "systemctl start plans.service" "$MOCK_LOG"
+    grep -F "tailscale serve --bg --https=443 http://127.0.0.1:3773" "$MOCK_LOG"
+}
+
+@test "caddy: final health failure rolls back migrated listeners" {
+    touch "$TEST_ROOT/reject-health"
+    cat > "$MOCK_DIR/tailscale" <<'EOF'
+#!/bin/sh
+printf 'tailscale %s\n' "$*" >> "$MOCK_LOG"
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/tailscale"
+
+    run_caddy_function '_CADDY_MIGRATED_SERVE=true; _CADDY_MIGRATED_PLANS=true; _CADDY_PLANS_WAS_ACTIVE=true; _CADDY_PLANS_WAS_ENABLED=true; _caddy::verify_gateway_with_rollback'
 
     assert_failure
     grep -F "systemctl disable --now caddy.service" "$MOCK_LOG"
