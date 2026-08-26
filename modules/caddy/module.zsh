@@ -125,27 +125,6 @@ _caddy::lookup_zone_id() {
          if length == 1 then .[0].id else error("expected one active Cloudflare zone") end'
 }
 
-_caddy::install_cloudflare_values() {
-    local token="$1" token_id="$2" zone_id="$3" runtime temp
-    runtime="${XDG_RUNTIME_DIR:-}"
-    if [[ -z "$runtime" && -z "${CADDY_TEST_ROOT:-}" ]]; then
-        print "XDG_RUNTIME_DIR is required for secure Cloudflare token setup" >&2
-        return 1
-    fi
-    [[ -d "${runtime:-/tmp}" ]] || return 1
-    temp="$(mktemp "${runtime:-/tmp}/primer-caddy-cloudflare.XXXXXX")" || return 1
-    chmod 0600 "$temp"
-    {
-        printf 'CLOUDFLARE_API_TOKEN=%s\n' "$token"
-        [[ -n "$token_id" ]] && printf 'CLOUDFLARE_API_TOKEN_ID=%s\n' "$token_id"
-        printf 'CLOUDFLARE_ZONE_ID=%s\n' "$zone_id"
-    } >"$temp"
-    _caddy::install_cloudflare_token_file "$temp"
-    local rc=$?
-    rm -f "$temp"
-    return "$rc"
-}
-
 _caddy::mint_cloudflare_token() {
     local account_ref minter_ref account_id zone zone_id permission_response permission_id
     local zone_permission_response zone_permission_id
@@ -257,9 +236,12 @@ _caddy::cloudflare_token_matches_zone() {
 }
 
 _caddy::stored_cloudflare_token_ready() {
-    local token zone_id
+    local token token_id zone_id
     token="$(_caddy::env_value "$(_caddy::cloudflare_env)" CLOUDFLARE_API_TOKEN)" || return 1
+    token_id="$(_caddy::env_value "$(_caddy::cloudflare_env)" CLOUDFLARE_API_TOKEN_ID)" || return 1
     zone_id="$(_caddy::env_value "$(_caddy::cloudflare_env)" CLOUDFLARE_ZONE_ID)" || return 1
+    # Cloudflare token permissions are immutable. Primer only stores an ID for
+    # tokens it minted with DNS Write access, so imported tokens are replaced.
     _caddy::cloudflare_token_matches_zone "$token" "$zone_id"
 }
 
@@ -284,7 +266,7 @@ _caddy::install_cloudflare_token_file() {
 # Caddy owns the DNS token because multiple routes can use Cloudflare DNS-01.
 _caddy::install_cloudflare_token() {
     _caddy::cloudflare_required || return 0
-    local target legacy plans_env ref token token_id zone_id account_id account_ref
+    local target token_id
     target="$(_caddy::cloudflare_env)"
     if _caddy::cloudflare_token_ready && _caddy::cloudflare_zone_id_ready; then
         if _caddy::stored_cloudflare_token_ready; then
@@ -298,48 +280,7 @@ _caddy::install_cloudflare_token() {
             || print "Warning: could not remove the replaced Cloudflare token." >&2
         return 0
     fi
-
-    if _caddy::cloudflare_token_ready; then
-        token="$(_caddy::env_value "$target" CLOUDFLARE_API_TOKEN)" || return 1
-        token_id="$(_caddy::env_value "$target" CLOUDFLARE_API_TOKEN_ID 2>/dev/null || true)"
-    fi
-
-    legacy="$(mod_config legacy_cloudflare_env | head -1)"
-    plans_env="$(_caddy::root_path /etc/caddy/env.d/plans-media.env)"
-    if [[ -z "$token" ]]; then
-        for legacy in "$legacy" "$plans_env"; do
-            [[ -n "$legacy" ]] || continue
-            token="$(_caddy::env_value "$legacy" CLOUDFLARE_API_TOKEN)" || continue
-            break
-        done
-    fi
-    if [[ -z "$token" && -n "${CLOUDFLARE_API_TOKEN:-}" ]]; then
-        token="$CLOUDFLARE_API_TOKEN"
-    fi
-    if [[ -z "$token" ]]; then
-        ref="$(mod_config cloudflare_token_ref | head -1)"
-        if [[ -n "$ref" ]]; then
-            command -v op >/dev/null 2>&1 || { print "op not found" >&2; return 1; }
-            token="$(_caddy::op_read "$ref")" || return 1
-        fi
-    fi
-    if [[ -z "$token" ]]; then
-        _caddy::mint_cloudflare_token
-        return
-    fi
-    [[ "$token" != *$'\n'* ]] || return 1
-    account_ref="$(mod_config cloudflare_account_id_ref | head -1)"
-    account_id="$(_caddy::op_read "$account_ref")" || return 1
-    zone_id="$(_caddy::lookup_zone_id "$(_caddy::zone_name)" "$account_id")" || return 1
-    if ! _caddy::cloudflare_token_matches_zone "$token" "$zone_id"; then
-        unset token
-        _caddy::mint_cloudflare_token
-        return
-    fi
-    _caddy::install_cloudflare_values "$token" "$token_id" "$zone_id"
-    local rc=$?
-    unset token
-    return "$rc"
+    _caddy::mint_cloudflare_token
 }
 
 _caddy::install_binary() {
@@ -597,8 +538,10 @@ _caddy::serve_migration_needed() {
     serve_status="$(tailscale serve status --json 2>/dev/null)" || return 1
     print -r -- "$serve_status" | jq -e --arg port "$serve_port" --arg target "$serve_target" \
         '.TCP[$port] != null and
-         ([.Web | to_entries[]? |
-           select(.key | endswith(":" + $port)) |
+         ([.Web | to_entries[]? | select(.key | endswith(":" + $port))] | length == 1) and
+         ([.Web | to_entries[]? | select(.key | endswith(":" + $port)) |
+           .value.Handlers | keys] == [["/"]]) and
+         ([.Web | to_entries[]? | select(.key | endswith(":" + $port)) |
            .value.Handlers["/"].Proxy] == [$target])' >/dev/null 2>&1
 }
 

@@ -51,7 +51,6 @@ cloudflare_reader_ref = op://Agents/Cloudflare Reader/credential
 cloudflare_minter_ref = op://Agents/Cloudflare Token Minter/credential
 cloudflare_account_id_ref = op://Agents/Cloudflare Token Minter/account id
 legacy_cloudflare_env = $TEST_ROOT/legacy.env
-cloudflare_token_ref =
 migrate_tailscale_serve_port = 443
 migrate_tailscale_serve_target = http://127.0.0.1:3773
 migrate_tailscale_serve_route = t3-code
@@ -203,13 +202,14 @@ run_caddy_function() {
     "
 }
 
-@test "caddy: migrates only the Cloudflare token into its shared environment" {
+@test "caddy: replaces a legacy token with a scoped per-machine token" {
     printf 'GATE_SECRET=gate-private\nCLOUDFLARE_API_TOKEN=dns-private\n' > "$TEST_ROOT/legacy.env"
     run_caddy_function _caddy::install_cloudflare_token
     assert_success
     refute_output --partial private
     [ "$(stat -c %a "$TEST_ROOT/etc/caddy/env.d/cloudflare.env")" = 600 ]
-    grep -Fx 'CLOUDFLARE_API_TOKEN=dns-private' "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    grep -Fx 'CLOUDFLARE_API_TOKEN=minted-dns-private' "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    grep -Fx 'CLOUDFLARE_API_TOKEN_ID=cccccccccccccccccccccccccccccccc' "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
     grep -Fx 'CLOUDFLARE_ZONE_ID=dddddddddddddddddddddddddddddddd' "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
 }
 
@@ -248,15 +248,19 @@ run_caddy_function() {
     grep -E '^DELETE.*/tokens/old-token-id$' "$MOCK_LOG"
 }
 
-@test "caddy: replaces a revoked legacy token on its first import" {
-    printf 'CLOUDFLARE_API_TOKEN=revoked-private\n' > "$TEST_ROOT/legacy.env"
-    export MOCK_STORED_TOKEN_MODE=invalid
+@test "caddy: replaces a readable stored token without proven DNS Write access" {
+    mkdir -p "$TEST_ROOT/etc/caddy/env.d"
+    printf '%s\n' \
+        'CLOUDFLARE_API_TOKEN=read-only-private' \
+        'CLOUDFLARE_ZONE_ID=dddddddddddddddddddddddddddddddd' \
+        > "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
 
     run_caddy_function _caddy::install_cloudflare_token
 
     assert_success
     grep -Fx 'CLOUDFLARE_API_TOKEN=minted-dns-private' "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
-    [ "$(grep -c '^POST.*/accounts/.*/tokens$' "$MOCK_LOG")" -eq 1 ]
+    grep -Fx 'CLOUDFLARE_API_TOKEN_ID=cccccccccccccccccccccccccccccccc' "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    refute_output --partial private
 }
 
 @test "caddy: creates DNS-only A and AAAA records for each private host" {
@@ -538,6 +542,26 @@ EOF
 printf 'tailscale %s\n' "$*" >> "$MOCK_LOG"
 case "$*" in
     "serve status --json") printf '%s\n' '{"TCP":{"443":{"HTTPS":true}},"Web":{"host:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:9999"}}}}}' ;;
+esac
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/tailscale"
+
+    run_caddy_function _caddy::check_listener_migration
+
+    assert_failure
+    assert_output --partial "will not replace an unrelated listener"
+    run grep -F "tailscale serve --https=443 off" "$MOCK_LOG"
+    assert_failure
+}
+
+@test "caddy: refuses to replace a Tailscale Serve listener with extra handlers" {
+    touch "$TEST_ROOT/plans-disabled"
+    cat > "$MOCK_DIR/tailscale" <<'EOF'
+#!/bin/sh
+printf 'tailscale %s\n' "$*" >> "$MOCK_LOG"
+case "$*" in
+    "serve status --json") printf '%s\n' '{"TCP":{"443":{"HTTPS":true}},"Web":{"host:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:3773"},"/other":{"Proxy":"http://127.0.0.1:9999"}}}}}' ;;
 esac
 exit 0
 EOF
