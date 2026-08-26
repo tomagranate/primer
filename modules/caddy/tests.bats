@@ -30,6 +30,10 @@ fi
 if [ "$1 $2" = "start --wait" ] && { [ -e "$TEST_ROOT/reject" ] || grep -Rqs INVALID "$CADDY_APPS_DIR"; }; then
     exit 1
 fi
+if [ "$1 $2" = "start --wait" ] && [ -n "${MOCK_REQUIRE_ROUTE_RELOAD_MARKER:-}" ] \
+    && [ ! -f "$MOCK_REQUIRE_ROUTE_RELOAD_MARKER" ]; then
+    exit 1
+fi
 if [ "$1 $2" = "reload caddy.service" ] && [ -e "$TEST_ROOT/reject-reload" ]; then
     rm -f "$TEST_ROOT/reject-reload"
     exit 1
@@ -655,6 +659,17 @@ EOF
     grep -Fx "systemctl reload caddy.service" "$MOCK_LOG"
 }
 
+@test "caddy: records reload intent before replacing a route" {
+    printf 'http://example.test { respond "ok" }\n' > "$TEST_ROOT/route"
+    export MOCK_REQUIRE_ROUTE_RELOAD_MARKER="$CADDY_ROUTE_MANIFEST.reload-required"
+
+    route_helper install example "$TEST_ROOT/route"
+
+    assert_success
+    [ ! -e "$CADDY_ROUTE_MANIFEST.reload-required" ]
+    grep -Fx "systemctl reload caddy.service" "$MOCK_LOG"
+}
+
 @test "caddy: repeat install validates and reloads an owned route" {
     printf 'http://example.test { respond "ok" }\n' > "$TEST_ROOT/route"
     route_helper install example "$TEST_ROOT/route"
@@ -750,6 +765,9 @@ EOF
     printf 'keep\n' > "$CADDY_ROUTE_MANIFEST"
     touch "$CADDY_ROUTE_MANIFEST.reload-required"
     chmod 0644 "$CADDY_ROUTE_MANIFEST.reload-required"
+
+    route_helper status keep
+    assert_failure
 
     route_helper reconcile keep
 

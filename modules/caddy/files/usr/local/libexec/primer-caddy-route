@@ -90,7 +90,8 @@ restore_active_config() {
 }
 
 install_route() {
-    local name="$1" source="$2" reload="$3" target backup_dir candidate manifest_existed=false
+    local name="$1" source="$2" reload="$3" target backup_dir candidate
+    local manifest_existed=false marker_was_pending=false
     local -a owned
     valid_name "$name" || { echo "invalid route name: $name" >&2; return 2; }
     [[ -f "$source" ]] || { echo "route source is not a file: $source" >&2; return 2; }
@@ -102,12 +103,14 @@ install_route() {
             if $reload; then
                 validate || { echo "route rejected by Caddy: $name" >&2; return 1; }
                 reload_gateway || { echo "route reload failed: $name" >&2; return 1; }
+                clear_reload_pending
             fi
             echo "route unchanged: $name"
             return 0
         fi
         if $reload; then
             validate || { echo "route rejected by Caddy: $name" >&2; return 1; }
+            mark_reload_pending
         fi
         [[ -f "$manifest" ]] && manifest_existed=true
         write_manifest "${owned[@]}" "$name"
@@ -120,6 +123,7 @@ install_route() {
             echo "route reload failed; restored prior ownership: $name" >&2
             return 1
         fi
+        $reload && clear_reload_pending
         echo "route unchanged: $name"
         return 0
     fi
@@ -127,8 +131,10 @@ install_route() {
     backup_dir="$(mktemp -d "$config_dir/.route-backup.XXXXXX")"
     [[ -f "$target" ]] && cp -p "$target" "$backup_dir/route.caddy"
     [[ -f "$manifest" ]] && cp -p "$manifest" "$backup_dir/manifest"
+    [[ -e "$reload_marker" || -L "$reload_marker" ]] && marker_was_pending=true
     candidate="$(mktemp "$apps_dir/.$name.caddy.XXXXXX")"
     install -m 0644 "$source" "$candidate"
+    $reload && mark_reload_pending
     mv -f "$candidate" "$target"
 
     if ! validate; then
@@ -137,6 +143,7 @@ install_route() {
         else
             rm -f "$target"
         fi
+        $marker_was_pending || clear_reload_pending
         rm -r "$backup_dir"
         echo "route rejected by Caddy: $name" >&2
         return 1
@@ -154,11 +161,12 @@ install_route() {
         else
             rm -f "$manifest"
         fi
-        restore_active_config
+        restore_active_config && clear_reload_pending || true
         rm -r "$backup_dir"
         echo "route reload failed; restored prior config: $name" >&2
         return 1
     fi
+    $reload && clear_reload_pending
     rm -r "$backup_dir"
     echo "route installed: $name"
 }
