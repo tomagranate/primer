@@ -16,11 +16,18 @@ valid_name() {
     [[ "$1" =~ ^[a-z0-9][a-z0-9-]*$ ]]
 }
 
+manifest_ready() {
+    [[ -f "$manifest" && ! -L "$manifest" ]] \
+        && [[ "$(stat -c %a "$manifest" 2>/dev/null)" == 644 ]] \
+        && [[ "$(stat -c %U "$manifest" 2>/dev/null)" == "$expected_owner" ]] \
+        && [[ "$(stat -c %G "$manifest" 2>/dev/null)" == "$expected_group" ]]
+}
+
 route_ready() {
     local name="$1" source="${2:-}" target
     valid_name "$name" || return 2
     target="$apps_dir/$name.caddy"
-    grep -Fxq "$name" "$manifest" && [[ -f "$target" ]] || return 1
+    manifest_ready && grep -Fxq "$name" "$manifest" && [[ -f "$target" ]] || return 1
     [[ "$(stat -c %a "$target" 2>/dev/null)" == 644 ]] \
         && [[ "$(stat -c %U "$target" 2>/dev/null)" == "$expected_owner" ]] \
         && [[ "$(stat -c %G "$target" 2>/dev/null)" == "$expected_group" ]] || return 1
@@ -193,6 +200,10 @@ fi
 mkdir -p "$apps_dir" "$(dirname "$lock_file")"
 exec 9>"$lock_file"
 flock 9
+if [[ -e "$manifest" || -L "$manifest" ]] && ! manifest_ready; then
+    echo "route manifest has unsafe ownership or permissions: $manifest" >&2
+    exit 1
+fi
 
 case "$command" in
     install)

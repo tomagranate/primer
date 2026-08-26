@@ -116,6 +116,9 @@ _plans_media::install_secrets() {
             print "The managed Plans gate secret is invalid." >&2
             return 1
         }
+        if ! _plans_media::secrets_ready; then
+            _plans_media::mark_restart || return 1
+        fi
         if [[ -n "${PLANS_MEDIA_TEST_ROOT:-}" ]]; then
             chmod 0600 "$target"
         else

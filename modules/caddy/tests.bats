@@ -460,6 +460,11 @@ EOF
     assert_failure
     printf 't3-code\n' > "$TEST_ROOT/etc/caddy/primer-routes"
 
+    chmod 0666 "$TEST_ROOT/etc/caddy/primer-routes"
+    run_caddy_function mod_status
+    assert_failure
+    chmod 0644 "$TEST_ROOT/etc/caddy/primer-routes"
+
     chmod 0644 "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
     run_caddy_function mod_status
     assert_failure
@@ -593,6 +598,19 @@ EOF
     [ -e "$CADDY_APPS_DIR/keep.caddy" ]
     [ -e "$CADDY_APPS_DIR/unmanaged.caddy" ]
     [ "$(cat "$CADDY_ROUTE_MANIFEST")" = keep ]
+}
+
+@test "caddy: refuses to reconcile an unsafe route manifest" {
+    printf 'old\n' > "$CADDY_APPS_DIR/old.caddy"
+    printf 'old\n' > "$CADDY_ROUTE_MANIFEST"
+    chmod 0666 "$CADDY_ROUTE_MANIFEST"
+
+    route_helper reconcile
+
+    assert_failure
+    assert_output --partial "route manifest has unsafe ownership or permissions"
+    [ -e "$CADDY_APPS_DIR/old.caddy" ]
+    [ "$(cat "$CADDY_ROUTE_MANIFEST")" = old ]
 }
 
 @test "caddy: rejects unsafe route names" {

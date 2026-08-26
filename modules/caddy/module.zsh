@@ -471,7 +471,11 @@ _caddy::routes_ready() {
         group="$(id -gn)"
     fi
     manifest="$(_caddy::root_path /etc/caddy/primer-routes)"
-    [[ -f "$manifest" ]] || return 1
+    [[ -f "$manifest" && ! -L "$manifest" ]] \
+        && [[ "$(stat -c %a "$manifest" 2>/dev/null)" == 644 ]] \
+        && [[ "$(stat -c %U "$manifest" 2>/dev/null)" == "$owner" ]] \
+        && [[ "$(stat -c %G "$manifest" 2>/dev/null)" == "$group" ]] \
+        || return 1
     desired="$(_caddy::desired_routes | sed '/^$/d' | sort -u)"
     actual="$(sed -n '/^[a-z0-9][a-z0-9-]*$/p' "$manifest" | sort -u)"
     [[ "$actual" == "$desired" ]] || return 1
@@ -686,6 +690,8 @@ _caddy::reconcile_routes() {
     CADDY_APPS_DIR="$(_caddy::root_path /etc/caddy/apps.d)" \
     CADDY_ROUTE_MANIFEST="$(_caddy::root_path /etc/caddy/primer-routes)" \
     CADDY_ROUTE_LOCK="${CADDY_TEST_ROOT:+${CADDY_ROUTE_LOCK:-}}" \
+    CADDY_EXPECTED_OWNER="${CADDY_TEST_ROOT:+$(id -un)}" \
+    CADDY_EXPECTED_GROUP="${CADDY_TEST_ROOT:+$(id -gn)}" \
         _caddy::root "$(_caddy::route_helper)" reconcile "${routes[@]}"
 }
 
@@ -847,6 +853,8 @@ _caddy::stage_route() {
     CADDY_APPS_DIR="$(_caddy::root_path /etc/caddy/apps.d)" \
     CADDY_ROUTE_MANIFEST="$(_caddy::root_path /etc/caddy/primer-routes)" \
     CADDY_ROUTE_LOCK="${CADDY_TEST_ROOT:+${CADDY_ROUTE_LOCK:-}}" \
+    CADDY_EXPECTED_OWNER="${CADDY_TEST_ROOT:+$(id -un)}" \
+    CADDY_EXPECTED_GROUP="${CADDY_TEST_ROOT:+$(id -gn)}" \
         _caddy::root "$(_caddy::route_helper)" stage "$name" "$source"
 }
 

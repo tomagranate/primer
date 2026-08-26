@@ -117,6 +117,25 @@ run_module() {
     [ ! -e "$TEST_ROOT/etc/caddy/env.d/plans-media.env.restart-required" ]
 }
 
+@test "plans-media: marks an externally changed managed secret for restart" {
+    target="$TEST_ROOT/etc/caddy/env.d/plans-media.env"
+    mkdir -p "${target%/*}"
+    printf 'GATE_SECRET=old-private\n' > "$target"
+    chmod 0600 "$target"
+    run_module _plans_media::install_secrets
+    assert_success
+    run_module _plans_media::clear_restart
+    assert_success
+
+    printf 'GATE_SECRET=externally-restored-private\n' > "$target"
+    run_module _plans_media::install_secrets
+
+    assert_success
+    [ -f "$target.restart-required" ]
+    run_module _plans_media::secrets_ready
+    assert_failure
+}
+
 @test "plans-media: quotes systemd environment metacharacters" {
     printf '%s\n' 'GATE_SECRET=slash\quote"private' > "$TEST_ROOT/legacy.env"
 
