@@ -61,7 +61,7 @@ run_module() {
     run_module mod_update
     assert_success
     [ "$(stat -c %a "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 600 ]
-    [ "$(cat "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 'GATE_SECRET="private"' ]
+    [ "$(cat "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 'GATE_SECRET=private' ]
     refute_output --partial "private"
     grep -F 'import tailnet-bind' "$TEST_ROOT/installed.caddy"
     grep -F 'header_up Authorization "Bearer {env.GATE_SECRET}"' "$TEST_ROOT/installed.caddy"
@@ -83,7 +83,7 @@ run_module() {
     run_module _plans_media::install_secrets
 
     assert_success
-    [ "$(cat "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 'GATE_SECRET="new-private"' ]
+    [ "$(cat "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 'GATE_SECRET=new-private' ]
     refute_output --partial private
 }
 
@@ -95,7 +95,7 @@ run_module() {
     run_module mod_update
 
     assert_success
-    [ "$(cat "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 'GATE_SECRET="new-private"' ]
+    [ "$(cat "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 'GATE_SECRET=new-private' ]
     grep -Fx 'systemctl restart caddy.service' "$MOCK_LOG"
     refute_output --partial private
 }
@@ -106,7 +106,17 @@ run_module() {
     run_module _plans_media::install_secrets
 
     assert_success
-    [ "$(cat "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 'GATE_SECRET="slash\\quote\"private"' ]
+    [ "$(cat "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 'GATE_SECRET=slash\quote"private' ]
+    refute_output --partial private
+}
+
+@test "plans-media: preserves legacy systemd quoting" {
+    printf '%s\n' 'GATE_SECRET="quoted-private"' > "$TEST_ROOT/legacy.env"
+
+    run_module _plans_media::install_secrets
+
+    assert_success
+    [ "$(cat "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 'GATE_SECRET="quoted-private"' ]
     refute_output --partial private
 }
 

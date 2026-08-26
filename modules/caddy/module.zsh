@@ -602,11 +602,30 @@ typeset -g _CADDY_MIGRATED_PLANS=false
 typeset -g _CADDY_PLANS_WAS_ACTIVE=false
 typeset -g _CADDY_PLANS_WAS_ENABLED=false
 
-_caddy::plans_migration_needed() {
+_caddy::plans_service_managed() {
     systemctl cat plans.service >/dev/null 2>&1 \
-        && _caddy::desired_routes | grep -Fxq plans-media \
         && { systemctl is-active --quiet plans.service \
             || systemctl is-enabled --quiet plans.service; }
+}
+
+_caddy::plans_service_matches() {
+    local config expected actual exec_start environment
+    config="$(_caddy::root_path /etc/caddy/plans.Caddyfile)"
+    expected="$(mod_config migrate_plans_config_digest | head -1)"
+    print -r -- "$expected" | grep -Eq '^[0-9a-f]{64}$' || return 1
+    [[ -f "$config" ]] || return 1
+    actual="$(sha256sum "$config" 2>/dev/null | awk '{print $1}')" || return 1
+    [[ "$actual" == "$expected" ]] || return 1
+    exec_start="$(systemctl show plans.service --property=ExecStart --value 2>/dev/null)" || return 1
+    environment="$(systemctl show plans.service --property=EnvironmentFiles --value 2>/dev/null)" || return 1
+    [[ "$exec_start" == *'argv[]=/usr/local/bin/caddy run --config /etc/caddy/plans.Caddyfile ;'* ]] \
+        && [[ "$environment" == '/etc/agents-infra/plans.env (ignore_errors=no)' ]]
+}
+
+_caddy::plans_migration_needed() {
+    _caddy::desired_routes | grep -Fxq plans-media \
+        && _caddy::plans_service_managed \
+        && _caddy::plans_service_matches
 }
 
 _caddy::serve_migration_needed() {
@@ -646,6 +665,11 @@ _caddy::check_listener_migration() {
         print "Select plans-media before Primer migrates the Plans listener." >&2
         return 1
     fi
+    if $plans_managed && $plans_selected && ! _caddy::plans_service_matches; then
+        print "Legacy plans.service does not match Primer's expected listener." >&2
+        print "Primer will not replace a customized service." >&2
+        return 1
+    fi
     if _caddy::serve_port_present && ! _caddy::serve_migration_needed; then
         print "Tailscale Serve port $(mod_config migrate_tailscale_serve_port | head -1) does not target $(mod_config migrate_tailscale_serve_target | head -1)." >&2
         print "Primer will not replace an unrelated listener." >&2
@@ -663,20 +687,18 @@ _caddy::stage_route() {
 }
 
 _caddy::stage_plans_credentials() {
-    local target legacy gate temp
+    local target legacy assignment temp
     target="$(_caddy::root_path /etc/caddy/env.d/plans-media.env)"
     _caddy::env_value "$target" GATE_SECRET >/dev/null 2>&1 && return 0
     legacy="$(mod_config legacy_cloudflare_env | head -1)"
-    gate="$(_caddy::env_value "$legacy" GATE_SECRET)" || {
+    assignment="$(_caddy::root sed -n '/^GATE_SECRET=/p' "$legacy" 2>/dev/null)" || return 1
+    if [[ -z "$assignment" || "$assignment" == *$'\n'* ]]; then
         print "The legacy Plans gate secret is unavailable; refusing listener migration." >&2
         return 1
-    }
+    fi
     temp="$(mktemp)" || return 1
     chmod 0600 "$temp"
-    gate="${gate//\\/\\\\}"
-    gate="${gate//\"/\\\"}"
-    printf 'GATE_SECRET="%s"\n' "$gate" >"$temp"
-    unset gate
+    print -r -- "$assignment" >"$temp"
     if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
         install -D -m 0600 "$temp" "$target"
     else

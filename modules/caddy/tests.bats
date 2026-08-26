@@ -15,6 +15,7 @@ setup() {
     export SYSTEMCTL_BIN="$MOCK_DIR/systemctl"
     mkdir -p "$CADDY_APPS_DIR"
     printf '{}\n' > "$CADDY_CONFIG_DIR/Caddyfile"
+    printf 'expected legacy Plans listener\n' > "$CADDY_CONFIG_DIR/plans.Caddyfile"
     cat > "$MOCK_DIR/systemctl" <<'EOF'
 #!/bin/sh
 printf 'systemctl %s\n' "$*" >> "$MOCK_LOG"
@@ -37,6 +38,12 @@ fi
 if [ "$1 $2 $3" = "disable --now plans.service" ] && [ -e "$TEST_ROOT/reject-plans-stop" ]; then
     exit 1
 fi
+if [ "$*" = "show plans.service --property=ExecStart --value" ]; then
+    printf '%s\n' '{ path=/usr/local/bin/caddy ; argv[]=/usr/local/bin/caddy run --config /etc/caddy/plans.Caddyfile ; ignore_errors=no ; }'
+fi
+if [ "$*" = "show plans.service --property=EnvironmentFiles --value" ]; then
+    printf '%s\n' '/etc/agents-infra/plans.env (ignore_errors=no)'
+fi
 exit 0
 EOF
     chmod +x "$MOCK_DIR/systemctl"
@@ -55,6 +62,7 @@ migrate_tailscale_serve_port = 443
 migrate_tailscale_serve_target = http://127.0.0.1:3773
 migrate_tailscale_serve_route = t3-code
 migrate_tailscale_serve_host = t3.{machine}.tomagranate.com
+migrate_plans_config_digest = $(sha256sum "$CADDY_CONFIG_DIR/plans.Caddyfile" | cut -d ' ' -f1)
 dns_names =
     t3.{machine}.tomagranate.com
 routes =
@@ -568,16 +576,7 @@ printf 'tailscale %s\n' "$*" >> "$MOCK_LOG"
 exit 0
 EOF
     chmod +x "$MOCK_DIR/tailscale"
-    run zsh -c "
-        export PRIMER_DIR='$PRIMER_DIR' DRY_RUN=false MOD_DIR='$PRIMER_DIR/modules/caddy'
-        export MOD_NAME=caddy MOD_STATUS_FILE='$(mktemp)' MOD_ITEMS_FILE='$(mktemp)'
-        export CADDY_TEST_ROOT=1 PATH='$MOCK_DIR':\"\$PATH\" MOCK_LOG='$MOCK_LOG'
-        source '$PRIMER_DIR/lib/module.zsh'
-        source '$PRIMER_DIR/tests/helpers/module-config.zsh'
-        test::load_module_config '$TEST_CONF'
-        source '$PRIMER_DIR/modules/caddy/module.zsh'
-        _caddy::migrate_listeners
-    "
+    run_caddy_function _caddy::migrate_listeners
     assert_failure
     assert_output --partial "plans-media addon is not selected"
     run grep -F "disable --now plans.service" "$MOCK_LOG"
@@ -599,19 +598,24 @@ esac
 exit 0
 EOF
     chmod +x "$MOCK_DIR/tailscale"
-    run zsh -c "
-        export PRIMER_DIR='$PRIMER_DIR' DRY_RUN=false MOD_DIR='$PRIMER_DIR/modules/caddy'
-        export MOD_NAME=caddy MOD_STATUS_FILE='$(mktemp)' MOD_ITEMS_FILE='$(mktemp)'
-        export CADDY_TEST_ROOT=1 PATH='$MOCK_DIR':\"\$PATH\" MOCK_LOG='$MOCK_LOG'
-        source '$PRIMER_DIR/lib/module.zsh'
-        source '$PRIMER_DIR/tests/helpers/module-config.zsh'
-        test::load_module_config '$TEST_CONF'
-        source '$PRIMER_DIR/modules/caddy/module.zsh'
-        _caddy::migrate_listeners
-    "
+    run_caddy_function _caddy::migrate_listeners
     assert_success
     grep -F "tailscale serve --https=443 off" "$MOCK_LOG"
     grep -F "systemctl disable --now plans.service" "$MOCK_LOG"
+}
+
+@test "caddy: refuses to replace a customized Plans service" {
+    cat >> "$TEST_CONF" <<'EOF'
+    plans-media
+EOF
+    printf 'custom listener\n' > "$CADDY_CONFIG_DIR/plans.Caddyfile"
+
+    run_caddy_function _caddy::migrate_listeners
+
+    assert_failure
+    assert_output --partial "will not replace a customized service"
+    run grep -F "systemctl disable --now plans.service" "$MOCK_LOG"
+    assert_failure
 }
 
 @test "caddy: refuses to replace an unrelated Tailscale Serve target" {
@@ -722,8 +726,23 @@ EOF
     grep -F "reverse_proxy https://agents-infra.sunburst-d5c.workers.dev" \
         "$TEST_ROOT/etc/caddy/apps.d/plans-media.caddy"
     [ "$(stat -c %a "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 600 ]
-    grep -Fx 'GATE_SECRET="gate-private"' "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
+    grep -Fx 'GATE_SECRET=gate-private' "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
     [ "$(grep -c 'systemctl reload caddy.service' "$MOCK_LOG")" -eq 0 ]
+}
+
+@test "caddy: preserves legacy Plans secret quoting during migration" {
+    cat >> "$TEST_CONF" <<'EOF'
+    plans-media
+migrate_plans_route = plans-media
+migrate_plans_host = plans.tomagranate.com
+migrate_plans_worker_host = agents-infra.sunburst-d5c.workers.dev
+EOF
+    printf 'GATE_SECRET="gate-private"\n' > "$TEST_ROOT/legacy.env"
+
+    run_caddy_function _caddy::stage_migration_routes
+
+    assert_success
+    grep -Fx 'GATE_SECRET="gate-private"' "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
 }
 
 @test "caddy: route reconciliation rollback stops Caddy before restoring listeners" {

@@ -46,8 +46,15 @@ _plans_media::systemd_env_quote() {
     print -r -- "\"$value\""
 }
 
+_plans_media::legacy_gate_assignment() {
+    local file="$1" assignments
+    assignments="$(_plans_media::root sed -n '/^GATE_SECRET=/p' "$file" 2>/dev/null)" || return 1
+    [[ -n "$assignments" && "$assignments" != *$'\n'* ]] || return 1
+    print -r -- "$assignments"
+}
+
 _plans_media::install_secrets() {
-    local target legacy gate_ref gate temp
+    local target legacy gate_ref gate assignment temp
     target="$(_plans_media::secrets_file)"
     gate_ref="$(mod_config gate_secret_ref | head -1)"
     if [[ -n "$gate_ref" ]]; then
@@ -57,10 +64,10 @@ _plans_media::install_secrets() {
 
     legacy="$(mod_config legacy_secrets_file | head -1)"
     if [[ -z "$gate" && -n "$legacy" ]] && _plans_media::root test -s "$legacy"; then
-        gate="$(_plans_media::root sed -n 's/^GATE_SECRET=//p' "$legacy" 2>/dev/null | head -1)"
+        assignment="$(_plans_media::legacy_gate_assignment "$legacy")" || return 1
     fi
 
-    if [[ -z "$gate" ]] && _plans_media::root test -s "$target"; then
+    if [[ -z "$gate" && -z "$assignment" ]] && _plans_media::root test -s "$target"; then
         if [[ -n "${PLANS_MEDIA_TEST_ROOT:-}" ]]; then
             chmod 0600 "$target"
         else
@@ -69,18 +76,22 @@ _plans_media::install_secrets() {
         fi
         return $?
     fi
-    if [[ -z "$gate" && -z "$gate_ref" ]]; then
+    if [[ -z "$gate" && -z "$assignment" && -z "$gate_ref" ]]; then
         print "Plans secrets are not configured." >&2
         print "Set plans-media.gate_secret_ref to a stable op:// reference." >&2
         return 1
     fi
-    [[ -n "$gate" && "$gate" != *$'\n'* ]] || {
+    [[ -n "$assignment" || ( -n "$gate" && "$gate" != *$'\n'* ) ]] || {
         print "The Plans gate secret must be a non-empty single line." >&2
         return 1
     }
     temp="$(mktemp)" || return 1
     chmod 0600 "$temp"
-    printf 'GATE_SECRET=%s\n' "$(_plans_media::systemd_env_quote "$gate")" >"$temp"
+    if [[ -n "$assignment" ]]; then
+        print -r -- "$assignment" >"$temp"
+    else
+        printf 'GATE_SECRET=%s\n' "$(_plans_media::systemd_env_quote "$gate")" >"$temp"
+    fi
     unset gate
     _plans_media::install_secret_file "$temp" "$target"
     local rc=$?
