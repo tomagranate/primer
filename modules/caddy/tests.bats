@@ -22,9 +22,6 @@ printf 'systemctl %s\n' "$*" >> "$MOCK_LOG"
 if { [ "$1" = "is-active" ] || [ "$1" = "is-enabled" ]; } && [ -e "$TEST_ROOT/plans-disabled" ]; then
     exit 1
 fi
-if [ "$1 $2 $3" = "is-active --quiet plans.service" ] && [ -e "$TEST_ROOT/plans-inactive" ]; then
-    exit 1
-fi
 if [ "$1 $2 $3" = "is-active --quiet caddy.service" ] && [ -e "$TEST_ROOT/reject-health" ]; then
     exit 1
 fi
@@ -756,25 +753,32 @@ EOF
 @test "caddy: rollback preserves a gateway that was already active" {
     cat >> "$TEST_CONF" <<'EOF'
     plans-media
+migrate_plans_route = plans-media
+migrate_plans_host = plans.tomagranate.com
+migrate_plans_worker_host = agents-infra.sunburst-d5c.workers.dev
 EOF
+    printf 'GATE_SECRET=gate-private\n' > "$TEST_ROOT/legacy.env"
     printf 'old\n' > "$CADDY_APPS_DIR/old.caddy"
-    printf 'old\n' > "$CADDY_ROUTE_MANIFEST"
-    touch "$TEST_ROOT/plans-inactive" "$TEST_ROOT/reject"
+    printf 'old Plans route\n' > "$CADDY_APPS_DIR/plans-media.caddy"
+    printf 'old\nplans-media\n' > "$CADDY_ROUTE_MANIFEST"
     cat > "$MOCK_DIR/tailscale" <<'EOF'
 #!/bin/sh
 printf '%s\n' '{}'
 EOF
     chmod +x "$MOCK_DIR/tailscale"
 
-    run_caddy_function '_caddy::activate_gateway_with_rollback false && _caddy::reconcile_routes_with_rollback'
+    run_caddy_function '_caddy::snapshot_migration_routes && _caddy::stage_migration_routes && _caddy::activate_gateway_with_rollback false && touch "$TEST_ROOT/reject" && _caddy::reconcile_routes_with_rollback'
 
     assert_failure
-    grep -F "systemctl start caddy.service" "$MOCK_LOG"
+    [ "$(cat "$CADDY_APPS_DIR/plans-media.caddy")" = 'old Plans route' ]
+    grep -F "systemctl reload caddy.service" "$MOCK_LOG"
     grep -F "systemctl enable caddy.service" "$MOCK_LOG"
     run grep -F "systemctl disable --now caddy.service" "$MOCK_LOG"
     assert_failure
     grep -F "systemctl enable plans.service" "$MOCK_LOG"
-    grep -F "systemctl stop plans.service" "$MOCK_LOG"
+    grep -F "systemctl start plans.service" "$MOCK_LOG"
+    [ "$(grep -n 'systemctl reload caddy.service' "$MOCK_LOG" | tail -1 | cut -d: -f1)" -lt \
+        "$(grep -n 'systemctl start plans.service' "$MOCK_LOG" | tail -1 | cut -d: -f1)" ]
 }
 
 @test "caddy: route reconciliation rollback stops Caddy before restoring listeners" {

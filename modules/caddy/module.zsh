@@ -620,6 +620,59 @@ typeset -g _CADDY_PLANS_WAS_ACTIVE=false
 typeset -g _CADDY_PLANS_WAS_ENABLED=false
 typeset -g _CADDY_GATEWAY_WAS_ACTIVE=false
 typeset -g _CADDY_GATEWAY_WAS_ENABLED=false
+typeset -g _CADDY_MIGRATION_BACKUP=""
+
+_caddy::snapshot_migration_routes() {
+    local route source backup temp
+    local -a routes=()
+    backup="$(mktemp -d)" || return 1
+    if _caddy::serve_migration_needed; then
+        routes+=("$(mod_config migrate_tailscale_serve_route | head -1)")
+    fi
+    if _caddy::plans_migration_needed; then
+        routes+=("$(mod_config migrate_plans_route | head -1)")
+    fi
+    for route in "${routes[@]}"; do
+        print -r -- "$route" | grep -Eq '^[a-z0-9][a-z0-9-]*$' \
+            || { rm -r "$backup"; return 1; }
+        source="$(_caddy::root_path /etc/caddy/apps.d/$route.caddy)"
+        [[ -f "$source" ]] && cp -p "$source" "$backup/$route.caddy"
+    done
+    temp="$(_caddy::root_path /etc/caddy/primer-routes)"
+    [[ -f "$temp" ]] && cp -p "$temp" "$backup/primer-routes"
+    print -r -- "${(F)routes}" > "$backup/routes"
+    _CADDY_MIGRATION_BACKUP="$backup"
+}
+
+_caddy::restore_migration_routes() {
+    local route target manifest
+    [[ -n "$_CADDY_MIGRATION_BACKUP" && -d "$_CADDY_MIGRATION_BACKUP" ]] || return 0
+    manifest="$(_caddy::root_path /etc/caddy/primer-routes)"
+    while IFS= read -r route; do
+        [[ -n "$route" ]] || continue
+        target="$(_caddy::root_path /etc/caddy/apps.d/$route.caddy)"
+        if [[ -f "$_CADDY_MIGRATION_BACKUP/$route.caddy" ]]; then
+            _caddy::root install -m 0644 "$_CADDY_MIGRATION_BACKUP/$route.caddy" "$target" || return 1
+        else
+            _caddy::root rm -f "$target" || return 1
+        fi
+    done < "$_CADDY_MIGRATION_BACKUP/routes"
+    if [[ -f "$_CADDY_MIGRATION_BACKUP/primer-routes" ]]; then
+        _caddy::root install -m 0644 "$_CADDY_MIGRATION_BACKUP/primer-routes" "$manifest"
+    else
+        _caddy::root rm -f "$manifest"
+    fi
+}
+
+_caddy::clear_migration_snapshot() {
+    [[ -z "$_CADDY_MIGRATION_BACKUP" ]] || rm -r "$_CADDY_MIGRATION_BACKUP"
+    _CADDY_MIGRATION_BACKUP=""
+}
+
+_caddy::restore_and_clear_migration_routes() {
+    _caddy::restore_migration_routes || return 1
+    _caddy::clear_migration_snapshot
+}
 
 _caddy::plans_service_managed() {
     systemctl cat plans.service >/dev/null 2>&1 \
@@ -829,7 +882,10 @@ _caddy::activate_gateway_with_rollback() {
     _CADDY_GATEWAY_WAS_ENABLED=false
     systemctl is-active --quiet caddy.service && _CADDY_GATEWAY_WAS_ACTIVE=true
     systemctl is-enabled --quiet caddy.service && _CADDY_GATEWAY_WAS_ENABLED=true
-    _caddy::migrate_listeners || return 1
+    if ! _caddy::migrate_listeners; then
+        _caddy::restore_and_clear_migration_routes
+        return 1
+    fi
     if ! _caddy::activate_gateway "$gateway_needs_restart"; then
         _caddy::rollback_migration
         return 1
@@ -841,8 +897,17 @@ _caddy::rollback_migration() {
         return 0
     fi
     local rc=0
+    if ! _caddy::restore_migration_routes; then
+        print "Caddy migration route rollback failed." >&2
+        return 1
+    fi
     if $_CADDY_GATEWAY_WAS_ACTIVE; then
-        _caddy::root systemctl start caddy.service || rc=1
+        _caddy::root systemctl start --wait caddy-validate.service || rc=1
+        if _caddy::root systemctl is-active --quiet caddy.service; then
+            _caddy::root systemctl reload caddy.service || rc=1
+        else
+            _caddy::root systemctl start caddy.service || rc=1
+        fi
     else
         _caddy::root systemctl stop caddy.service || rc=1
     fi
@@ -852,6 +917,7 @@ _caddy::rollback_migration() {
         _caddy::root systemctl disable caddy.service || rc=1
     fi
     _caddy::restore_listeners || rc=1
+    _caddy::clear_migration_snapshot
     (( rc == 0 )) || print "Caddy migration rollback failed." >&2
     return "$rc"
 }
@@ -916,9 +982,19 @@ mod_update() {
         _caddy::clear_restart tailscale || return 1
     fi
     _caddy::refresh_tailnet || return 1
-    _caddy::stage_migration_routes || return 1
-    _caddy::root systemctl start --wait caddy-validate.service || return 1
-    _caddy::check_listener_migration || return 1
+    _caddy::snapshot_migration_routes || return 1
+    _caddy::stage_migration_routes || {
+        _caddy::restore_and_clear_migration_routes
+        return 1
+    }
+    _caddy::root systemctl start --wait caddy-validate.service || {
+        _caddy::restore_and_clear_migration_routes
+        return 1
+    }
+    _caddy::check_listener_migration || {
+        _caddy::restore_and_clear_migration_routes
+        return 1
+    }
     local gateway_needs_restart=false
     _caddy::restart_pending gateway && gateway_needs_restart=true
     _caddy::activate_gateway_with_rollback "$gateway_needs_restart" || return 1
@@ -931,6 +1007,7 @@ mod_update() {
     }
     primer::item_update routes done
     _caddy::verify_gateway_with_rollback || return 1
+    _caddy::clear_migration_snapshot
     primer::item_update service done
     primer::status_msg "gateway ready"
 }
