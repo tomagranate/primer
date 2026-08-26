@@ -48,6 +48,18 @@ _basil::cloudflared_restart_marker() {
     print -r -- "$(_basil::config_dir)/cloudflared.restart-required"
 }
 
+_basil::hermes_restart_marker() {
+    print -r -- "$(_basil::config_dir)/hermes-gateway.restart-required"
+}
+
+_basil::mark_hermes_restart() {
+    install -D -m 0644 /dev/null "$(_basil::hermes_restart_marker)"
+}
+
+_basil::clear_hermes_restart() {
+    rm -f "$(_basil::hermes_restart_marker)"
+}
+
 _basil::cloudflared_binary_ready() {
     local version target="$HOME/.local/bin/cloudflared"
     version="$(_basil::cloudflared_version)" || return 1
@@ -310,8 +322,12 @@ _basil::install_route() {
 _basil::enable_services() {
     command -v hermes >/dev/null 2>&1 || { print "hermes not found" >&2; return 1; }
     _basil::install_cloudflared || { print "cloudflared install failed" >&2; return 1; }
+    _basil::mark_hermes_restart || return 1
     hermes gateway install || return 1
-    systemctl --user enable --now hermes-gateway.service || return 1
+    systemctl --user enable hermes-gateway.service || return 1
+    systemctl --user restart hermes-gateway.service || return 1
+    systemctl --user is-active --quiet hermes-gateway.service || return 1
+    _basil::clear_hermes_restart || return 1
     systemctl --user enable --now basil-tunnel.service basil-webhook-shim.service basil-brain-sync.timer
 }
 
@@ -367,6 +383,10 @@ mod_status() {
     local unit route
     _basil::cloudflared_ready || {
         primer::status_msg "cloudflared needs update"
+        return 1
+    }
+    [[ ! -e "$(_basil::hermes_restart_marker)" ]] || {
+        primer::status_msg "Hermes gateway needs activation"
         return 1
     }
     _basil::credentials_ready || {

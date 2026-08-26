@@ -14,6 +14,7 @@ cat > "$MOCK_DIR/systemctl" <<'EOF'
 #!/bin/sh
 printf 'systemctl %s\n' "$*" >> "$MOCK_LOG"
 [ "$1 $2 $3" = "is-enabled --quiet docker.service" ] && [ -e "$TEST_HOME/docker-disabled" ] && exit 1
+[ "$*" = "--user restart hermes-gateway.service" ] && [ -e "$TEST_HOME/reject-hermes-restart" ] && exit 1
 [ "$1 $2" = "--user restart" ] && [ -e "$TEST_HOME/reject-unit-restart" ] && exit 1
 exit 0
 EOF
@@ -61,7 +62,11 @@ EOF
 #!/bin/sh
 printf 'primer-caddy-route %s\n' "$*" >> "$MOCK_LOG"
 EOF
-    chmod +x "$MOCK_DIR/systemctl" "$MOCK_DIR/loginctl" "$MOCK_DIR/docker" "$MOCK_DIR/curl" "$MOCK_DIR/primer-caddy-route"
+    cat > "$MOCK_DIR/hermes" <<'EOF'
+#!/bin/sh
+printf 'hermes %s\n' "$*" >> "$MOCK_LOG"
+EOF
+    chmod +x "$MOCK_DIR/systemctl" "$MOCK_DIR/loginctl" "$MOCK_DIR/docker" "$MOCK_DIR/curl" "$MOCK_DIR/primer-caddy-route" "$MOCK_DIR/hermes"
     cat > "$TEST_CONF" <<EOF
 [basil]
 repo_path = $TEST_HOME/code/basil
@@ -142,6 +147,21 @@ run_module() {
     grep -Fx "systemctl --user restart basil-tunnel.service" "$MOCK_LOG"
     run grep -F "curl " "$MOCK_LOG"
     assert_failure
+}
+
+@test "basil: preserves an interrupted Hermes gateway restart" {
+    marker="$TEST_HOME/.config/primer/basil/hermes-gateway.restart-required"
+    touch "$TEST_HOME/reject-hermes-restart"
+
+    run_module '_basil::install_cloudflared() { return 0; }; _basil::enable_services'
+    assert_failure
+    [ -f "$marker" ]
+
+    rm "$TEST_HOME/reject-hermes-restart"
+    run_module '_basil::install_cloudflared() { return 0; }; _basil::enable_services'
+    assert_success
+    [ ! -e "$marker" ]
+    grep -Fx "systemctl --user restart hermes-gateway.service" "$MOCK_LOG"
 }
 
 @test "basil: enables Docker and routes update commands through root" {
