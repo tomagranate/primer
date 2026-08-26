@@ -110,6 +110,38 @@ _basil::required_sources() {
     done
 }
 
+_basil::runtime_sources_ready() {
+    local repo="$(_basil::repo)" state_dir="$(_basil::config_dir)/runtime" file name digest
+    for file in deploy/brain-sync.sh deploy/infra/kuma-webhook-shim.py; do
+        name="${file:t:r}"
+        digest="$(sha256sum "$repo/$file" 2>/dev/null | awk '{print $1}')" || return 1
+        [[ -n "$digest" && -f "$state_dir/$name.sha256" ]] \
+            && [[ "$(<"$state_dir/$name.sha256")" == "$digest" ]] || return 1
+    done
+}
+
+_basil::reconcile_runtime_sources() {
+    local repo="$(_basil::repo)" state_dir="$(_basil::config_dir)/runtime"
+    local file name unit digest state temp
+    mkdir -p "$state_dir" || return 1
+    for file unit in \
+        deploy/brain-sync.sh basil-brain-sync.service \
+        deploy/infra/kuma-webhook-shim.py basil-webhook-shim.service; do
+        name="${file:t:r}"
+        state="$state_dir/$name.sha256"
+        digest="$(sha256sum "$repo/$file" | awk '{print $1}')" || return 1
+        if [[ ! -f "$state" || "$(<"$state")" != "$digest" ]]; then
+            if systemctl --user is-active --quiet "$unit"; then
+                systemctl --user restart "$unit" || return 1
+            fi
+            temp="$(mktemp "$state_dir/.$name.XXXXXX")" || return 1
+            print -r -- "$digest" > "$temp"
+            chmod 0600 "$temp" || { rm -f "$temp"; return 1; }
+            mv -f "$temp" "$state" || { rm -f "$temp"; return 1; }
+        fi
+    done
+}
+
 _basil::required_credentials() {
     local repo="$(_basil::repo)" file
     for file in deploy/infra/tunnel.env deploy/infra/webhook-shim.env; do
@@ -304,6 +336,7 @@ mod_update() {
     _basil::install_cloudflared || return 1
     _basil::required_sources && _basil::required_credentials || return 1
     _basil::install_units || return 1
+    _basil::reconcile_runtime_sources || return 1
     _basil::reconcile_credentials || return 1
     _basil::root "enable Basil user services at boot" loginctl enable-linger "${USER:-$LOGNAME}" || return 1
     _basil::enable_services || return 1
@@ -331,6 +364,10 @@ mod_status() {
     }
     _basil::required_sources || {
         primer::status_msg "runtime sources need update"
+        return 1
+    }
+    _basil::runtime_sources_ready || {
+        primer::status_msg "runtime sources need activation"
         return 1
     }
     _basil::definitions_match || {

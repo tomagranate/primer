@@ -163,6 +163,8 @@ run_module() {
     assert_success
     run_module _basil::reconcile_credentials
     assert_success
+    run_module _basil::reconcile_runtime_sources
+    assert_success
     run_module _basil::install_compose
     assert_success
     : > "$BASIL_ROOT_LOG"
@@ -289,6 +291,26 @@ EOF
     grep -Fx "systemctl --user restart basil-tunnel.service" "$MOCK_LOG"
     run grep -Fx "systemctl --user restart basil-webhook-shim.service" "$MOCK_LOG"
     assert_failure
+}
+
+@test "basil: restarts an active service when its runtime script changes" {
+    repo="$TEST_HOME/code/basil"
+    mkdir -p "$repo/deploy/infra"
+    printf 'brain one\n' > "$repo/deploy/brain-sync.sh"
+    printf 'webhook one\n' > "$repo/deploy/infra/kuma-webhook-shim.py"
+    run_module _basil::reconcile_runtime_sources
+    assert_success
+    : > "$MOCK_LOG"
+
+    printf 'webhook two\n' > "$repo/deploy/infra/kuma-webhook-shim.py"
+    run_module _basil::reconcile_runtime_sources
+
+    assert_success
+    grep -Fx "systemctl --user restart basil-webhook-shim.service" "$MOCK_LOG"
+    run grep -Fx "systemctl --user restart basil-brain-sync.service" "$MOCK_LOG"
+    assert_failure
+    run_module _basil::runtime_sources_ready
+    assert_success
 }
 
 @test "basil: verifies linger and Docker boot settings" {
