@@ -72,7 +72,7 @@ esac
 EOF
     cat > "$MOCK_DIR/tailscale" <<'EOF'
 #!/bin/sh
-printf '%s\n' '{"Self":{"TailscaleIPs":["100.64.0.7","fd7a:115c:a1e0::7"]}}'
+printf '%s\n' '{"Self":{"DNSName":"host.tailnet.ts.net.","TailscaleIPs":["100.64.0.7","fd7a:115c:a1e0::7"]}}'
 EOF
     cat > "$MOCK_DIR/getent" <<'EOF'
 #!/bin/sh
@@ -380,6 +380,10 @@ EOF
     mkdir -p "$TEST_ROOT/etc/caddy/env.d"
     printf 'credentials\n' > "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
     chmod 0600 "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    CADDY_CONFIG_DIR="$TEST_ROOT/etc/caddy" \
+    CADDY_RUNTIME_DIR="$TEST_ROOT/run/caddy" \
+    TAILSCALE_BIN="$MOCK_DIR/tailscale" \
+        "$TEST_ROOT/usr/local/libexec/primer-caddy-tailnet"
 
     run_caddy_function mod_status
     assert_success
@@ -396,6 +400,11 @@ EOF
     run_caddy_function mod_status
     assert_failure
     chmod 0600 "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+
+    printf 'TAILSCALE_HOSTNAME=old.tailnet.ts.net\n' > "$TEST_ROOT/run/caddy/tailnet.env"
+    run_caddy_function mod_status
+    assert_failure
+    printf 'TAILSCALE_HOSTNAME=host.tailnet.ts.net\n' > "$TEST_ROOT/run/caddy/tailnet.env"
 
     printf 'drift\n' >> "$TEST_ROOT/etc/systemd/system/caddy.service"
     run_caddy_function mod_status
@@ -763,4 +772,13 @@ EOF
     assert_success
     grep -F "bind 100.64.0.1 fd7a:115c:a1e0::1" "$CADDY_CONFIG_DIR/tailnet.caddy"
     grep -Fx "TAILSCALE_HOSTNAME=host.tailnet.ts.net" "$TEST_ROOT/run/tailnet.env"
+
+    CADDY_CONFIG_DIR="$CADDY_CONFIG_DIR" CADDY_RUNTIME_DIR="$TEST_ROOT/run" \
+        TAILSCALE_BIN="$MOCK_DIR/tailscale" \
+        "$PRIMER_DIR/modules/caddy/files/usr/local/libexec/primer-caddy-tailnet" status
+    printf 'TAILSCALE_HOSTNAME=old.tailnet.ts.net\n' > "$TEST_ROOT/run/tailnet.env"
+    run env CADDY_CONFIG_DIR="$CADDY_CONFIG_DIR" CADDY_RUNTIME_DIR="$TEST_ROOT/run" \
+        TAILSCALE_BIN="$MOCK_DIR/tailscale" \
+        "$PRIMER_DIR/modules/caddy/files/usr/local/libexec/primer-caddy-tailnet" status
+    assert_failure
 }

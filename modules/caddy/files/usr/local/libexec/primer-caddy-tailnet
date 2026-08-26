@@ -4,6 +4,11 @@ set -euo pipefail
 config_dir="${CADDY_CONFIG_DIR:-/etc/caddy}"
 runtime_dir="${CADDY_RUNTIME_DIR:-/run/caddy}"
 tailscale_bin="${TAILSCALE_BIN:-tailscale}"
+mode="${1:-install}"
+[[ "$mode" == install || "$mode" == status ]] || {
+    echo "usage: primer-caddy-tailnet [status]" >&2
+    exit 2
+}
 
 status="$($tailscale_bin status --json)"
 hostname="$(jq -r '.Self.DNSName // empty' <<<"$status")"
@@ -25,9 +30,14 @@ for address in "${addresses[@]}"; do
     }
 done
 
-install -d -m 0755 "$config_dir" "$runtime_dir"
-snippet="$(mktemp "$config_dir/.tailnet.caddy.XXXXXX")"
-env_file="$(mktemp "$runtime_dir/.tailnet.env.XXXXXX")"
+if [[ "$mode" == install ]]; then
+    install -d -m 0755 "$config_dir" "$runtime_dir"
+    snippet="$(mktemp "$config_dir/.tailnet.caddy.XXXXXX")"
+    env_file="$(mktemp "$runtime_dir/.tailnet.env.XXXXXX")"
+else
+    snippet="$(mktemp)"
+    env_file="$(mktemp)"
+fi
 trap 'rm -f "$snippet" "$env_file"' EXIT
 
 {
@@ -39,5 +49,10 @@ trap 'rm -f "$snippet" "$env_file"' EXIT
 } >"$snippet"
 printf 'TAILSCALE_HOSTNAME=%s\n' "$hostname" >"$env_file"
 chmod 0644 "$snippet" "$env_file"
+if [[ "$mode" == status ]]; then
+    cmp -s "$snippet" "$config_dir/tailnet.caddy" \
+        && cmp -s "$env_file" "$runtime_dir/tailnet.env"
+    exit $?
+fi
 mv -f "$snippet" "$config_dir/tailnet.caddy"
 mv -f "$env_file" "$runtime_dir/tailnet.env"

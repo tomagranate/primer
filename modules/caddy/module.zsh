@@ -383,6 +383,12 @@ _caddy::routes_ready() {
     done <<< "$desired"
 }
 
+_caddy::tailnet_ready() {
+    CADDY_CONFIG_DIR="$(_caddy::root_path /etc/caddy)" \
+    CADDY_RUNTIME_DIR="$(_caddy::root_path /run/caddy)" \
+        "$(_caddy::root_path /usr/local/libexec/primer-caddy-tailnet)" status
+}
+
 _caddy::desired_routes() {
     mod_config routes
 }
@@ -832,6 +838,7 @@ mod_status() {
     _caddy::custom_binary_ready \
         && _caddy::definitions_ready \
         && _caddy::cloudflare_file_ready \
+        && _caddy::tailnet_ready \
         && systemctl is-enabled --quiet caddy.service \
         && systemctl is-active --quiet caddy.service || {
             primer::status_msg "gateway not ready"
