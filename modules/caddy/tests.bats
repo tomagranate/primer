@@ -533,10 +533,11 @@ EOF
 
 @test "caddy: stages a route without reloading the inactive gateway" {
     printf 'http://example.test { respond "ok" }\n' > "$TEST_ROOT/route"
-    route_helper stage example "$TEST_ROOT/route"
+    run_caddy_function "_caddy::stage_route example '$TEST_ROOT/route'"
     assert_success
     cmp -s "$TEST_ROOT/route" "$CADDY_APPS_DIR/example.caddy"
     grep -Fx example "$CADDY_ROUTE_MANIFEST"
+    [ -f "$TEST_ROOT/var/lib/caddy/primer-gateway-restart-required" ]
     run grep -F "systemctl reload caddy.service" "$MOCK_LOG"
     assert_failure
 }

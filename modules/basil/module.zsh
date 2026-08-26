@@ -134,17 +134,28 @@ _basil::reconcile_credentials() {
 }
 
 _basil::install_units() {
-    local repo="$(_basil::repo)" unit_dir="$(_basil::unit_dir)" unit
+    local repo="$(_basil::repo)" unit_dir="$(_basil::unit_dir)" state_dir="$(_basil::config_dir)/units" unit marker
     local -a restart_units=()
-    mkdir -p "$unit_dir"
+    mkdir -p "$unit_dir" "$state_dir"
     for unit in basil-tunnel.service basil-webhook-shim.service basil-brain-sync.service basil-brain-sync.timer; do
         if [[ ! -f "$unit_dir/$unit" ]] || ! cmp -s "$repo/deploy/$unit" "$unit_dir/$unit"; then
-            systemctl --user is-active --quiet "$unit" && restart_units+=("$unit")
+            if systemctl --user is-active --quiet "$unit"; then
+                touch "$state_dir/$unit.restart-required" || return 1
+            fi
         fi
         install -m 0644 "$repo/deploy/$unit" "$unit_dir/$unit" || return 1
     done
     systemctl --user daemon-reload || return 1
-    (( ${#restart_units[@]} == 0 )) || systemctl --user restart "${restart_units[@]}"
+    for unit in basil-tunnel.service basil-webhook-shim.service basil-brain-sync.service basil-brain-sync.timer; do
+        marker="$state_dir/$unit.restart-required"
+        [[ -e "$marker" ]] && restart_units+=("$unit")
+    done
+    if (( ${#restart_units[@]} > 0 )); then
+        systemctl --user restart "${restart_units[@]}" || return 1
+        for unit in "${restart_units[@]}"; do
+            rm -f "$state_dir/$unit.restart-required" || return 1
+        done
+    fi
 }
 
 _basil::definitions_match() {
@@ -152,6 +163,7 @@ _basil::definitions_match() {
     for unit in basil-tunnel.service basil-webhook-shim.service basil-brain-sync.service basil-brain-sync.timer; do
         [[ -f "$repo/deploy/$unit" && -f "$unit_dir/$unit" ]] \
             && cmp -s "$repo/deploy/$unit" "$unit_dir/$unit" || return 1
+        [[ ! -e "$config_dir/units/$unit.restart-required" ]] || return 1
     done
     [[ -f "$config_dir/compose.yaml" ]] \
         && cmp -s "$MOD_DIR/files/compose.yaml" "$config_dir/compose.yaml"

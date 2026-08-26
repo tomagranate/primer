@@ -10,10 +10,11 @@ setup() {
     export BASIL_ROOT_LOG="$(mktemp)"
     export BASIL_TEST_ROOT=1
     export PATH="$MOCK_DIR:$PATH"
-    cat > "$MOCK_DIR/systemctl" <<'EOF'
+cat > "$MOCK_DIR/systemctl" <<'EOF'
 #!/bin/sh
 printf 'systemctl %s\n' "$*" >> "$MOCK_LOG"
 [ "$1 $2 $3" = "is-enabled --quiet docker.service" ] && [ -e "$TEST_HOME/docker-disabled" ] && exit 1
+[ "$1 $2" = "--user restart" ] && [ -e "$TEST_HOME/reject-unit-restart" ] && exit 1
 exit 0
 EOF
     cat > "$MOCK_DIR/loginctl" <<'EOF'
@@ -224,6 +225,30 @@ EOF
 
     assert_success
     grep -Fx "systemctl --user restart basil-tunnel.service" "$MOCK_LOG"
+}
+
+@test "basil: preserves an interrupted unit restart" {
+    repo="$TEST_HOME/code/basil"
+    unit_dir="$TEST_HOME/.config/systemd/user"
+    state_dir="$TEST_HOME/.config/primer/basil/units"
+    mkdir -p "$repo/deploy" "$unit_dir"
+    for unit in basil-tunnel.service basil-webhook-shim.service basil-brain-sync.service basil-brain-sync.timer; do
+        printf 'unit=%s\n' "$unit" > "$repo/deploy/$unit"
+        cp "$repo/deploy/$unit" "$unit_dir/$unit"
+    done
+    printf 'changed=true\n' >> "$repo/deploy/basil-tunnel.service"
+    touch "$TEST_HOME/reject-unit-restart"
+
+    run_module _basil::install_units
+    assert_failure
+    [ -f "$state_dir/basil-tunnel.service.restart-required" ]
+    run_module _basil::definitions_match
+    assert_failure
+
+    rm "$TEST_HOME/reject-unit-restart"
+    run_module _basil::install_units
+    assert_success
+    [ ! -e "$state_dir/basil-tunnel.service.restart-required" ]
 }
 
 @test "basil: restarts an active service when its credential changes" {

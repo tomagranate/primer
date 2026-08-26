@@ -832,6 +832,7 @@ _caddy::check_listener_migration() {
 
 _caddy::stage_route() {
     local name="$1" source="$2"
+    _caddy::mark_restart gateway || return 1
     CADDY_CONFIG_DIR="$(_caddy::root_path /etc/caddy)" \
     CADDY_APPS_DIR="$(_caddy::root_path /etc/caddy/apps.d)" \
     CADDY_ROUTE_MANIFEST="$(_caddy::root_path /etc/caddy/primer-routes)" \
