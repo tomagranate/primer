@@ -38,6 +38,7 @@ load 'helpers/common'
     assert_output --partial "moby-engine"
     assert_output --partial "docker-compose"
     assert_output --partial "ghostty"
+    assert_output --partial "curl -fsSL https://zed.dev/install.sh | sh"
     assert_output --partial "helium-bin"
     assert_output --partial "1Password"
     assert_output --partial "chatgpt.x86_64.rpm"
