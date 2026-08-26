@@ -210,6 +210,8 @@ github_command = gh auth login
       .toBe("true");
     expect(fedora.find((node) => node.id === "caddy")?.config["caddy.dns_names"])
       .toBe("\nt3.{machine}.tomagranate.com");
+    expect(fedora.find((node) => node.id === "caddy")?.config["caddy.migrate_tailscale_serve_route"])
+      .toBe("t3-code");
     expect(vps.find((node) => node.id === "caddy")?.deps)
       .toEqual(["tailscale", "mise", "interactive:tailscale"]);
     expect(vps.some((node) => node.id === "interactive:agents-sudo")).toBe(false);
@@ -228,6 +230,8 @@ github_command = gh auth login
       .toBe("true");
     expect(plans.find((node) => node.id === "caddy")?.config["caddy.dns_names"])
       .toBe("\nt3.{machine}.tomagranate.com\nplans.tomagranate.com");
+    expect(plans.find((node) => node.id === "caddy")?.config["caddy.migrate_plans_route"])
+      .toBe("plans-media");
     expect(basil.find((node) => node.id === "basil")?.deps)
       .toEqual(["caddy", "agents", "shell-installers"]);
     expect(basil.find((node) => node.id === "shell-installers")

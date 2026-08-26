@@ -17,6 +17,10 @@ _plans_media::route_helper() {
     print -r -- "${CADDY_ROUTE_HELPER:-$(_plans_media::root_path /usr/local/libexec/primer-caddy-route)}"
 }
 
+_plans_media::fragment_helper() {
+    print -r -- "${CADDY_FRAGMENT_HELPER:-$PRIMER_DIR/modules/caddy/files/usr/local/libexec/primer-caddy-fragment}"
+}
+
 _plans_media::install_secret_file() {
     local source="$1" target="$2"
     if [[ -n "${PLANS_MEDIA_TEST_ROOT:-}" ]]; then
@@ -70,16 +74,7 @@ _plans_media::route_contents() {
     worker="$(mod_config worker_host | head -1)"
     print -r -- "$host" | grep -Eq '^[A-Za-z0-9.-]+$' || return 1
     print -r -- "$worker" | grep -Eq '^[A-Za-z0-9.-]+$' || return 1
-    print -r -- "https://$host:443 {"
-    print -r -- '    import tailnet-bind'
-    print -r -- '    tls {'
-    print -r -- '        dns cloudflare {env.CLOUDFLARE_API_TOKEN}'
-    print -r -- '    }'
-    print -r -- "    reverse_proxy https://$worker {"
-    print -r -- "        header_up Host $worker"
-    print -r -- '        header_up Authorization "Bearer {env.GATE_SECRET}"'
-    print -r -- '    }'
-    print -r -- '}'
+    "$(_plans_media::fragment_helper)" plans-media "$host" "$worker"
 }
 
 _plans_media::install_route() {

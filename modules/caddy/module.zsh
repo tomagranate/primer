@@ -13,6 +13,10 @@ _caddy::route_helper() {
     print -r -- "${CADDY_ROUTE_HELPER:-$(_caddy::root_path /usr/local/libexec/primer-caddy-route)}"
 }
 
+_caddy::fragment_helper() {
+    print -r -- "${CADDY_FRAGMENT_HELPER:-$PRIMER_DIR/modules/caddy/files/usr/local/libexec/primer-caddy-fragment}"
+}
+
 _caddy::cloudflare_env() {
     print -r -- "${CADDY_CLOUDFLARE_ENV:-$(_caddy::root_path /etc/caddy/env.d/cloudflare.env)}"
 }
@@ -333,6 +337,7 @@ _caddy::deploy() {
     done
     _caddy::install_file /usr/local/libexec/primer-caddy-tailnet 0755 || return 1
     _caddy::install_file /usr/local/libexec/primer-caddy-route 0755 || return 1
+    _caddy::install_file /usr/local/libexec/primer-caddy-fragment 0755 || return 1
     _caddy::root chown -R caddy:caddy "$(_caddy::root_path /var/lib/caddy)"
 }
 
@@ -479,12 +484,28 @@ _caddy::reconcile_routes() {
     CADDY_CONFIG_DIR="$(_caddy::root_path /etc/caddy)" \
     CADDY_APPS_DIR="$(_caddy::root_path /etc/caddy/apps.d)" \
     CADDY_ROUTE_MANIFEST="$(_caddy::root_path /etc/caddy/primer-routes)" \
-    CADDY_ROUTE_LOCK="${CADDY_ROUTE_LOCK:-/tmp/primer-caddy-route.lock}" \
+    CADDY_ROUTE_LOCK="${CADDY_TEST_ROOT:+${CADDY_ROUTE_LOCK:-}}" \
         _caddy::root "$(_caddy::route_helper)" reconcile "${routes[@]}"
 }
 
 typeset -g _CADDY_MIGRATED_SERVE=false
 typeset -g _CADDY_MIGRATED_PLANS=false
+
+_caddy::plans_migration_needed() {
+    systemctl cat plans.service >/dev/null 2>&1 \
+        && _caddy::desired_routes | grep -Fxq plans-media \
+        && { systemctl is-active --quiet plans.service \
+            || systemctl is-enabled --quiet plans.service; }
+}
+
+_caddy::serve_migration_needed() {
+    local serve_port serve_status
+    serve_port="$(mod_config migrate_tailscale_serve_port | head -1)"
+    [[ -n "$serve_port" ]] || return 1
+    serve_status="$(tailscale serve status --json 2>/dev/null)" || return 1
+    print -r -- "$serve_status" | jq -e --arg port "$serve_port" \
+        '.TCP[$port] != null' >/dev/null 2>&1
+}
 
 _caddy::check_listener_migration() {
     local plans_present=false plans_selected=false plans_managed=false
@@ -498,6 +519,68 @@ _caddy::check_listener_migration() {
         print "Legacy plans.service is active, but the plans-media addon is not selected." >&2
         print "Select plans-media before Primer migrates the Plans listener." >&2
         return 1
+    fi
+}
+
+_caddy::stage_route() {
+    local name="$1" source="$2"
+    CADDY_CONFIG_DIR="$(_caddy::root_path /etc/caddy)" \
+    CADDY_APPS_DIR="$(_caddy::root_path /etc/caddy/apps.d)" \
+    CADDY_ROUTE_MANIFEST="$(_caddy::root_path /etc/caddy/primer-routes)" \
+    CADDY_ROUTE_LOCK="${CADDY_TEST_ROOT:+${CADDY_ROUTE_LOCK:-}}" \
+        _caddy::root "$(_caddy::route_helper)" stage "$name" "$source"
+}
+
+_caddy::stage_plans_credentials() {
+    local target legacy gate temp
+    target="$(_caddy::root_path /etc/caddy/env.d/plans-media.env)"
+    _caddy::env_value "$target" GATE_SECRET >/dev/null 2>&1 && return 0
+    legacy="$(mod_config legacy_cloudflare_env | head -1)"
+    gate="$(_caddy::env_value "$legacy" GATE_SECRET)" || {
+        print "The legacy Plans gate secret is unavailable; refusing listener migration." >&2
+        return 1
+    }
+    temp="$(mktemp)" || return 1
+    chmod 0600 "$temp"
+    printf 'GATE_SECRET=%s\n' "$gate" >"$temp"
+    unset gate
+    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
+        install -D -m 0600 "$temp" "$target"
+    else
+        _caddy::root install -D -o root -g root -m 0600 "$temp" "$target"
+    fi
+    local rc=$?
+    rm -f "$temp"
+    return "$rc"
+}
+
+_caddy::stage_migration_routes() {
+    local route host target port worker temp machine
+    if _caddy::serve_migration_needed; then
+        route="$(mod_config migrate_tailscale_serve_route | head -1)"
+        host="$(mod_config migrate_tailscale_serve_host | head -1)"
+        target="$(mod_config migrate_tailscale_serve_target | head -1)"
+        port="${target##*:}"
+        machine="${(L)${CADDY_MACHINE_NAME:-$(hostname -s 2>/dev/null)}}"
+        host="${host//\{machine\}/$machine}"
+        [[ "$route" == t3-code ]] || return 1
+        temp="$(mktemp)" || return 1
+        "$(_caddy::fragment_helper)" t3-code "$host" "$port" >"$temp" \
+            || { rm -f "$temp"; return 1; }
+        _caddy::stage_route "$route" "$temp" || { rm -f "$temp"; return 1; }
+        rm -f "$temp"
+    fi
+    if _caddy::plans_migration_needed; then
+        route="$(mod_config migrate_plans_route | head -1)"
+        host="$(mod_config migrate_plans_host | head -1)"
+        worker="$(mod_config migrate_plans_worker_host | head -1)"
+        [[ "$route" == plans-media ]] || return 1
+        _caddy::stage_plans_credentials || return 1
+        temp="$(mktemp)" || return 1
+        "$(_caddy::fragment_helper)" plans-media "$host" "$worker" >"$temp" \
+            || { rm -f "$temp"; return 1; }
+        _caddy::stage_route "$route" "$temp" || { rm -f "$temp"; return 1; }
+        rm -f "$temp"
     fi
 }
 
@@ -563,10 +646,26 @@ _caddy::activate_gateway_with_rollback() {
     local gateway_needs_restart="$1"
     _caddy::migrate_listeners || return 1
     if ! _caddy::activate_gateway "$gateway_needs_restart"; then
-        _caddy::restore_listeners \
-            || print "Caddy activation and legacy listener restoration failed." >&2
+        _caddy::rollback_migration
         return 1
     fi
+}
+
+_caddy::rollback_migration() {
+    if ! $_CADDY_MIGRATED_SERVE && ! $_CADDY_MIGRATED_PLANS; then
+        return 0
+    fi
+    local rc=0
+    _caddy::root systemctl disable --now caddy.service || rc=1
+    _caddy::restore_listeners || rc=1
+    (( rc == 0 )) || print "Caddy migration rollback failed." >&2
+    return "$rc"
+}
+
+_caddy::reconcile_routes_with_rollback() {
+    _caddy::reconcile_routes && return 0
+    _caddy::rollback_migration
+    return 1
 }
 
 mod_update() {
@@ -616,10 +715,14 @@ mod_update() {
         _caddy::root systemctl restart tailscaled.service || return 1
     fi
     _caddy::root "$(_caddy::root_path /usr/local/libexec/primer-caddy-tailnet)" || return 1
+    _caddy::stage_migration_routes || return 1
     _caddy::root systemctl start --wait caddy-validate.service || return 1
     _caddy::check_listener_migration || return 1
     _caddy::activate_gateway_with_rollback "$gateway_needs_restart" || return 1
-    _caddy::reconcile_routes || { primer::item_update routes failed "reconcile failed"; return 1; }
+    _caddy::reconcile_routes_with_rollback || {
+        primer::item_update routes failed "reconcile failed"
+        return 1
+    }
     primer::item_update routes done
     _caddy::root systemctl is-active --quiet caddy.service || return 1
     primer::item_update service done

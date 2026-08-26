@@ -52,7 +52,7 @@ restore_active_config() {
 }
 
 install_route() {
-    local name="$1" source="$2" target backup_dir candidate
+    local name="$1" source="$2" reload="$3" target backup_dir candidate
     valid_name "$name" || { echo "invalid route name: $name" >&2; return 2; }
     [[ -f "$source" ]] || { echo "route source is not a file: $source" >&2; return 2; }
     target="$apps_dir/$name.caddy"
@@ -82,7 +82,7 @@ install_route() {
     fi
     mapfile -t owned < <(read_manifest)
     write_manifest "${owned[@]}" "$name"
-    if ! reload_gateway; then
+    if $reload && ! reload_gateway; then
         if [[ -f "$backup_dir/route.caddy" ]]; then
             mv -f "$backup_dir/route.caddy" "$target"
         else
@@ -160,7 +160,11 @@ shift || true
 case "$command" in
     install)
         [[ $# -eq 2 ]] || { echo "usage: primer-caddy-route install NAME SOURCE" >&2; exit 2; }
-        install_route "$1" "$2"
+        install_route "$1" "$2" true
+        ;;
+    stage)
+        [[ $# -eq 2 ]] || { echo "usage: primer-caddy-route stage NAME SOURCE" >&2; exit 2; }
+        install_route "$1" "$2" false
         ;;
     reconcile)
         reconcile_routes "$@"
@@ -173,7 +177,7 @@ case "$command" in
         route_ready "$@"
         ;;
     *)
-        echo "usage: primer-caddy-route {install NAME SOURCE|reconcile [NAME...]|status NAME [SOURCE]}" >&2
+        echo "usage: primer-caddy-route {install NAME SOURCE|stage NAME SOURCE|reconcile [NAME...]|status NAME [SOURCE]}" >&2
         exit 2
         ;;
 esac

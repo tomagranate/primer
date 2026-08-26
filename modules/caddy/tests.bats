@@ -48,6 +48,8 @@ legacy_cloudflare_env = $TEST_ROOT/legacy.env
 cloudflare_token_ref =
 migrate_tailscale_serve_port = 443
 migrate_tailscale_serve_target = http://127.0.0.1:3773
+migrate_tailscale_serve_route = t3-code
+migrate_tailscale_serve_host = t3.{machine}.tomagranate.com
 dns_names =
     t3.{machine}.tomagranate.com
 routes =
@@ -151,6 +153,8 @@ run_caddy_function() {
         export PRIMER_DIR='$PRIMER_DIR' DRY_RUN=false MOD_DIR='$PRIMER_DIR/modules/caddy'
         export MOD_NAME=caddy MOD_STATUS_FILE='$(mktemp)' MOD_ITEMS_FILE='$(mktemp)'
         export CADDY_TEST_ROOT=1 CADDY_ROOT_DIR='$TEST_ROOT' CADDY_MACHINE_NAME=tombook-linux
+        export CADDY_ROUTE_HELPER='$PRIMER_DIR/modules/caddy/files/usr/local/libexec/primer-caddy-route'
+        export CADDY_ROUTE_LOCK='$CADDY_ROUTE_LOCK'
         export PRIMER_OP_TICKET='$TEST_ROOT/op-ticket' PATH='$MOCK_DIR':\"\$PATH\"
         export MOCK_LOG='$MOCK_LOG' MOCK_CF_BODY='$MOCK_CF_BODY' MOCK_DNS_MODE='${MOCK_DNS_MODE:-empty}'
         source '$PRIMER_DIR/lib/module.zsh'
@@ -270,6 +274,16 @@ run_caddy_function() {
     route_helper install example "$TEST_ROOT/route"
     assert_success
     [ "$(grep -c 'systemctl reload caddy.service' "$MOCK_LOG")" -eq 1 ]
+}
+
+@test "caddy: stages a route without reloading the inactive gateway" {
+    printf 'http://example.test { respond "ok" }\n' > "$TEST_ROOT/route"
+    route_helper stage example "$TEST_ROOT/route"
+    assert_success
+    cmp -s "$TEST_ROOT/route" "$CADDY_APPS_DIR/example.caddy"
+    grep -Fx example "$CADDY_ROUTE_MANIFEST"
+    run grep -F "systemctl reload caddy.service" "$MOCK_LOG"
+    assert_failure
 }
 
 @test "caddy: route status compares the generated and installed fragments" {
@@ -430,9 +444,63 @@ EOF
     grep -F "tailscale serve --bg --https=443 http://127.0.0.1:3773" "$MOCK_LOG"
 }
 
+@test "caddy: stages matching T3 and Plans routes before migration" {
+    cat >> "$TEST_CONF" <<'EOF'
+    plans-media
+migrate_plans_route = plans-media
+migrate_plans_host = plans.tomagranate.com
+migrate_plans_worker_host = agents-infra.sunburst-d5c.workers.dev
+EOF
+    printf 'GATE_SECRET=gate-private\n' > "$TEST_ROOT/legacy.env"
+    cat > "$MOCK_DIR/tailscale" <<'EOF'
+#!/bin/sh
+case "$*" in
+    "serve status --json") printf '%s\n' '{"TCP":{"443":{"HTTPS":true}}}' ;;
+esac
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/tailscale"
+
+    run_caddy_function _caddy::stage_migration_routes
+
+    assert_success
+    grep -F "reverse_proxy http://127.0.0.1:3773" "$TEST_ROOT/etc/caddy/apps.d/t3-code.caddy"
+    grep -F "reverse_proxy https://agents-infra.sunburst-d5c.workers.dev" \
+        "$TEST_ROOT/etc/caddy/apps.d/plans-media.caddy"
+    [ "$(stat -c %a "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 600 ]
+    grep -Fx 'GATE_SECRET=gate-private' "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
+    [ "$(grep -c 'systemctl reload caddy.service' "$MOCK_LOG")" -eq 0 ]
+}
+
+@test "caddy: route reconciliation rollback stops Caddy before restoring listeners" {
+    printf 'old\n' > "$CADDY_APPS_DIR/old.caddy"
+    printf 'old\n' > "$CADDY_ROUTE_MANIFEST"
+    touch "$TEST_ROOT/reject"
+    cat > "$MOCK_DIR/tailscale" <<'EOF'
+#!/bin/sh
+printf 'tailscale %s\n' "$*" >> "$MOCK_LOG"
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/tailscale"
+
+    run_caddy_function '_CADDY_MIGRATED_SERVE=true; _CADDY_MIGRATED_PLANS=true; _caddy::reconcile_routes_with_rollback'
+
+    assert_failure
+    grep -F "systemctl disable --now caddy.service" "$MOCK_LOG"
+    grep -F "systemctl enable --now plans.service" "$MOCK_LOG"
+    grep -F "tailscale serve --bg --https=443 http://127.0.0.1:3773" "$MOCK_LOG"
+}
+
 @test "caddy: service permits its generator to update /etc/caddy" {
     grep -Fx "ReadWritePaths=/etc/caddy" \
         "$PRIMER_DIR/modules/caddy/files/etc/systemd/system/caddy.service"
+}
+
+@test "caddy: production route locking uses the helper's protected default" {
+    run grep -F "/tmp/primer-caddy-route.lock" "$PRIMER_DIR/modules/caddy/module.zsh"
+    assert_failure
+    grep -F '/run/lock/primer-caddy-route.lock' \
+        "$PRIMER_DIR/modules/caddy/files/usr/local/libexec/primer-caddy-route"
 }
 
 @test "caddy: a present but disabled Plans unit does not require the addon" {

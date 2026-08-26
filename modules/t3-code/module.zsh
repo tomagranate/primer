@@ -198,6 +198,10 @@ _t3_code::route_helper() {
     print -r -- "${CADDY_ROUTE_HELPER:-/usr/local/libexec/primer-caddy-route}"
 }
 
+_t3_code::fragment_helper() {
+    print -r -- "${CADDY_FRAGMENT_HELPER:-$PRIMER_DIR/modules/caddy/files/usr/local/libexec/primer-caddy-fragment}"
+}
+
 _t3_code::root() {
     if [[ -n "${T3_CODE_TEST_ROOT:-}" ]]; then "$@"; else primer::run_as_root "manage the T3 Code route" "$@"; fi
 }
@@ -205,16 +209,7 @@ _t3_code::root() {
 _t3_code::route_contents() {
     local local_port="$1" hostname
     hostname="$(_t3_code::service_hostname)" || return 1
-    print -r -- "https://$hostname:443 {"
-    print -r -- '    import tailnet-bind'
-    print -r -- '    tls {'
-    print -r -- '        dns cloudflare {env.CLOUDFLARE_API_TOKEN}'
-    print -r -- '    }'
-    print -r -- '    log {'
-    print -r -- '        output file /var/lib/caddy/t3-access.log'
-    print -r -- '    }'
-    print -r -- "    reverse_proxy http://127.0.0.1:$local_port"
-    print -r -- '}'
+    "$(_t3_code::fragment_helper)" t3-code "$hostname" "$local_port"
 }
 
 _t3_code::service_hostname() {
