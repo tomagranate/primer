@@ -841,7 +841,7 @@ _caddy::plans_service_managed() {
 
 _caddy::plans_service_matches() {
     local config expected actual unit expected_unit actual_unit fragment
-    local exec_start exec_reload environment user group command
+    local exec_start exec_reload environment user group drop_in_paths command
     config="$(_caddy::root_path /etc/caddy/plans.Caddyfile)"
     expected="$(mod_config migrate_plans_config_digest | head -1)"
     print -r -- "$expected" | grep -Eq '^[0-9a-f]{64}$' || return 1
@@ -859,11 +859,13 @@ _caddy::plans_service_matches() {
     environment="$(systemctl show plans.service --property=EnvironmentFiles --value 2>/dev/null)" || return 1
     user="$(systemctl show plans.service --property=User --value 2>/dev/null)" || return 1
     group="$(systemctl show plans.service --property=Group --value 2>/dev/null)" || return 1
+    drop_in_paths="$(systemctl show plans.service --property=DropInPaths --value 2>/dev/null)" || return 1
     [[ "$fragment" == /etc/systemd/system/plans.service ]] \
         && [[ "$exec_start" == *'argv[]=/usr/local/bin/caddy run --config /etc/caddy/plans.Caddyfile ;'* ]] \
         && [[ "$exec_reload" == *'argv[]=/usr/local/bin/caddy reload --config /etc/caddy/plans.Caddyfile --force ;'* ]] \
         && [[ "$environment" == '/etc/agents-infra/plans.env (ignore_errors=no)' ]] \
-        && [[ "$user" == caddy && "$group" == caddy ]] || return 1
+        && [[ "$user" == caddy && "$group" == caddy ]] \
+        && [[ -z "$drop_in_paths" ]] || return 1
     for command in ExecCondition ExecStartPre ExecStartPost ExecStop ExecStopPost; do
         [[ -z "$(systemctl show plans.service --property="$command" --value 2>/dev/null)" ]] || return 1
     done

@@ -58,6 +58,9 @@ fi
 if [ "$*" = "show plans.service --property=ExecStartPost --value" ] && [ -e "$TEST_ROOT/plans-extra-command" ]; then
     printf '%s\n' '{ path=/usr/bin/custom ; argv[]=/usr/bin/custom ; }'
 fi
+if [ "$*" = "show plans.service --property=DropInPaths --value" ] && [ -e "$TEST_ROOT/plans-drop-in" ]; then
+    printf '%s\n' '/etc/systemd/system/plans.service.d/network.conf'
+fi
 exit 0
 EOF
     chmod +x "$MOCK_DIR/systemctl"
@@ -812,6 +815,20 @@ EOF
     plans-media
 EOF
     touch "$TEST_ROOT/plans-extra-command"
+
+    run_caddy_function _caddy::migrate_listeners
+
+    assert_failure
+    assert_output --partial "will not replace a customized service"
+    run grep -F "systemctl disable --now plans.service" "$MOCK_LOG"
+    assert_failure
+}
+
+@test "caddy: refuses a Plans service with drop-ins" {
+    cat >> "$TEST_CONF" <<'EOF'
+    plans-media
+EOF
+    touch "$TEST_ROOT/plans-drop-in"
 
     run_caddy_function _caddy::migrate_listeners
 
