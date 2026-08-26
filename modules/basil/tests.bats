@@ -113,6 +113,27 @@ run_module() {
     grep -Fx "systemctl --user restart basil-tunnel.service" "$MOCK_LOG"
 }
 
+@test "basil: preserves an interrupted cloudflared restart" {
+    marker="$TEST_HOME/.config/primer/basil/cloudflared.restart-required"
+    touch "$TEST_HOME/reject-unit-restart"
+
+    run_module _basil::install_cloudflared
+    assert_failure
+    [ -x "$TEST_HOME/.local/bin/cloudflared" ]
+    [ -f "$marker" ]
+    run_module _basil::cloudflared_ready
+    assert_failure
+
+    rm "$TEST_HOME/reject-unit-restart"
+    : > "$MOCK_LOG"
+    run_module _basil::install_cloudflared
+    assert_success
+    [ ! -e "$marker" ]
+    grep -Fx "systemctl --user restart basil-tunnel.service" "$MOCK_LOG"
+    run grep -F "curl " "$MOCK_LOG"
+    assert_failure
+}
+
 @test "basil: enables Docker and routes update commands through root" {
     run_module '_basil::enable_docker && _basil::install_compose'
     assert_success

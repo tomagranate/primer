@@ -44,14 +44,32 @@ _basil::cloudflared_version() {
     print -r -- "$version"
 }
 
-_basil::cloudflared_ready() {
+_basil::cloudflared_restart_marker() {
+    print -r -- "$(_basil::config_dir)/cloudflared.restart-required"
+}
+
+_basil::cloudflared_binary_ready() {
     local version target="$HOME/.local/bin/cloudflared"
     version="$(_basil::cloudflared_version)" || return 1
     [[ -x "$target" ]] && "$target" --version 2>/dev/null | grep -Fq "version $version "
 }
 
+_basil::cloudflared_ready() {
+    _basil::cloudflared_binary_ready \
+        && [[ ! -e "$(_basil::cloudflared_restart_marker)" ]]
+}
+
+_basil::activate_cloudflared() {
+    local marker="$(_basil::cloudflared_restart_marker)"
+    [[ -e "$marker" ]] || return 0
+    if systemctl --user is-active --quiet basil-tunnel.service; then
+        systemctl --user restart basil-tunnel.service || return 1
+    fi
+    rm -f "$marker"
+}
+
 _basil::install_cloudflared() {
-    local version architecture target temp tunnel_was_active=false
+    local version architecture target temp marker
     version="$(_basil::cloudflared_version)" || return 1
     case "$(uname -m)" in
         x86_64) architecture=amd64 ;;
@@ -59,20 +77,24 @@ _basil::install_cloudflared() {
         *) print "cloudflared does not support this architecture: $(uname -m)" >&2; return 1 ;;
     esac
     target="$HOME/.local/bin/cloudflared"
-    _basil::cloudflared_ready && return 0
-    systemctl --user is-active --quiet basil-tunnel.service && tunnel_was_active=true
+    if _basil::cloudflared_binary_ready; then
+        _basil::activate_cloudflared
+        return $?
+    fi
     mkdir -p "$HOME/.local/bin"
     temp="$(mktemp)" || return 1
     curl -fsSL \
         "https://github.com/cloudflare/cloudflared/releases/download/$version/cloudflared-linux-$architecture" \
         -o "$temp" || { rm -f "$temp"; return 1; }
+    if systemctl --user is-active --quiet basil-tunnel.service; then
+        marker="$(_basil::cloudflared_restart_marker)"
+        mkdir -p "${marker:h}" || { rm -f "$temp"; return 1; }
+        touch "$marker" || { rm -f "$temp"; return 1; }
+    fi
     install -m 0755 "$temp" "$target" || { rm -f "$temp"; return 1; }
     rm -f "$temp"
     "$target" --version 2>/dev/null | grep -Fq "version $version " || return 1
-    if $tunnel_was_active; then
-        systemctl --user restart basil-tunnel.service || return 1
-    fi
-    return 0
+    _basil::activate_cloudflared
 }
 
 _basil::required_sources() {
