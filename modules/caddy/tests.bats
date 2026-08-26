@@ -225,6 +225,17 @@ run_caddy_function() {
     grep -E '^DELETE.*/tokens/old-token-id$' "$MOCK_LOG"
 }
 
+@test "caddy: replaces a revoked legacy token on its first import" {
+    printf 'CLOUDFLARE_API_TOKEN=revoked-private\n' > "$TEST_ROOT/legacy.env"
+    export MOCK_STORED_TOKEN_MODE=invalid
+
+    run_caddy_function _caddy::install_cloudflare_token
+
+    assert_success
+    grep -Fx 'CLOUDFLARE_API_TOKEN=minted-dns-private' "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    [ "$(grep -c '^POST.*/accounts/.*/tokens$' "$MOCK_LOG")" -eq 1 ]
+}
+
 @test "caddy: creates DNS-only A and AAAA records for each private host" {
     mkdir -p "$TEST_ROOT/etc/caddy/env.d"
     printf '%s\n' \

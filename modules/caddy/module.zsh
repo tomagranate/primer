@@ -247,15 +247,20 @@ _caddy::mint_cloudflare_token() {
     return "$rc"
 }
 
-_caddy::stored_cloudflare_token_ready() {
-    local token zone_id zone response
-    token="$(_caddy::env_value "$(_caddy::cloudflare_env)" CLOUDFLARE_API_TOKEN)" || return 1
-    zone_id="$(_caddy::env_value "$(_caddy::cloudflare_env)" CLOUDFLARE_ZONE_ID)" || return 1
+_caddy::cloudflare_token_matches_zone() {
+    local token="$1" zone_id="$2" zone response
     zone="$(_caddy::zone_name)" || return 1
     response="$(_caddy::curl_with_token "$token" -fsS \
         "$(_caddy::cloudflare_api)/zones/$zone_id")" || return 1
     print -r -- "$response" | jq -e --arg id "$zone_id" --arg zone "$zone" \
         '.success == true and .result.id == $id and .result.name == $zone' >/dev/null
+}
+
+_caddy::stored_cloudflare_token_ready() {
+    local token zone_id
+    token="$(_caddy::env_value "$(_caddy::cloudflare_env)" CLOUDFLARE_API_TOKEN)" || return 1
+    zone_id="$(_caddy::env_value "$(_caddy::cloudflare_env)" CLOUDFLARE_ZONE_ID)" || return 1
+    _caddy::cloudflare_token_matches_zone "$token" "$zone_id"
 }
 
 _caddy::delete_cloudflare_token() {
@@ -326,6 +331,11 @@ _caddy::install_cloudflare_token() {
     account_ref="$(mod_config cloudflare_account_id_ref | head -1)"
     account_id="$(_caddy::op_read "$account_ref")" || return 1
     zone_id="$(_caddy::lookup_zone_id "$(_caddy::zone_name)" "$account_id")" || return 1
+    if ! _caddy::cloudflare_token_matches_zone "$token" "$zone_id"; then
+        unset token
+        _caddy::mint_cloudflare_token
+        return
+    fi
     _caddy::install_cloudflare_values "$token" "$token_id" "$zone_id"
     local rc=$?
     unset token
