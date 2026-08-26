@@ -126,10 +126,13 @@ body=
 url=
 name=
 type=
+write_out=
+response_code=200
 while [ "$#" -gt 0 ]; do
     case "$1" in
         -X) method="$2"; explicit=true; shift ;;
         -o) output="$2"; shift ;;
+        -w|--write-out) write_out="$2"; shift ;;
         --data)
             body="$2"
             $explicit || method=POST
@@ -151,7 +154,15 @@ case "$url" in
         response='{"success":true,"result":[{"id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","name":"DNS Write","scopes":["com.cloudflare.api.account.zone"]},{"id":"ffffffffffffffffffffffffffffffff","name":"Zone Read","scopes":["com.cloudflare.api.account.zone"]}]}'
         ;;
     */accounts/*/tokens/*)
-        response='{"success":true,"result":{}}'
+        if [ "${MOCK_DELETE_MODE:-success}" = fail ]; then
+            response_code=500
+            response='{"success":false,"errors":[{"message":"temporary failure"}]}'
+        elif [ "${MOCK_DELETE_MODE:-success}" = missing ]; then
+            response_code=404
+            response='{"success":false,"errors":[{"message":"not found"}]}'
+        else
+            response='{"success":true,"result":{}}'
+        fi
         ;;
     */accounts/*/tokens)
         printf '%s' "$body" > "$MOCK_CF_BODY"
@@ -184,6 +195,7 @@ case "$url" in
     *) exit 1 ;;
 esac
 if [ -n "$output" ]; then printf '%s\n' "$response" > "$output"; else printf '%s\n' "$response"; fi
+[ -z "$write_out" ] || printf '%s' "$response_code"
 EOF
     chmod +x "$MOCK_DIR/op" "$MOCK_DIR/tailscale" "$MOCK_DIR/getent" "$MOCK_DIR/sudo" "$MOCK_DIR/curl"
     printf '%s\n' ticket-private > "$TEST_ROOT/op-ticket"
@@ -219,6 +231,7 @@ run_caddy_function() {
         export MOCK_LOG='$MOCK_LOG' MOCK_CF_BODY='$MOCK_CF_BODY' MOCK_DNS_MODE='${MOCK_DNS_MODE:-empty}'
         export MOCK_RESOLVED_EXTRA='${MOCK_RESOLVED_EXTRA:-}'
         export MOCK_STORED_TOKEN_MODE='${MOCK_STORED_TOKEN_MODE:-current}'
+        export MOCK_DELETE_MODE='${MOCK_DELETE_MODE:-success}'
         source '$PRIMER_DIR/lib/module.zsh'
         source '$PRIMER_DIR/tests/helpers/module-config.zsh'
         test::load_module_config '$TEST_CONF'
@@ -292,6 +305,37 @@ run_caddy_function() {
     [ -f "$TEST_ROOT/var/lib/primer/caddy/gateway-restart-required" ]
     run_caddy_function _caddy::cloudflare_file_ready
     assert_success
+}
+
+@test "caddy: retries cleanup of a replaced Cloudflare token" {
+    mkdir -p "$TEST_ROOT/etc/caddy/env.d"
+    printf '%s\n' \
+        'CLOUDFLARE_API_TOKEN=revoked-private' \
+        'CLOUDFLARE_API_TOKEN_ID=old-token-id' \
+        'CLOUDFLARE_ZONE_ID=dddddddddddddddddddddddddddddddd' \
+        > "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    export MOCK_STORED_TOKEN_MODE=invalid
+    export MOCK_DELETE_MODE=fail
+
+    run_caddy_function _caddy::install_cloudflare_token
+
+    assert_failure
+    [ "$(cat "$TEST_ROOT/var/lib/primer/caddy/cloudflare-token-cleanup")" = old-token-id ]
+    grep -Fx 'CLOUDFLARE_API_TOKEN_ID=cccccccccccccccccccccccccccccccc' \
+        "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    run_caddy_function _caddy::cloudflare_file_ready
+    assert_failure
+
+    export MOCK_STORED_TOKEN_MODE=current
+    export MOCK_DELETE_MODE=missing
+    : > "$MOCK_LOG"
+    run_caddy_function _caddy::install_cloudflare_token
+
+    assert_success
+    [ ! -e "$TEST_ROOT/var/lib/primer/caddy/cloudflare-token-cleanup" ]
+    grep -E '^DELETE.*/tokens/old-token-id$' "$MOCK_LOG"
+    run grep -E '^POST .*/tokens$' "$MOCK_LOG"
+    assert_failure
 }
 
 @test "caddy: replaces a readable stored token without proven DNS Write access" {
