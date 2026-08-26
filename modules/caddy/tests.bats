@@ -462,13 +462,14 @@ EOF
     grep -Fx "systemctl reload caddy.service" "$MOCK_LOG"
 }
 
-@test "caddy: repeat install is idempotent" {
+@test "caddy: repeat install validates and reloads an owned route" {
     printf 'http://example.test { respond "ok" }\n' > "$TEST_ROOT/route"
     route_helper install example "$TEST_ROOT/route"
     assert_success
     route_helper install example "$TEST_ROOT/route"
     assert_success
-    [ "$(grep -c 'systemctl reload caddy.service' "$MOCK_LOG")" -eq 1 ]
+    [ "$(grep -c 'systemctl start --wait caddy-validate.service' "$MOCK_LOG")" -eq 2 ]
+    [ "$(grep -c 'systemctl reload caddy.service' "$MOCK_LOG")" -eq 2 ]
 }
 
 @test "caddy: identical unowned route validates and reloads before restoring ownership" {

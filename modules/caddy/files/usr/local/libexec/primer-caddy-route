@@ -60,6 +60,10 @@ install_route() {
     if [[ -f "$target" ]] && cmp -s "$source" "$target"; then
         mapfile -t owned < <(read_manifest)
         if printf '%s\n' "${owned[@]}" | grep -Fxq "$name"; then
+            if $reload; then
+                validate || { echo "route rejected by Caddy: $name" >&2; return 1; }
+                reload_gateway || { echo "route reload failed: $name" >&2; return 1; }
+            fi
             echo "route unchanged: $name"
             return 0
         fi
