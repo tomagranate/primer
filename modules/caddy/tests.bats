@@ -270,11 +270,24 @@ run_caddy_function() {
         'CLOUDFLARE_ZONE_ID=dddddddddddddddddddddddddddddddd' \
         > "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
 
-    run_caddy_function '_caddy::install_cloudflare_token && _caddy::activate_gateway "$_CADDY_CREDENTIALS_CHANGED"'
+    run_caddy_function '_caddy::install_cloudflare_token && _caddy::restart_pending gateway && _caddy::activate_gateway true'
 
     assert_success
     grep -Fx 'systemctl restart caddy.service' "$MOCK_LOG"
     run grep -Fx 'systemctl reload caddy.service' "$MOCK_LOG"
+    assert_failure
+}
+
+@test "caddy: restart requirements survive failed update processes" {
+    run_caddy_function '_caddy::mark_restart gateway && _caddy::mark_restart tailscale'
+    assert_success
+
+    run_caddy_function '_caddy::restart_pending gateway && _caddy::restart_pending tailscale'
+    assert_success
+
+    run_caddy_function '_caddy::clear_restart gateway && _caddy::clear_restart tailscale'
+    assert_success
+    run_caddy_function '_caddy::restart_pending gateway || _caddy::restart_pending tailscale'
     assert_failure
 }
 

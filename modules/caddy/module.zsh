@@ -99,6 +99,33 @@ _caddy::cloudflare_file_ready() {
         && [[ "$(stat -c %U "$file" 2>/dev/null)" == "$owner" ]]
 }
 
+_caddy::restart_marker() {
+    case "$1" in
+        gateway|tailscale) print -r -- "$(_caddy::root_path /var/lib/caddy/primer-$1-restart-required)" ;;
+        *) return 2 ;;
+    esac
+}
+
+_caddy::mark_restart() {
+    local marker
+    marker="$(_caddy::restart_marker "$1")" || return 1
+    _caddy::root install -d -m 0755 "${marker:h}" \
+        && _caddy::root touch "$marker" \
+        && _caddy::root chmod 0644 "$marker"
+}
+
+_caddy::restart_pending() {
+    local marker
+    marker="$(_caddy::restart_marker "$1")" || return 1
+    [[ -e "$marker" ]]
+}
+
+_caddy::clear_restart() {
+    local marker
+    marker="$(_caddy::restart_marker "$1")" || return 1
+    _caddy::root rm -f "$marker"
+}
+
 _caddy::op_read() {
     local ref="$1" ticket
     if [[ -n "${OP_SERVICE_ACCOUNT_TOKEN:-}" ]]; then
@@ -274,10 +301,7 @@ _caddy::install_cloudflare_token_file() {
 }
 
 # Caddy owns the DNS token because multiple routes can use Cloudflare DNS-01.
-typeset -g _CADDY_CREDENTIALS_CHANGED=false
-
 _caddy::install_cloudflare_token() {
-    _CADDY_CREDENTIALS_CHANGED=false
     _caddy::cloudflare_required || return 0
     local target token_id
     target="$(_caddy::cloudflare_env)"
@@ -288,14 +312,14 @@ _caddy::install_cloudflare_token() {
             return 0
         fi
         token_id="$(_caddy::env_value "$target" CLOUDFLARE_API_TOKEN_ID 2>/dev/null || true)"
+        _caddy::mark_restart gateway || return 1
         _caddy::mint_cloudflare_token || return 1
-        _CADDY_CREDENTIALS_CHANGED=true
         _caddy::delete_cloudflare_token "$token_id" \
             || print "Warning: could not remove the replaced Cloudflare token." >&2
         return 0
     fi
+    _caddy::mark_restart gateway || return 1
     _caddy::mint_cloudflare_token || return 1
-    _CADDY_CREDENTIALS_CHANGED=true
 }
 
 _caddy::install_binary() {
@@ -794,36 +818,41 @@ mod_update() {
         return 0
     fi
 
-    local gateway_needs_restart=false
-    _caddy::custom_binary_ready || gateway_needs_restart=true
-    cmp -s "$MOD_DIR/files/etc/systemd/system/caddy.service" \
-        "$(_caddy::root_path /etc/systemd/system/caddy.service)" \
-        || gateway_needs_restart=true
+    if ! _caddy::custom_binary_ready \
+        || ! cmp -s "$MOD_DIR/files/etc/systemd/system/caddy.service" \
+            "$(_caddy::root_path /etc/systemd/system/caddy.service)"; then
+        _caddy::mark_restart gateway || return 1
+    fi
     _caddy::install_binary || { primer::item_update binary failed "build failed"; return 1; }
     primer::item_update binary done
     _caddy::ensure_user || return 1
-    local tailscale_needs_restart=false
-    cmp -s "$MOD_DIR/files/etc/systemd/system/tailscaled.service.d/primer-caddy.conf" \
-        "$(_caddy::root_path /etc/systemd/system/tailscaled.service.d/primer-caddy.conf)" \
-        || tailscale_needs_restart=true
+    if ! cmp -s "$MOD_DIR/files/etc/systemd/system/tailscaled.service.d/primer-caddy.conf" \
+        "$(_caddy::root_path /etc/systemd/system/tailscaled.service.d/primer-caddy.conf)"; then
+        _caddy::mark_restart tailscale || return 1
+    fi
     _caddy::deploy || { primer::item_update configuration failed "deploy failed"; return 1; }
     primer::item_update configuration done
     _caddy::install_cloudflare_token \
         || { primer::item_update credentials failed "configuration required"; return 1; }
-    $_CADDY_CREDENTIALS_CHANGED && gateway_needs_restart=true
     primer::item_update credentials done
     _caddy::reconcile_dns \
         || { primer::item_update dns failed "Cloudflare update failed"; return 1; }
     primer::item_update dns done
     _caddy::root systemctl daemon-reload || return 1
-    if $tailscale_needs_restart; then
+    if _caddy::restart_pending tailscale; then
         _caddy::root systemctl restart tailscaled.service || return 1
+        _caddy::clear_restart tailscale || return 1
     fi
     _caddy::root "$(_caddy::root_path /usr/local/libexec/primer-caddy-tailnet)" || return 1
     _caddy::stage_migration_routes || return 1
     _caddy::root systemctl start --wait caddy-validate.service || return 1
     _caddy::check_listener_migration || return 1
+    local gateway_needs_restart=false
+    _caddy::restart_pending gateway && gateway_needs_restart=true
     _caddy::activate_gateway_with_rollback "$gateway_needs_restart" || return 1
+    if $gateway_needs_restart; then
+        _caddy::clear_restart gateway || return 1
+    fi
     _caddy::reconcile_routes_with_rollback || {
         primer::item_update routes failed "reconcile failed"
         return 1
@@ -839,6 +868,8 @@ mod_status() {
         && _caddy::definitions_ready \
         && _caddy::cloudflare_file_ready \
         && _caddy::tailnet_ready \
+        && ! _caddy::restart_pending gateway \
+        && ! _caddy::restart_pending tailscale \
         && systemctl is-enabled --quiet caddy.service \
         && systemctl is-active --quiet caddy.service || {
             primer::status_msg "gateway not ready"
