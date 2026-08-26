@@ -25,6 +25,7 @@ EOF
     cat > "$MOCK_DIR/docker" <<'EOF'
 #!/bin/sh
 printf 'docker %s\n' "$*" >> "$MOCK_LOG"
+[ -e "$TEST_HOME/docker-requires-root" ] && [ "${BASIL_DOCKER_PRIVILEGED:-}" != 1 ] && exit 1
 case "$*" in
     *" ps --status running --services") printf 'ntfy\nuptime-kuma\n' ;;
     *".State.Running"*)
@@ -271,6 +272,16 @@ EOF
     touch "$TEST_HOME/wrong-compose-labels"
     run_module _basil::compose_runtime_ready
     assert_failure
+}
+
+@test "basil: falls back to privileged Compose inspection" {
+    touch "$TEST_HOME/docker-requires-root"
+
+    run_module _basil::compose_runtime_ready
+
+    assert_success
+    grep -F "BASIL_DOCKER_PRIVILEGED=1" "$BASIL_ROOT_LOG"
+    grep -F "docker inspect" "$BASIL_ROOT_LOG"
 }
 
 @test "basil: restarts an active service when its unit changes" {
