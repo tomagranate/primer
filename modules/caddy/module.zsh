@@ -715,17 +715,33 @@ _caddy::plans_service_managed() {
 }
 
 _caddy::plans_service_matches() {
-    local config expected actual exec_start environment
+    local config expected actual unit expected_unit actual_unit fragment
+    local exec_start exec_reload environment user group command
     config="$(_caddy::root_path /etc/caddy/plans.Caddyfile)"
     expected="$(mod_config migrate_plans_config_digest | head -1)"
     print -r -- "$expected" | grep -Eq '^[0-9a-f]{64}$' || return 1
     [[ -f "$config" ]] || return 1
     actual="$(sha256sum "$config" 2>/dev/null | awk '{print $1}')" || return 1
     [[ "$actual" == "$expected" ]] || return 1
+    unit="$(_caddy::root_path /etc/systemd/system/plans.service)"
+    expected_unit="$(mod_config migrate_plans_unit_digest | head -1)"
+    print -r -- "$expected_unit" | grep -Eq '^[0-9a-f]{64}$' || return 1
+    actual_unit="$(sha256sum "$unit" 2>/dev/null | awk '{print $1}')" || return 1
+    [[ "$actual_unit" == "$expected_unit" ]] || return 1
+    fragment="$(systemctl show plans.service --property=FragmentPath --value 2>/dev/null)" || return 1
     exec_start="$(systemctl show plans.service --property=ExecStart --value 2>/dev/null)" || return 1
+    exec_reload="$(systemctl show plans.service --property=ExecReload --value 2>/dev/null)" || return 1
     environment="$(systemctl show plans.service --property=EnvironmentFiles --value 2>/dev/null)" || return 1
-    [[ "$exec_start" == *'argv[]=/usr/local/bin/caddy run --config /etc/caddy/plans.Caddyfile ;'* ]] \
-        && [[ "$environment" == '/etc/agents-infra/plans.env (ignore_errors=no)' ]]
+    user="$(systemctl show plans.service --property=User --value 2>/dev/null)" || return 1
+    group="$(systemctl show plans.service --property=Group --value 2>/dev/null)" || return 1
+    [[ "$fragment" == /etc/systemd/system/plans.service ]] \
+        && [[ "$exec_start" == *'argv[]=/usr/local/bin/caddy run --config /etc/caddy/plans.Caddyfile ;'* ]] \
+        && [[ "$exec_reload" == *'argv[]=/usr/local/bin/caddy reload --config /etc/caddy/plans.Caddyfile --force ;'* ]] \
+        && [[ "$environment" == '/etc/agents-infra/plans.env (ignore_errors=no)' ]] \
+        && [[ "$user" == caddy && "$group" == caddy ]] || return 1
+    for command in ExecCondition ExecStartPre ExecStartPost ExecStop ExecStopPost; do
+        [[ -z "$(systemctl show plans.service --property="$command" --value 2>/dev/null)" ]] || return 1
+    done
 }
 
 _caddy::plans_migration_needed() {

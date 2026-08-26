@@ -161,17 +161,24 @@ _basil::compose_activation_file() {
     print -r -- "$(_basil::config_dir)/compose.sha256"
 }
 
-_basil::compose_active() {
-    local state="$(_basil::compose_activation_file)" digest
+_basil::compose_activation_state() {
+    local digest
     digest="$(sha256sum "$MOD_DIR/files/compose.yaml" 2>/dev/null | awk '{print $1}')" || return 1
-    [[ -n "$digest" && -f "$state" && "$(<"$state")" == "$digest" ]]
+    print -r -- "$digest"
+    print -r -- "$(_basil::repo)"
+}
+
+_basil::compose_active() {
+    local state="$(_basil::compose_activation_file)" expected
+    expected="$(_basil::compose_activation_state)" || return 1
+    [[ -n "$expected" && -f "$state" && "$(<"$state")" == "$expected" ]]
 }
 
 _basil::record_compose_activation() {
-    local state="$(_basil::compose_activation_file)" temp digest
-    digest="$(sha256sum "$MOD_DIR/files/compose.yaml" | awk '{print $1}')" || return 1
+    local state="$(_basil::compose_activation_file)" temp expected
+    expected="$(_basil::compose_activation_state)" || return 1
     temp="$(mktemp "$(_basil::config_dir)/.compose.XXXXXX")" || return 1
-    print -r -- "$digest" > "$temp"
+    print -r -- "$expected" > "$temp"
     chmod 0600 "$temp" || { rm -f "$temp"; return 1; }
     mv -f "$temp" "$state" || { rm -f "$temp"; return 1; }
 }

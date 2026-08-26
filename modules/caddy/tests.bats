@@ -16,6 +16,8 @@ setup() {
     mkdir -p "$CADDY_APPS_DIR"
     printf '{}\n' > "$CADDY_CONFIG_DIR/Caddyfile"
     printf 'expected legacy Plans listener\n' > "$CADDY_CONFIG_DIR/plans.Caddyfile"
+    mkdir -p "$TEST_ROOT/etc/systemd/system"
+    printf 'expected legacy Plans unit\n' > "$TEST_ROOT/etc/systemd/system/plans.service"
     cat > "$MOCK_DIR/systemctl" <<'EOF'
 #!/bin/sh
 printf 'systemctl %s\n' "$*" >> "$MOCK_LOG"
@@ -41,8 +43,20 @@ fi
 if [ "$*" = "show plans.service --property=ExecStart --value" ]; then
     printf '%s\n' '{ path=/usr/local/bin/caddy ; argv[]=/usr/local/bin/caddy run --config /etc/caddy/plans.Caddyfile ; ignore_errors=no ; }'
 fi
+if [ "$*" = "show plans.service --property=ExecReload --value" ]; then
+    printf '%s\n' '{ path=/usr/local/bin/caddy ; argv[]=/usr/local/bin/caddy reload --config /etc/caddy/plans.Caddyfile --force ; ignore_errors=no ; }'
+fi
 if [ "$*" = "show plans.service --property=EnvironmentFiles --value" ]; then
     printf '%s\n' '/etc/agents-infra/plans.env (ignore_errors=no)'
+fi
+if [ "$*" = "show plans.service --property=FragmentPath --value" ]; then
+    printf '%s\n' '/etc/systemd/system/plans.service'
+fi
+if [ "$*" = "show plans.service --property=User --value" ] || [ "$*" = "show plans.service --property=Group --value" ]; then
+    printf '%s\n' caddy
+fi
+if [ "$*" = "show plans.service --property=ExecStartPost --value" ] && [ -e "$TEST_ROOT/plans-extra-command" ]; then
+    printf '%s\n' '{ path=/usr/bin/custom ; argv[]=/usr/bin/custom ; }'
 fi
 exit 0
 EOF
@@ -63,6 +77,7 @@ migrate_tailscale_serve_target = http://127.0.0.1:3773
 migrate_tailscale_serve_route = t3-code
 migrate_tailscale_serve_host = t3.{machine}.tomagranate.com
 migrate_plans_config_digest = $(sha256sum "$CADDY_CONFIG_DIR/plans.Caddyfile" | cut -d ' ' -f1)
+migrate_plans_unit_digest = $(sha256sum "$TEST_ROOT/etc/systemd/system/plans.service" | cut -d ' ' -f1)
 dns_names =
     t3.{machine}.tomagranate.com
 routes =
@@ -633,6 +648,20 @@ EOF
     plans-media
 EOF
     printf 'custom listener\n' > "$CADDY_CONFIG_DIR/plans.Caddyfile"
+
+    run_caddy_function _caddy::migrate_listeners
+
+    assert_failure
+    assert_output --partial "will not replace a customized service"
+    run grep -F "systemctl disable --now plans.service" "$MOCK_LOG"
+    assert_failure
+}
+
+@test "caddy: refuses a Plans service with extra lifecycle commands" {
+    cat >> "$TEST_CONF" <<'EOF'
+    plans-media
+EOF
+    touch "$TEST_ROOT/plans-extra-command"
 
     run_caddy_function _caddy::migrate_listeners
 

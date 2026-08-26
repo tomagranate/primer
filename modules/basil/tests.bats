@@ -201,6 +201,13 @@ run_module() {
     assert_success
     run_module _basil::compose_active
     assert_success
+
+    cat >> "$TEST_CONF" <<EOF
+[basil]
+repo_path = $TEST_HOME/code/other-basil
+EOF
+    run_module _basil::compose_active
+    assert_failure
 }
 
 @test "basil: restarts an active service when its unit changes" {
