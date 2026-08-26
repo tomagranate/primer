@@ -317,6 +317,18 @@ run_caddy_function() {
     assert_failure
 }
 
+@test "caddy: marks a changed base Caddyfile before deployment" {
+    mkdir -p "$TEST_ROOT/etc/caddy" "$TEST_ROOT/etc/systemd/system"
+    printf 'old base configuration\n' > "$TEST_ROOT/etc/caddy/Caddyfile"
+    cp "$PRIMER_DIR/modules/caddy/files/etc/systemd/system/caddy.service" \
+        "$TEST_ROOT/etc/systemd/system/caddy.service"
+
+    run_caddy_function '_caddy::custom_binary_ready() { return 0; }; _caddy::install_binary() { return 0; }; _caddy::ensure_user() { return 0; }; _caddy::deploy() { return 1; }; mod_update'
+
+    assert_failure
+    [ -f "$TEST_ROOT/var/lib/primer/caddy/gateway-restart-required" ]
+}
+
 @test "caddy: tailnet changes preserve a gateway restart requirement" {
     mkdir -p "$TEST_ROOT/usr/local/libexec"
     cat > "$TEST_ROOT/usr/local/libexec/primer-caddy-tailnet" <<'EOF'

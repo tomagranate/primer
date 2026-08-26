@@ -1077,7 +1077,9 @@ mod_update() {
 
     if ! _caddy::custom_binary_ready \
         || ! cmp -s "$MOD_DIR/files/etc/systemd/system/caddy.service" \
-            "$(_caddy::root_path /etc/systemd/system/caddy.service)"; then
+            "$(_caddy::root_path /etc/systemd/system/caddy.service)" \
+        || ! cmp -s "$MOD_DIR/files/etc/caddy/Caddyfile" \
+            "$(_caddy::root_path /etc/caddy/Caddyfile)"; then
         _caddy::mark_restart gateway || return 1
     fi
     _caddy::install_binary || { primer::item_update binary failed "build failed"; return 1; }
