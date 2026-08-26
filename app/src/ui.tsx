@@ -9,6 +9,8 @@ import { useEffect, useState } from "react";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import type { Engine, EngineItem, EngineNode } from "./engine";
 import { ensureVisible, isScrolledToEnd, listWindow } from "./list-window";
+import { ensureRowRangeVisible } from "./text-layout";
+import { summaryLines } from "./ui-layout";
 
 // Moss theme, copied from corsa (src/lib/theme/themes.ts): deep greens with
 // a British racing green accent. Sidebar sits on surface1, content on
@@ -139,6 +141,24 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
   const summaryCompact = dims.height < 12;
   const summaryListHeight = Math.max(1, dims.height - (summaryCompact ? 3 : 5));
   const summaryEndPad = nodes.length > 0 ? 1 : 0;
+  const summaryLayouts = nodes.map((node, nodeIndex) => ({
+    node,
+    nodeIndex,
+    layout: summaryLines(node.label, node.detail, node.items.length, elapsed(node), dims.width),
+  }));
+  let summaryRowCount = 0;
+  const summaryOffsets = summaryLayouts.map(({ layout }) => {
+    const offset = summaryRowCount;
+    summaryRowCount += layout.lines.length;
+    return offset;
+  });
+  const selectedSummaryStart = summaryOffsets[cursor] ?? 0;
+  const selectedSummaryEnd = selectedSummaryStart
+    + Math.max(1, summaryLayouts[cursor]?.layout.lines.length ?? 1)
+    - 1;
+  const summaryRows = summaryLayouts.flatMap(({ node, nodeIndex, layout }) =>
+    layout.lines.map((line, lineIndex) => ({ node, nodeIndex, layout, line, lineIndex })),
+  );
 
   // Run sidebar: header + footer (+ attention banner).
   const runSidebarHeight = Math.max(1, dims.height - (attention ? 3 : 2));
@@ -147,8 +167,22 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
   // Keep the selected module on-screen as the cursor moves or the terminal resizes.
   useEffect(() => {
     if (screen !== "summary") return;
-    setSummaryScroll((start) => ensureVisible(start, cursor, nodes.length, summaryListHeight, summaryEndPad));
-  }, [screen, cursor, nodes.length, summaryListHeight, summaryEndPad]);
+    setSummaryScroll((start) => ensureRowRangeVisible(
+      start,
+      selectedSummaryStart,
+      selectedSummaryEnd,
+      summaryRowCount,
+      summaryListHeight,
+      summaryEndPad,
+    ));
+  }, [
+    screen,
+    selectedSummaryStart,
+    selectedSummaryEnd,
+    summaryRowCount,
+    summaryListHeight,
+    summaryEndPad,
+  ]);
 
   useEffect(() => {
     if (screen !== "run") return;
@@ -340,16 +374,29 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
   if (screen === "summary") {
     const c = engine.counts();
     const ok = c.failed === 0 && !engine.interrupted;
-    const listStart = ensureVisible(summaryScroll, cursor, nodes.length, summaryListHeight, summaryEndPad);
-    const showEndGutter = isScrolledToEnd(listStart, nodes.length, summaryListHeight, summaryEndPad)
+    const listStart = ensureRowRangeVisible(
+      summaryScroll,
+      selectedSummaryStart,
+      selectedSummaryEnd,
+      summaryRows.length,
+      summaryListHeight,
+      summaryEndPad,
+    );
+    const showEndGutter = isScrolledToEnd(listStart, summaryRows.length, summaryListHeight, summaryEndPad)
       && summaryListHeight > 1
       && summaryEndPad > 0;
-    // Content rows in the viewport: modules (and a trailing blank only at the end).
+    // Content rows in the viewport: wrapped module rows and a trailing end gutter.
     const itemSlots = showEndGutter ? summaryListHeight - 1 : summaryListHeight;
-    const visibleNodes = nodes.slice(listStart, Math.min(nodes.length, listStart + itemSlots));
-    const lastShown = Math.min(nodes.length, listStart + visibleNodes.length);
-    const scrolled = nodes.length + summaryEndPad > summaryListHeight;
-    const rangeHint = scrolled ? ` · ${listStart + 1}–${lastShown}/${nodes.length}` : "";
+    const visibleRows = summaryRows.slice(listStart, listStart + itemSlots);
+    const firstShown = visibleRows[0]?.nodeIndex ?? 0;
+    const lastShown = visibleRows.at(-1)?.nodeIndex ?? firstShown;
+    const scrolled = summaryRows.length + summaryEndPad > summaryListHeight;
+    const rangeHint = scrolled ? ` · ${firstShown + 1}–${lastShown + 1}/${nodes.length}` : "";
+    const summaryHelp = dims.width >= 100
+      ? `↑↓ move${rangeHint} · ⏎ inspect · space logs · q quit · logs ${engine.logDirectory}`
+      : dims.width >= 60
+        ? `↑↓ move${rangeHint} · ⏎ inspect · space logs · q quit`
+        : `↑↓ move${rangeHint} · ⏎ inspect · q quit`;
     return (
       <box style={{ width: "100%", height: "100%", flexDirection: "column", backgroundColor: C.surface0 }}>
         <box style={{ height: 1, backgroundColor: C.surface1, paddingLeft: 1, flexDirection: "row" }}>
@@ -366,25 +413,30 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
         </box>
         {!summaryCompact && <box style={{ height: 1 }} />}
         <box style={{ height: summaryListHeight, flexDirection: "column" }}>
-          {visibleNodes.map((n, offset) => {
-            const i = listStart + offset;
-            const sel = i === cursor;
+          {visibleRows.map(({ node: n, nodeIndex, layout, line, lineIndex }) => {
+            const sel = nodeIndex === cursor;
             const ic = icon(n);
             return (
-              <box key={n.id} style={{ height: 1, flexDirection: "row" }}>
-                <text fg={sel ? C.green : C.dim}>{sel ? " › " : "   "}</text>
-                <text fg={ic.fg}>{ic.ch}</text>
-                <text fg={sel ? C.bold : C.text}>{` ${n.label.padEnd(20).slice(0, 20)}`}</text>
-                <text fg={n.state === "failed" ? C.red : C.dim}>{` ${n.detail}`.slice(0, Math.max(10, dims.width - 36))}</text>
-                {n.items.length > 0 && <text fg={C.muted}>{`  ${n.items.length} items`}</text>}
-                <text fg={C.dim}>{`  ${elapsed(n)}`}</text>
+              <box key={`${n.id}:${lineIndex}`} style={{ height: 1, flexDirection: "row" }}>
+                <text fg={sel ? C.green : C.dim}>{line.first ? (sel ? " › " : "   ") : "   "}</text>
+                <text fg={ic.fg}>{line.first ? ic.ch : " "}</text>
+                {line.stacked ? (
+                  <text fg={line.label ? (sel ? C.bold : C.text) : n.state === "failed" ? C.red : C.dim}>
+                    {` ${line.label || line.metadata}`}
+                  </text>
+                ) : (
+                  <>
+                    <text fg={sel ? C.bold : C.text}>{` ${line.label.padEnd(layout.labelWidth)}`}</text>
+                    <text fg={n.state === "failed" ? C.red : C.dim}>{line.metadata}</text>
+                  </>
+                )}
               </box>
             );
           })}
           {showEndGutter && <box style={{ height: 1 }} />}
         </box>
         <box style={{ height: 1, backgroundColor: C.surface1, paddingLeft: 1 }}>
-          <text fg={C.dim}>{`↑↓ move${rangeHint} · ⏎ inspect · space logs · q quit · logs ${engine.logDirectory}`}</text>
+          <text fg={C.dim}>{summaryHelp}</text>
         </box>
       </box>
     );

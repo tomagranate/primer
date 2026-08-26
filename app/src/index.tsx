@@ -10,48 +10,15 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { detectProfile, loadNodes, resolvePrimerDir } from "./config";
+import { parseArgs, type Args, CliError } from "./cli";
+import { availableAddons, loadNodes, resolvePrimerDir, type NodeDef } from "./config";
 import { Engine, type EngineNode } from "./engine";
 import { shouldPrintLogs } from "./headless-output";
+import { writeMachineConfig } from "./machine-config";
 import { runModuleStatus } from "./module-status";
+import { droppedModuleIds, profileSetResult, profileSummary } from "./profile-command";
+import { resolveSelection, type Selection } from "./selection";
 import { createTerminalRestorer, shutdownRenderer } from "./terminal-lifecycle";
-
-interface Args {
-  command: string;
-  dryRun: boolean;
-  skip: string[];
-  only: string[];
-  profile?: string;
-  headless: boolean;
-}
-
-function parseArgs(argv: string[]): Args {
-  const args: Args = { command: "", dryRun: false, skip: [], only: [], headless: false };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]!;
-    switch (a) {
-      case "update": case "status": args.command = a; break;
-      case "--dry-run": args.dryRun = true; break;
-      case "--log": args.headless = true; break;
-      case "--skip": args.skip.push(need(argv, ++i, a)); break;
-      case "--only": args.only.push(need(argv, ++i, a)); break;
-      case "--profile": args.profile = need(argv, ++i, a); break;
-      case "--help": case "-h": case "help": args.command = "help"; break;
-      default: fail(`Unknown argument: ${a}\nRun 'primer --help' for usage.`);
-    }
-  }
-  if (args.skip.length && args.only.length) fail("--skip and --only cannot be used together.");
-  if (args.command && (args.skip.length || args.only.length || args.dryRun) && args.command !== "update") {
-    fail("--dry-run, --skip, and --only are only valid with 'update'.");
-  }
-  return args;
-}
-
-function need(argv: string[], i: number, flag: string): string {
-  const v = argv[i];
-  if (!v || v.startsWith("--")) fail(`Missing argument for ${flag}`);
-  return v!;
-}
 
 function fail(msg: string): never {
   console.error(msg);
@@ -67,14 +34,50 @@ Usage:
 Commands:
   update      Install/update everything (idempotent)
   status      Check what's installed and healthy
+  profile     Show the selected profile and addons
+  profile set [profile] [addon ...]
+              Persist a profile and its addons
 
 Flags:
   --dry-run         Preview changes without applying them (update only)
   --skip <module>   Skip a module by name; repeatable (update only)
   --only <module>   Run only this module; repeatable (update only)
   --profile <name>  Force profile: mac, linux-vps, fedora-kde
+  --addon <name>    Force an addon for this run; repeatable
   --log             Plain line output instead of the TUI
   --help            Show this help message`);
+}
+
+const canUseTui = (args: Args) =>
+  !args.headless && process.stdout.isTTY === true && process.stdin.isTTY === true;
+
+async function selectionFor(args: Args, primerDir: string): Promise<Selection> {
+  return resolveSelection({
+    primerDir,
+    profile: args.profile,
+    addons: args.addons,
+  });
+}
+
+async function prepareUpdateSelection(args: Args, primerDir: string): Promise<Selection> {
+  const selection = await selectionFor(args, primerDir);
+  if (!selection.firstRun) return selection;
+  if (!canUseTui(args)) {
+    console.log("Run 'primer profile set' to choose addons.");
+    return selection;
+  }
+
+  const applicable = (await availableAddons(primerDir))
+    .filter((addon) => addon.profiles.includes(selection.profile));
+  let selected: string[] = [];
+  if (applicable.length > 0) {
+    const { runAddonPicker } = await import("./addon-picker-runner");
+    const result = await runAddonPicker(selection.profile, applicable, []);
+    if (result === null) fail("Addon selection cancelled.");
+    selected = result;
+  }
+  await writeMachineConfig({ profile: selection.profile, addons: selected });
+  return { ...selection, addons: selected, source: "machine.conf", firstRun: false };
 }
 
 function notify(message: string): void {
@@ -101,13 +104,13 @@ function printShellActivationHint(engine: Engine): void {
 
 async function runUpdate(args: Args): Promise<never> {
   const primerDir = resolvePrimerDir();
-  const profile = await detectProfile(primerDir, args.profile ?? process.env.PRIMER_PROFILE);
-  const defs = await loadNodes(primerDir, profile);
+  const selection = await prepareUpdateSelection(args, primerDir);
+  const defs = await loadNodes(primerDir, selection.profile, selection.addons);
 
   // A piped installer can keep stdout on the terminal while stdin is a pipe.
   // Do not start OpenTUI in that state. Terminal query replies would reach the
   // parent shell and appear as text after Primer exits.
-  const useTui = !args.headless && process.stdout.isTTY && process.stdin.isTTY;
+  const useTui = canUseTui(args);
 
   if (!useTui) {
     const engine = new Engine(defs, {
@@ -201,8 +204,10 @@ async function runUpdate(args: Args): Promise<never> {
 
 async function runStatus(args: Args): Promise<never> {
   const primerDir = resolvePrimerDir();
-  const profile = await detectProfile(primerDir, args.profile ?? process.env.PRIMER_PROFILE);
-  const defs = (await loadNodes(primerDir, profile)).filter((d) => d.kind === "module");
+  const selection = await selectionFor(args, primerDir);
+  if (selection.firstRun) console.log("Run 'primer profile set' to choose addons.");
+  const defs = (await loadNodes(primerDir, selection.profile, selection.addons))
+    .filter((d) => d.kind === "module");
   const workDir = mkdtempSync(join(tmpdir(), "primer-status-"));
   let results;
   try {
@@ -221,12 +226,75 @@ async function runStatus(args: Args): Promise<never> {
   process.exit(issues ? 1 : 0);
 }
 
-/* ── main ── */
+/* ── profile ── */
 
-const args = parseArgs(process.argv.slice(2));
-if (args.command === "" || args.command === "help") {
-  help();
+async function runProfile(args: Args): Promise<never> {
+  const primerDir = resolvePrimerDir();
+  if (args.profileAction === "show") {
+    const selection = await selectionFor(args, primerDir);
+    console.log(profileSummary(selection, await availableAddons(primerDir)));
+    if (selection.firstRun) console.log("Run 'primer profile set' to choose addons.");
+    process.exit(0);
+  }
+
+  const explicit = args.profileSetArgs.length > 0;
+  let current: Selection | null = null;
+  let oldNodes: NodeDef[] = [];
+  let comparedPrevious = true;
+  try {
+    current = await selectionFor(args, primerDir);
+    oldNodes = await loadNodes(primerDir, current.profile, current.addons);
+  } catch (error) {
+    if (!explicit) throw error;
+    comparedPrevious = false;
+  }
+
+  let profile: string;
+  let addons: string[];
+  if (explicit) {
+    profile = args.profileSetArgs[0]!;
+    addons = [...new Set(args.profileSetArgs.slice(1))];
+  } else {
+    if (!current) throw new Error("Could not resolve the current profile.");
+    if (!canUseTui(args)) {
+      throw new Error("'primer profile set' needs a terminal when no profile is given.");
+    }
+    profile = current.profile;
+    const applicable = (await availableAddons(primerDir))
+      .filter((addon) => addon.profiles.includes(profile));
+    if (applicable.length === 0) {
+      addons = [];
+    } else {
+      const { runAddonPicker } = await import("./addon-picker-runner");
+      const result = await runAddonPicker(profile, applicable, current.addons);
+      if (result === null) fail("Profile selection cancelled.");
+      addons = result;
+    }
+  }
+
+  const newNodes = await loadNodes(primerDir, profile, addons);
+  const dropped = droppedModuleIds(oldNodes, newNodes);
+  await writeMachineConfig({ profile, addons });
+  console.log(profileSetResult(profile, addons, dropped, comparedPrevious));
   process.exit(0);
 }
-if (args.command === "update") await runUpdate(args);
-if (args.command === "status") await runStatus(args);
+
+/* ── main ── */
+
+async function main(): Promise<void> {
+  const args = parseArgs(process.argv.slice(2));
+  if (args.command === "" || args.command === "help") {
+    help();
+    return;
+  }
+  if (args.command === "update") await runUpdate(args);
+  if (args.command === "status") await runStatus(args);
+  if (args.command === "profile") await runProfile(args);
+}
+
+try {
+  await main();
+} catch (error) {
+  if (error instanceof CliError || error instanceof Error) fail(error.message);
+  fail(String(error));
+}

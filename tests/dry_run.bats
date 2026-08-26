@@ -7,6 +7,8 @@ load 'helpers/common'
     export PRIMER_LOCAL="$PRIMER_DIR"
     run zsh "$PRIMER_DIR/bin/primer" update --dry-run
     assert_success
+    assert_output --partial "Run 'primer profile set' to choose addons."
+    [ ! -e "$PRIMER_MACHINE_CONF" ]
 }
 
 @test "primer update --dry-run supports linux-vps profile" {
@@ -25,7 +27,7 @@ load 'helpers/common'
 
 @test "primer update --dry-run supports fedora-kde profile" {
     export PRIMER_LOCAL="$PRIMER_DIR"
-    run zsh "$PRIMER_DIR/bin/primer" update --dry-run --log --profile fedora-kde
+    run zsh "$PRIMER_DIR/bin/primer" update --dry-run --log --profile fedora-kde --addon gaming
     assert_success
     assert_output --partial "DNF packages"
     assert_output --partial "sudo dnf5 -y --color=never install dnf5-plugins"
@@ -125,4 +127,5 @@ EOF
     # status may return 1 if things aren't installed -- that's fine
     # just verify it doesn't crash (exit code 0 or 1, not 2+)
     [[ "$status" -le 1 ]]
+    [ ! -e "$PRIMER_MACHINE_CONF" ]
 }

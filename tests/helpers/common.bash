@@ -10,6 +10,7 @@
 export PRIMER_DIR
 PRIMER_DIR="$(cd "${BATS_TEST_DIRNAME}" && git rev-parse --show-toplevel)"
 export PRIMER_APP_SOURCE=1
+export PRIMER_MACHINE_CONF="${BATS_TEST_TMPDIR}/machine.conf"
 
 # ── Load bats-support and bats-assert ────────────────────────────────────────
 

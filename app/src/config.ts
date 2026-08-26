@@ -9,6 +9,7 @@
  * Format:
  *   [section]            starts a module section ("logins" is special)
  *   key = value          sets <section>.<key>
+ *   key += value         appends to <section>.<key>
  *   <indented line>      continues the previous key (multi-line value)
  *   # comment            ignored
  */
@@ -29,6 +30,13 @@ export interface NodeDef {
   deps: string[];                     // node ids this depends on
   config: Record<string, string>;     // own config (module keys, or interactive-step keys)
   needsSudo: boolean;
+}
+
+export interface AddonDef {
+  name: string;
+  label: string;
+  description: string;
+  profiles: string[];
 }
 
 export function parseConf(text: string, into: RawConfig): void {
@@ -53,10 +61,16 @@ export function parseConf(text: string, into: RawConfig): void {
       continue;
     }
 
-    const kv = line.match(/^([a-z_-]+)\s*=\s*(.*)/);
+    const kv = line.match(/^([a-z_-]+)\s*(\+?=)\s*(.*)/);
     if (kv && section) {
       key = kv[1]!;
-      into.values.set(`${section}.${key}`, kv[2]!);
+      const configKey = `${section}.${key}`;
+      const value = kv[3]!;
+      if (kv[2] === "+=" && into.values.has(configKey)) {
+        if (value) into.values.set(configKey, `${into.values.get(configKey)}\n${value}`);
+      } else {
+        into.values.set(configKey, value);
+      }
     }
   }
 }
@@ -145,8 +159,31 @@ export function availableProfiles(primerDir: string): string[] {
     .sort();
 }
 
-async function osReleaseValue(key: string): Promise<string> {
-  const file = process.env.PRIMER_OS_RELEASE_FILE ?? "/etc/os-release";
+/** Read and validate addon metadata in stable filename order. */
+export async function availableAddons(primerDir: string): Promise<AddonDef[]> {
+  const dir = join(primerDir, "configs", "addons");
+  if (!existsSync(dir)) return [];
+
+  const addons: AddonDef[] = [];
+  for (const file of readdirSync(dir).filter((f) => f.endsWith(".conf")).sort()) {
+    const name = basename(file, ".conf");
+    const cfg: RawConfig = { order: [], values: new Map() };
+    parseConf(await readFile(join(dir, file), "utf8"), cfg);
+    const label = cfg.values.get("addon.label")?.trim();
+    const description = cfg.values.get("addon.description")?.trim();
+    const profiles = splitList(cfg.values.get("addon.profiles"));
+    if (!label || !description || profiles.length === 0) {
+      throw new Error(
+        `Invalid addon config: ${file}\nThe [addon] section requires label, description, and profiles.`,
+      );
+    }
+    addons.push({ name, label, description, profiles });
+  }
+  return addons;
+}
+
+async function osReleaseValue(key: string, env: NodeJS.ProcessEnv): Promise<string> {
+  const file = env.PRIMER_OS_RELEASE_FILE ?? "/etc/os-release";
   try {
     const text = await readFile(file, "utf8");
     for (const line of text.split("\n")) {
@@ -171,7 +208,11 @@ export function detectLinuxProfile(
   throw new Error("Could not infer Linux profile. Use --profile linux-vps or --profile fedora-kde.");
 }
 
-export async function detectProfile(primerDir: string, forced?: string): Promise<string> {
+export async function detectProfile(
+  primerDir: string,
+  forced?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string> {
   if (forced) {
     if (availableProfiles(primerDir).includes(forced)) return forced;
     throw new Error(
@@ -180,9 +221,9 @@ export async function detectProfile(primerDir: string, forced?: string): Promise
   }
   if (process.platform === "darwin") return "mac";
   if (process.platform === "linux") {
-    const id = await osReleaseValue("ID");
-    const idLike = await osReleaseValue("ID_LIKE");
-    return detectLinuxProfile(id, idLike);
+    const id = await osReleaseValue("ID", env);
+    const idLike = await osReleaseValue("ID_LIKE", env);
+    return detectLinuxProfile(id, idLike, env);
   }
   throw new Error(`Unsupported OS: ${process.platform}`);
 }
@@ -196,15 +237,44 @@ export function resolvePrimerDir(): string {
   return join(homedir(), ".cache", "primer");
 }
 
-export async function loadNodes(primerDir: string, profile: string): Promise<NodeDef[]> {
+export async function loadNodes(
+  primerDir: string,
+  profile: string,
+  addons: string[] = [],
+): Promise<NodeDef[]> {
+  const profiles = availableProfiles(primerDir);
+  if (!profiles.includes(profile)) {
+    throw new Error(
+      `Unknown profile: ${profile}\nValid profiles: ${profiles.join(", ")}\nRun 'primer profile set' to choose a profile.`,
+    );
+  }
+
+  const available = await availableAddons(primerDir);
+  const byName = new Map(available.map((addon) => [addon.name, addon]));
+  for (const name of addons) {
+    const addon = byName.get(name);
+    if (!addon) {
+      throw new Error(
+        `Unknown addon: ${name}\nValid addons: ${available.map((item) => item.name).join(", ") || "none"}\nRun 'primer profile set' to choose addons.`,
+      );
+    }
+    if (!addon.profiles.includes(profile)) {
+      throw new Error(
+        `Addon '${name}' is not available for profile '${profile}'.\nRun 'primer profile set' to choose addons.`,
+      );
+    }
+  }
+
   const files = [
     join(primerDir, "configs", "common.conf"),
     join(primerDir, "configs", "profiles", `${profile}.conf`),
+    ...addons.map((name) => join(primerDir, "configs", "addons", `${name}.conf`)),
   ];
   const cfg: RawConfig = { order: [], values: new Map() };
   for (const file of files) {
     if (!existsSync(file)) throw new Error(`Missing config file: ${file}`);
     parseConf(await readFile(file, "utf8"), cfg);
   }
+  cfg.order = cfg.order.filter((section) => section !== "addon");
   return buildNodes(cfg);
 }

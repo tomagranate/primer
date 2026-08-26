@@ -104,6 +104,12 @@ setup() {
     assert_output --partial "Missing argument for --profile"
 }
 
+@test "cli: --addon without argument exits 1" {
+    run zsh "$PRIMER_DIR/bin/primer" update --addon
+    assert_failure
+    assert_output --partial "Missing argument for --addon"
+}
+
 @test "cli: unknown --profile lists the profiles found on disk" {
     run env PRIMER_LOCAL="$PRIMER_DIR" zsh "$PRIMER_DIR/bin/primer" update --dry-run --profile bogus
     assert_failure
@@ -115,4 +121,24 @@ setup() {
     run zsh "$PRIMER_DIR/bin/primer" --log
     assert_success
     assert_output --partial "Usage"
+}
+
+@test "cli: profile set persists addons and profile shows them" {
+    run zsh "$PRIMER_DIR/bin/primer" profile set fedora-kde gaming
+    assert_success
+    assert_output --partial "Saved profile 'fedora-kde' with addons: gaming."
+
+    run zsh "$PRIMER_DIR/bin/primer" profile
+    assert_success
+    assert_output --partial "Profile: fedora-kde"
+    assert_output --partial "Source: machine.conf"
+    assert_output --partial "Addons: gaming"
+    assert_output --partial "gaming (active)"
+}
+
+@test "cli: profile set rejects an unknown addon" {
+    run zsh "$PRIMER_DIR/bin/primer" profile set fedora-kde bogus
+    assert_failure
+    assert_output --partial "Unknown addon: bogus"
+    [ ! -e "$PRIMER_MACHINE_CONF" ]
 }
