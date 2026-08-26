@@ -245,6 +245,26 @@ EOF
     assert_success
 }
 
+@test "shell-installers: mod_status finds opencode2 in the shared OpenCode bin directory" {
+    cat > "$TEST_CONF" <<'EOF'
+[shell-installers]
+installers =
+    - name: opencode2
+      url: https://opencode.ai/v2/install
+      command: opencode2
+      check: opencode2 --version
+EOF
+    mkdir -p "$TEST_HOME/.opencode/bin"
+    cat > "$TEST_HOME/.opencode/bin/opencode2" <<'EOF'
+#!/bin/sh
+[ "$1" = "--version" ] && echo "2.0.0-beta"
+EOF
+    chmod +x "$TEST_HOME/.opencode/bin/opencode2"
+
+    run_shell_installers_with_conf "mod_status"
+    assert_success
+}
+
 @test "shell-installers: mod_status fails when missing" {
     run_shell_installers_with_conf "mod_status"
     assert_failure

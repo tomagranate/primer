@@ -109,6 +109,7 @@ _shell_installers::check_command() {
     for candidate in \
         "$HOME/.${name}/bin/${command_name}" \
         "$HOME/.${name}/${command_name}" \
+        "$HOME/.opencode/bin/${command_name}" \
         "$HOME/.local/bin/${command_name}" \
         "$HOME/bin/${command_name}" \
         "/opt/homebrew/bin/${command_name}" \
