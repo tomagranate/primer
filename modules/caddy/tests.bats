@@ -324,12 +324,14 @@ run_caddy_function() {
 
     assert_failure
     [ "$(cat "$TEST_ROOT/var/lib/primer/caddy/cloudflare-token-cleanup")" = old-token-id ]
-    grep -Fx 'CLOUDFLARE_API_TOKEN_ID=cccccccccccccccccccccccccccccccc' \
+    grep -Fx 'CLOUDFLARE_API_TOKEN_ID=old-token-id' \
         "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    run grep -E '^POST .*/tokens$' "$MOCK_LOG"
+    assert_failure
     run_caddy_function _caddy::cloudflare_file_ready
     assert_failure
 
-    export MOCK_STORED_TOKEN_MODE=current
+    export MOCK_STORED_TOKEN_MODE=invalid
     export MOCK_DELETE_MODE=missing
     : > "$MOCK_LOG"
     run_caddy_function _caddy::install_cloudflare_token
@@ -337,8 +339,33 @@ run_caddy_function() {
     assert_success
     [ ! -e "$TEST_ROOT/var/lib/primer/caddy/cloudflare-token-cleanup" ]
     grep -E '^DELETE.*/tokens/old-token-id$' "$MOCK_LOG"
-    run grep -E '^POST .*/tokens$' "$MOCK_LOG"
+    grep -E '^POST .*/tokens$' "$MOCK_LOG"
+}
+
+@test "caddy: records a minted token before creating its local token file" {
+    cat > "$MOCK_DIR/mktemp" <<'EOF'
+#!/bin/sh
+case "$1" in
+    *primer-caddy-cloudflare.*) exit 1 ;;
+    *) exec /usr/bin/mktemp "$@" ;;
+esac
+EOF
+    chmod +x "$MOCK_DIR/mktemp"
+
+    run_caddy_function _caddy::install_cloudflare_token
+
     assert_failure
+    [ "$(cat "$TEST_ROOT/var/lib/primer/caddy/cloudflare-token-cleanup")" = cccccccccccccccccccccccccccccccc ]
+    [ ! -e "$TEST_ROOT/etc/caddy/env.d/cloudflare.env" ]
+
+    rm "$MOCK_DIR/mktemp"
+    : > "$MOCK_LOG"
+    run_caddy_function _caddy::install_cloudflare_token
+
+    assert_success
+    [ ! -e "$TEST_ROOT/var/lib/primer/caddy/cloudflare-token-cleanup" ]
+    grep -E '^DELETE.*/tokens/cccccccccccccccccccccccccccccccc$' "$MOCK_LOG"
+    grep -E '^POST .*/tokens$' "$MOCK_LOG"
 }
 
 @test "caddy: clears abandoned cleanup when the current token validates" {

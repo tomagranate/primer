@@ -296,6 +296,11 @@ _caddy::mint_cloudflare_token() {
         return 1
     fi
     token_id="$(jq -r '.result.id' "$response")"
+    if ! _caddy::record_cloudflare_cleanup "$token_id"; then
+        _caddy::delete_cloudflare_token "$token_id" >/dev/null 2>&1 || true
+        rm -f "$response"
+        return 1
+    fi
     token_file="$(mktemp "${runtime:-/tmp}/primer-caddy-cloudflare.XXXXXX")" || {
         rm -f "$response"
         return 1
@@ -313,10 +318,10 @@ _caddy::mint_cloudflare_token() {
     _caddy::install_cloudflare_token_file "$token_file"
     rc=$?
     rm -f "$token_file"
-    if (( rc != 0 )); then
-        _caddy::curl_with_token "$(_caddy::op_read "$minter_ref")" -fsS -X DELETE \
-            "$(_caddy::cloudflare_api)/accounts/$account_id/tokens/$token_id" \
-            >/dev/null 2>&1 || true
+    if (( rc == 0 )); then
+        _caddy::clear_abandoned_cloudflare_cleanup || rc=$?
+    elif _caddy::delete_cloudflare_token "$token_id"; then
+        _caddy::root rm -f "$(_caddy::cloudflare_cleanup_file)" || true
     fi
     return "$rc"
 }
@@ -429,11 +434,14 @@ _caddy::install_cloudflare_token() {
             return $?
         fi
         token_id="$(_caddy::env_value "$target" CLOUDFLARE_API_TOKEN_ID 2>/dev/null || true)"
-        [[ -z "$token_id" ]] || _caddy::record_cloudflare_cleanup "$token_id" || return 1
         _caddy::mark_restart gateway || return 1
+        if [[ -n "$token_id" ]]; then
+            _caddy::record_cloudflare_cleanup "$token_id" || return 1
+            _caddy::delete_cloudflare_token "$token_id" || return 1
+            _caddy::root rm -f "$(_caddy::cloudflare_cleanup_file)" || return 1
+        fi
         _caddy::mint_cloudflare_token || return 1
-        _caddy::cleanup_replaced_cloudflare_token
-        return $?
+        return 0
     fi
     _caddy::mark_restart gateway || return 1
     _caddy::mint_cloudflare_token || return 1
