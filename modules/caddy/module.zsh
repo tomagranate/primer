@@ -366,11 +366,20 @@ _caddy::install_file() {
 }
 
 _caddy::deploy() {
-    local managed_path
+    local managed_path owner=root group=root
+    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
+        owner="$(id -un)"
+        group="$(id -gn)"
+    fi
     _caddy::root install -d -m 0755 \
+        "$(_caddy::root_path /etc/caddy)" \
         "$(_caddy::root_path /etc/caddy/apps.d)" \
         "$(_caddy::root_path /etc/caddy/env.d)" \
         "$(_caddy::root_path /var/lib/caddy)"
+    _caddy::root chown "$owner:$group" \
+        "$(_caddy::root_path /etc/caddy)" \
+        "$(_caddy::root_path /etc/caddy/apps.d)" \
+        "$(_caddy::root_path /etc/caddy/env.d)" || return 1
     for managed_path in \
         /etc/caddy/Caddyfile \
         /etc/systemd/system/caddy.service \
@@ -390,6 +399,12 @@ _caddy::definitions_ready() {
         owner="$(id -un)"
         group="$(id -gn)"
     fi
+    for managed_path in /etc/caddy /etc/caddy/apps.d /etc/caddy/env.d; do
+        [[ "$(stat -c %a "$(_caddy::root_path "$managed_path")" 2>/dev/null)" == 755 ]] \
+            && [[ "$(stat -c %U "$(_caddy::root_path "$managed_path")" 2>/dev/null)" == "$owner" ]] \
+            && [[ "$(stat -c %G "$(_caddy::root_path "$managed_path")" 2>/dev/null)" == "$group" ]] \
+            || return 1
+    done
     for spec in \
         '/etc/caddy/Caddyfile 644' \
         '/etc/systemd/system/caddy.service 644' \

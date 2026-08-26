@@ -39,6 +39,29 @@ _plans_media::install_secret_file() {
     fi
 }
 
+_plans_media::secret_validity_file() {
+    print -r -- "$(_plans_media::secrets_file).valid"
+}
+
+_plans_media::secret_fingerprint() {
+    stat -c '%d:%i:%s:%Y' "$(_plans_media::secrets_file)" 2>/dev/null
+}
+
+_plans_media::record_secret_validity() {
+    local target temp
+    target="$(_plans_media::secret_validity_file)"
+    temp="$(mktemp)" || return 1
+    _plans_media::secret_fingerprint > "$temp" || { rm -f "$temp"; return 1; }
+    if [[ -n "${PLANS_MEDIA_TEST_ROOT:-}" ]]; then
+        install -D -m 0644 "$temp" "$target"
+    else
+        _plans_media::root install -D -o root -g root -m 0644 "$temp" "$target"
+    fi
+    local rc=$?
+    rm -f "$temp"
+    return "$rc"
+}
+
 _plans_media::systemd_env_quote() {
     local value="$1"
     value="${value//\\/\\\\}"
@@ -46,10 +69,13 @@ _plans_media::systemd_env_quote() {
     print -r -- "\"$value\""
 }
 
-_plans_media::legacy_gate_assignment() {
+_plans_media::gate_assignment() {
     local file="$1" assignments
     assignments="$(_plans_media::root sed -n '/^GATE_SECRET=/p' "$file" 2>/dev/null)" || return 1
     [[ -n "$assignments" && "$assignments" != *$'\n'* ]] || return 1
+    case "${assignments#GATE_SECRET=}" in
+        ''|'""'|"''") return 1 ;;
+    esac
     print -r -- "$assignments"
 }
 
@@ -64,16 +90,21 @@ _plans_media::install_secrets() {
 
     legacy="$(mod_config legacy_secrets_file | head -1)"
     if [[ -z "$gate" && -n "$legacy" ]] && _plans_media::root test -s "$legacy"; then
-        assignment="$(_plans_media::legacy_gate_assignment "$legacy")" || return 1
+        assignment="$(_plans_media::gate_assignment "$legacy")" || return 1
     fi
 
     if [[ -z "$gate" && -z "$assignment" ]] && _plans_media::root test -s "$target"; then
+        _plans_media::gate_assignment "$target" >/dev/null || {
+            print "The managed Plans gate secret is invalid." >&2
+            return 1
+        }
         if [[ -n "${PLANS_MEDIA_TEST_ROOT:-}" ]]; then
             chmod 0600 "$target"
         else
             _plans_media::root chown root:root "$target" \
                 && _plans_media::root chmod 0600 "$target"
         fi
+        _plans_media::record_secret_validity
         return $?
     fi
     if [[ -z "$gate" && -z "$assignment" && -z "$gate_ref" ]]; then
@@ -93,21 +124,27 @@ _plans_media::install_secrets() {
         printf 'GATE_SECRET=%s\n' "$(_plans_media::systemd_env_quote "$gate")" >"$temp"
     fi
     unset gate
-    _plans_media::install_secret_file "$temp" "$target"
+    _plans_media::install_secret_file "$temp" "$target" \
+        && _plans_media::record_secret_validity
     local rc=$?
     rm -f "$temp"
     return "$rc"
 }
 
 _plans_media::secrets_ready() {
-    local file owner=root
+    local file validity owner=root
     file="$(_plans_media::secrets_file)"
+    validity="$(_plans_media::secret_validity_file)"
     if [[ -n "${PLANS_MEDIA_TEST_ROOT:-}" ]]; then
         owner="${PLANS_MEDIA_EXPECTED_OWNER:-$(id -un)}"
     fi
     [[ -s "$file" ]] \
         && [[ "$(stat -c %a "$file" 2>/dev/null)" == 600 ]] \
-        && [[ "$(stat -c %U "$file" 2>/dev/null)" == "$owner" ]]
+        && [[ "$(stat -c %U "$file" 2>/dev/null)" == "$owner" ]] \
+        && [[ -s "$validity" ]] \
+        && [[ "$(stat -c %a "$validity" 2>/dev/null)" == 644 ]] \
+        && [[ "$(stat -c %U "$validity" 2>/dev/null)" == "$owner" ]] \
+        && [[ "$(<"$validity")" == "$(_plans_media::secret_fingerprint)" ]]
 }
 
 _plans_media::route_contents() {

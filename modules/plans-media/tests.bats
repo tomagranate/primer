@@ -132,13 +132,32 @@ run_module() {
     refute_output --partial private
 }
 
+@test "plans-media: rejects a managed file without a gate secret" {
+    mkdir -p "$TEST_ROOT/etc/caddy/env.d"
+    printf 'OTHER=value\n' > "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
+
+    run_module _plans_media::install_secrets
+
+    assert_failure
+    assert_output --partial "managed Plans gate secret is invalid"
+}
+
 @test "plans-media: status does not require root" {
     mkdir -p "$TEST_ROOT/etc/caddy/env.d"
     printf 'GATE_SECRET=private\n' > "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
     chmod 0600 "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
+    run_module _plans_media::install_secrets
+    assert_success
 
     run_module '_plans_media::root() { return 99; }; mod_status'
 
+    assert_success
+
+    printf 'OTHER=value\n' > "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
+    run_module '_plans_media::root() { return 99; }; mod_status'
+    assert_failure
+    printf 'GATE_SECRET=private\n' > "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
+    run_module _plans_media::install_secrets
     assert_success
 
     export PLANS_MEDIA_EXPECTED_OWNER=__not_the_owner__
