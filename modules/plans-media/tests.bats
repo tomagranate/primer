@@ -65,3 +65,15 @@ run_module() {
     assert_output --partial "Set plans-media.gate_secret_ref"
     [ ! -e "$TEST_ROOT/installed.caddy" ]
 }
+
+@test "plans-media: refreshes an installed secret from the legacy source" {
+    mkdir -p "$TEST_ROOT/etc/caddy/env.d"
+    printf 'GATE_SECRET=old-private\n' > "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
+    printf 'GATE_SECRET=new-private\n' > "$TEST_ROOT/legacy.env"
+
+    run_module _plans_media::install_secrets
+
+    assert_success
+    [ "$(cat "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 'GATE_SECRET=new-private' ]
+    refute_output --partial private
+}

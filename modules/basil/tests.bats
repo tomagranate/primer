@@ -59,7 +59,7 @@ run_module() {
         export MOD_NAME=basil MOD_STATUS_FILE='$(mktemp)' MOD_ITEMS_FILE='$(mktemp)' HOME='$TEST_HOME'
         export CADDY_TAILSCALE_HOSTNAME=tombook-linux.example.ts.net
         export BASIL_TEST_ROOT='$BASIL_TEST_ROOT' BASIL_ROOT_LOG='$BASIL_ROOT_LOG' MOCK_LOG='$MOCK_LOG'
-        export PATH='$MOCK_DIR':\"\$PATH\"
+        export PATH='$MOCK_DIR':/usr/bin:/bin:/usr/sbin:/sbin
         source '$PRIMER_DIR/lib/module.zsh'
         source '$PRIMER_DIR/tests/helpers/module-config.zsh'
         test::load_module_config '$TEST_CONF'
@@ -105,4 +105,23 @@ run_module() {
     [ "$(grep -c ' docker ' "$BASIL_ROOT_LOG")" -eq 3 ]
     grep -F "docker inspect" "$MOCK_LOG"
     grep -F "docker compose --project-name basil" "$MOCK_LOG"
+}
+
+@test "basil: detects deployed unit and compose drift" {
+    repo="$TEST_HOME/code/basil"
+    unit_dir="$TEST_HOME/.config/systemd/user"
+    config_dir="$TEST_HOME/.config/primer/basil"
+    mkdir -p "$repo/deploy" "$unit_dir" "$config_dir"
+    for unit in basil-tunnel.service basil-webhook-shim.service basil-brain-sync.service basil-brain-sync.timer; do
+        printf 'unit=%s\n' "$unit" > "$repo/deploy/$unit"
+        cp "$repo/deploy/$unit" "$unit_dir/$unit"
+    done
+    cp "$PRIMER_DIR/modules/basil/files/compose.yaml" "$config_dir/compose.yaml"
+
+    run_module _basil::definitions_match
+    assert_success
+
+    printf 'drift\n' >> "$unit_dir/basil-tunnel.service"
+    run_module _basil::definitions_match
+    assert_failure
 }

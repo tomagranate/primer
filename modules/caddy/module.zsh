@@ -25,6 +25,28 @@ _caddy::cloudflare_api() {
     print -r -- "${CLOUDFLARE_API_BASE:-https://api.cloudflare.com/client/v4}"
 }
 
+# Keep bearer tokens out of curl's process arguments on multi-user machines.
+_caddy::curl_with_token() {
+    local token="$1" runtime header_file rc
+    shift
+    [[ -n "$token" && "$token" != *$'\n'* && "$token" != *$'\r'* ]] || return 1
+    runtime="${XDG_RUNTIME_DIR:-}"
+    if [[ -z "$runtime" && -n "${CADDY_TEST_ROOT:-}" ]]; then
+        runtime="${CADDY_ROOT_DIR:-/tmp}"
+    fi
+    [[ -n "$runtime" && -d "$runtime" ]] || {
+        print "XDG_RUNTIME_DIR is required for secure Cloudflare requests" >&2
+        return 1
+    }
+    header_file="$(mktemp "$runtime/primer-caddy-header.XXXXXX")" || return 1
+    chmod 0600 "$header_file"
+    printf 'Authorization: Bearer %s\n' "$token" >"$header_file"
+    curl --header "@$header_file" "$@"
+    rc=$?
+    rm -f "$header_file"
+    return "$rc"
+}
+
 _caddy::op_ticket() {
     print -r -- "${PRIMER_OP_TICKET:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/op-ticket}"
 }
@@ -92,8 +114,8 @@ _caddy::lookup_zone_id() {
     local zone="$1" account_id="$2" reader_ref response
     reader_ref="$(mod_config cloudflare_reader_ref | head -1)"
     [[ -n "$reader_ref" ]] || { print "caddy.cloudflare_reader_ref is required" >&2; return 1; }
-    response="$(curl -fsS --get "$(_caddy::cloudflare_api)/zones" \
-        -H "Authorization: Bearer $(_caddy::op_read "$reader_ref")" \
+    response="$(_caddy::curl_with_token "$(_caddy::op_read "$reader_ref")" \
+        -fsS --get "$(_caddy::cloudflare_api)/zones" \
         --data-urlencode "name=$zone" \
         --data-urlencode "account.id=$account_id" \
         --data-urlencode 'status=active')" || return 1
@@ -146,9 +168,8 @@ _caddy::mint_cloudflare_token() {
     zone="$(_caddy::zone_name)" || return 1
     zone_id="$(_caddy::lookup_zone_id "$zone" "$account_id")" || return 1
 
-    permission_response="$(curl -fsS --get \
+    permission_response="$(_caddy::curl_with_token "$(_caddy::op_read "$minter_ref")" -fsS --get \
         "$(_caddy::cloudflare_api)/accounts/$account_id/tokens/permission_groups" \
-        -H "Authorization: Bearer $(_caddy::op_read "$minter_ref")" \
         --data-urlencode 'name=DNS Write' \
         --data-urlencode 'scope=com.cloudflare.api.account.zone')" || return 1
     permission_id="$(print -r -- "$permission_response" | jq -er \
@@ -156,9 +177,8 @@ _caddy::mint_cloudflare_token() {
           (.scopes | index("com.cloudflare.api.account.zone")))) |
          if length == 1 then .[0].id else error("expected one DNS Write permission group") end')" \
         || return 1
-    zone_permission_response="$(curl -fsS --get \
+    zone_permission_response="$(_caddy::curl_with_token "$(_caddy::op_read "$minter_ref")" -fsS --get \
         "$(_caddy::cloudflare_api)/accounts/$account_id/tokens/permission_groups" \
-        -H "Authorization: Bearer $(_caddy::op_read "$minter_ref")" \
         --data-urlencode 'name=Zone Read' \
         --data-urlencode 'scope=com.cloudflare.api.account.zone')" || return 1
     zone_permission_id="$(print -r -- "$zone_permission_response" | jq -er \
@@ -189,8 +209,8 @@ _caddy::mint_cloudflare_token() {
     fi
     response="$(mktemp "${runtime:-/tmp}/primer-caddy-mint.XXXXXX")" || return 1
     chmod 0600 "$response"
-    if ! curl -fsS "$(_caddy::cloudflare_api)/accounts/$account_id/tokens" \
-        -H "Authorization: Bearer $(_caddy::op_read "$minter_ref")" \
+    if ! _caddy::curl_with_token "$(_caddy::op_read "$minter_ref")" -fsS \
+        "$(_caddy::cloudflare_api)/accounts/$account_id/tokens" \
         -H 'Content-Type: application/json' --data "$body" -o "$response"; then
         rm -f "$response"
         return 1
@@ -220,12 +240,31 @@ _caddy::mint_cloudflare_token() {
     rc=$?
     rm -f "$token_file"
     if (( rc != 0 )); then
-        curl -fsS -X DELETE \
+        _caddy::curl_with_token "$(_caddy::op_read "$minter_ref")" -fsS -X DELETE \
             "$(_caddy::cloudflare_api)/accounts/$account_id/tokens/$token_id" \
-            -H "Authorization: Bearer $(_caddy::op_read "$minter_ref")" \
             >/dev/null 2>&1 || true
     fi
     return "$rc"
+}
+
+_caddy::stored_cloudflare_token_ready() {
+    local token zone_id zone response
+    token="$(_caddy::env_value "$(_caddy::cloudflare_env)" CLOUDFLARE_API_TOKEN)" || return 1
+    zone_id="$(_caddy::env_value "$(_caddy::cloudflare_env)" CLOUDFLARE_ZONE_ID)" || return 1
+    zone="$(_caddy::zone_name)" || return 1
+    response="$(_caddy::curl_with_token "$token" -fsS \
+        "$(_caddy::cloudflare_api)/zones/$zone_id")" || return 1
+    print -r -- "$response" | jq -e --arg id "$zone_id" --arg zone "$zone" \
+        '.success == true and .result.id == $id and .result.name == $zone' >/dev/null
+}
+
+_caddy::delete_cloudflare_token() {
+    local token_id="$1" account_id minter_ref
+    [[ -n "$token_id" ]] || return 0
+    account_id="$(_caddy::op_read "$(mod_config cloudflare_account_id_ref | head -1)")" || return 1
+    minter_ref="$(mod_config cloudflare_minter_ref | head -1)"
+    _caddy::curl_with_token "$(_caddy::op_read "$minter_ref")" -fsS -X DELETE \
+        "$(_caddy::cloudflare_api)/accounts/$account_id/tokens/$token_id" >/dev/null
 }
 
 _caddy::install_cloudflare_token_file() {
@@ -243,8 +282,15 @@ _caddy::install_cloudflare_token() {
     local target legacy plans_env ref token token_id zone_id account_id account_ref
     target="$(_caddy::cloudflare_env)"
     if _caddy::cloudflare_token_ready && _caddy::cloudflare_zone_id_ready; then
-        _caddy::root chmod 0600 "$target"
-        [[ -n "${CADDY_TEST_ROOT:-}" ]] || _caddy::root chown root:root "$target"
+        if _caddy::stored_cloudflare_token_ready; then
+            _caddy::root chmod 0600 "$target"
+            [[ -n "${CADDY_TEST_ROOT:-}" ]] || _caddy::root chown root:root "$target"
+            return 0
+        fi
+        token_id="$(_caddy::env_value "$target" CLOUDFLARE_API_TOKEN_ID 2>/dev/null || true)"
+        _caddy::mint_cloudflare_token || return 1
+        _caddy::delete_cloudflare_token "$token_id" \
+            || print "Warning: could not remove the replaced Cloudflare token." >&2
         return 0
     fi
 
@@ -389,8 +435,8 @@ _caddy::cloudflare_response_ok() {
 
 _caddy::dns_records() {
     local token="$1" zone_id="$2" name="$3" type="$4"
-    curl -fsS --get "$(_caddy::cloudflare_api)/zones/$zone_id/dns_records" \
-        -H "Authorization: Bearer $token" \
+    _caddy::curl_with_token "$token" -fsS --get \
+        "$(_caddy::cloudflare_api)/zones/$zone_id/dns_records" \
         --data-urlencode "name=$name" \
         --data-urlencode "type=$type" \
         --data-urlencode 'match=all' \
@@ -428,8 +474,7 @@ _caddy::reconcile_dns_record() {
         method=PATCH
         url="$url/$record_id"
     fi
-    response="$(curl -fsS -X "$method" "$url" \
-        -H "Authorization: Bearer $token" \
+    response="$(_caddy::curl_with_token "$token" -fsS -X "$method" "$url" \
         -H 'Content-Type: application/json' --data "$body")" || return 1
     _caddy::cloudflare_response_ok "$response"
 }

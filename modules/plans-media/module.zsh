@@ -33,8 +33,10 @@ _plans_media::install_secret_file() {
 _plans_media::install_secrets() {
     local target legacy gate_ref gate temp
     target="$(_plans_media::secrets_file)"
-    if _plans_media::root test -s "$target"; then
-        gate="$(_plans_media::root sed -n 's/^GATE_SECRET=//p' "$target" 2>/dev/null | head -1)"
+    gate_ref="$(mod_config gate_secret_ref | head -1)"
+    if [[ -n "$gate_ref" ]]; then
+        command -v op >/dev/null 2>&1 || { print "op not found" >&2; return 1; }
+        gate="$(op read "$gate_ref")" || return 1
     fi
 
     legacy="$(mod_config legacy_secrets_file | head -1)"
@@ -42,17 +44,13 @@ _plans_media::install_secrets() {
         gate="$(_plans_media::root sed -n 's/^GATE_SECRET=//p' "$legacy" 2>/dev/null | head -1)"
     fi
 
-    if [[ -z "$gate" ]]; then
-        gate_ref="$(mod_config gate_secret_ref | head -1)"
+    if [[ -z "$gate" ]] && _plans_media::root test -s "$target"; then
+        gate="$(_plans_media::root sed -n 's/^GATE_SECRET=//p' "$target" 2>/dev/null | head -1)"
     fi
     if [[ -z "$gate" && -z "$gate_ref" ]]; then
         print "Plans secrets are not configured." >&2
         print "Set plans-media.gate_secret_ref to a stable op:// reference." >&2
         return 1
-    fi
-    if [[ -z "$gate" ]]; then
-        command -v op >/dev/null 2>&1 || { print "op not found" >&2; return 1; }
-        gate="$(op read "$gate_ref")" || return 1
     fi
     [[ -n "$gate" && "$gate" != *$'\n'* ]] || {
         print "The Plans gate secret must be a non-empty single line." >&2

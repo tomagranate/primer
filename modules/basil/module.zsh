@@ -2,9 +2,9 @@
 # modules/basil -- Basil's local services and shared-gateway routes
 
 _basil::repo() {
-    local path
-    path="$(mod_config repo_path | head -1)"
-    print -r -- "${path/#\~/$HOME}"
+    local repo_path
+    repo_path="$(mod_config repo_path | head -1)"
+    print -r -- "${repo_path/#\~/$HOME}"
 }
 
 _basil::unit_dir() {
@@ -92,6 +92,16 @@ _basil::install_units() {
         install -m 0644 "$repo/deploy/$unit" "$unit_dir/$unit" || return 1
     done
     systemctl --user daemon-reload
+}
+
+_basil::definitions_match() {
+    local repo="$(_basil::repo)" unit_dir="$(_basil::unit_dir)" config_dir="$(_basil::config_dir)" unit
+    for unit in basil-tunnel.service basil-webhook-shim.service basil-brain-sync.service basil-brain-sync.timer; do
+        [[ -f "$repo/deploy/$unit" && -f "$unit_dir/$unit" ]] \
+            && cmp -s "$repo/deploy/$unit" "$unit_dir/$unit" || return 1
+    done
+    [[ -f "$config_dir/compose.yaml" ]] \
+        && cmp -s "$MOD_DIR/files/compose.yaml" "$config_dir/compose.yaml"
 }
 
 _basil::install_compose() {
@@ -194,6 +204,10 @@ mod_update() {
 
 mod_status() {
     local unit route
+    _basil::definitions_match || {
+        primer::status_msg "service definitions need update"
+        return 1
+    }
     for unit in hermes-gateway.service basil-tunnel.service basil-webhook-shim.service basil-brain-sync.timer; do
         systemctl --user is-enabled --quiet "$unit" && systemctl --user is-active --quiet "$unit" || {
             primer::status_msg "$unit not ready"

@@ -72,8 +72,9 @@ EOF
 #!/bin/sh
 printf '%s\n' '{"Self":{"TailscaleIPs":["100.64.0.7","fd7a:115c:a1e0::7"]}}'
 EOF
-    cat > "$MOCK_DIR/curl" <<'EOF'
+cat > "$MOCK_DIR/curl" <<'EOF'
 #!/bin/sh
+printf 'curl-args %s\n' "$*" >> "$MOCK_LOG"
 method=GET
 explicit=false
 output=
@@ -105,6 +106,9 @@ case "$url" in
     */tokens/permission_groups)
         response='{"success":true,"result":[{"id":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","name":"DNS Write","scopes":["com.cloudflare.api.account.zone"]},{"id":"ffffffffffffffffffffffffffffffff","name":"Zone Read","scopes":["com.cloudflare.api.account.zone"]}]}'
         ;;
+    */accounts/*/tokens/*)
+        response='{"success":true,"result":{}}'
+        ;;
     */accounts/*/tokens)
         printf '%s' "$body" > "$MOCK_CF_BODY"
         response='{"success":true,"result":{"id":"cccccccccccccccccccccccccccccccc","value":"minted-dns-private"}}'
@@ -124,6 +128,13 @@ case "$url" in
             if [ "$type" = A ]; then content=100.64.0.7; else content=fd7a:115c:a1e0::7; fi
             [ "${MOCK_DNS_MODE:-current}" = stale ] && content=100.64.0.99
             response="{\"success\":true,\"result\":[{\"id\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"name\":\"$name\",\"type\":\"$type\",\"content\":\"$content\",\"proxied\":false,\"ttl\":1}]}"
+        fi
+        ;;
+    */zones/*)
+        if [ "${MOCK_STORED_TOKEN_MODE:-current}" = invalid ]; then
+            response='{"success":false,"errors":[{"message":"invalid token"}]}'
+        else
+            response='{"success":true,"result":{"id":"dddddddddddddddddddddddddddddddd","name":"tomagranate.com"}}'
         fi
         ;;
     *) exit 1 ;;
@@ -160,6 +171,7 @@ run_caddy_function() {
         export CADDY_ROUTE_LOCK='$CADDY_ROUTE_LOCK'
         export PRIMER_OP_TICKET='$TEST_ROOT/op-ticket' PATH='$MOCK_DIR':\"\$PATH\"
         export MOCK_LOG='$MOCK_LOG' MOCK_CF_BODY='$MOCK_CF_BODY' MOCK_DNS_MODE='${MOCK_DNS_MODE:-empty}'
+        export MOCK_STORED_TOKEN_MODE='${MOCK_STORED_TOKEN_MODE:-current}'
         source '$PRIMER_DIR/lib/module.zsh'
         source '$PRIMER_DIR/tests/helpers/module-config.zsh'
         test::load_module_config '$TEST_CONF'
@@ -193,6 +205,24 @@ run_caddy_function() {
             {id: "ffffffffffffffffffffffffffffffff", name: "Zone Read"}
           ]
         }]' "$MOCK_CF_BODY"
+    run grep -F private "$MOCK_LOG"
+    assert_failure
+}
+
+@test "caddy: replaces a revoked stored Cloudflare token" {
+    mkdir -p "$TEST_ROOT/etc/caddy/env.d"
+    printf '%s\n' \
+        'CLOUDFLARE_API_TOKEN=revoked-private' \
+        'CLOUDFLARE_API_TOKEN_ID=old-token-id' \
+        'CLOUDFLARE_ZONE_ID=dddddddddddddddddddddddddddddddd' \
+        > "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    export MOCK_STORED_TOKEN_MODE=invalid
+
+    run_caddy_function _caddy::install_cloudflare_token
+
+    assert_success
+    grep -Fx 'CLOUDFLARE_API_TOKEN=minted-dns-private' "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    grep -E '^DELETE.*/tokens/old-token-id$' "$MOCK_LOG"
 }
 
 @test "caddy: creates DNS-only A and AAAA records for each private host" {
@@ -218,7 +248,7 @@ run_caddy_function() {
     export MOCK_DNS_MODE=stale
     run_caddy_function _caddy::reconcile_dns
     assert_success
-    [ "$(grep -c 'PATCH.*/dns_records/' "$MOCK_LOG")" -eq 2 ]
+    [ "$(grep -c '^PATCH.*/dns_records/' "$MOCK_LOG")" -eq 2 ]
 
     : > "$MOCK_LOG"
     export MOCK_DNS_MODE=current
