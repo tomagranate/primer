@@ -116,9 +116,9 @@ mod_status() {
     local route
     route="$(mktemp)" || return 1
     _plans_media::route_contents >"$route" || { rm -f "$route"; return 1; }
-    _plans_media::root test -s "$(_plans_media::secrets_file)" \
-        && _plans_media::root test "$(stat -c %a "$(_plans_media::secrets_file)" 2>/dev/null || true)" = 600 \
-        && _plans_media::root "$(_plans_media::route_helper)" status plans-media "$route" || {
+    test -s "$(_plans_media::secrets_file)" \
+        && test "$(stat -c %a "$(_plans_media::secrets_file)" 2>/dev/null || true)" = 600 \
+        && "$(_plans_media::route_helper)" status plans-media "$route" || {
             rm -f "$route"
             primer::status_msg "route or secrets not ready"
             return 1

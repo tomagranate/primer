@@ -31,6 +31,9 @@ EOF
     cat > "$MOCK_DIR/curl" <<'EOF'
 #!/bin/sh
 printf 'curl %s\n' "$*" >> "$MOCK_LOG"
+case "$*" in
+    *"http://127.0.0.1:18090/v1/health"*|*"http://127.0.0.1:18091/"*) exit 0 ;;
+esac
 while [ "$#" -gt 0 ]; do
     if [ "$1" = -o ]; then
         output="$2"
@@ -43,7 +46,11 @@ cat > "$output" <<'SCRIPT'
 printf '%s\n' 'cloudflared version 2026.8.2 (built test)'
 SCRIPT
 EOF
-    chmod +x "$MOCK_DIR/systemctl" "$MOCK_DIR/loginctl" "$MOCK_DIR/docker" "$MOCK_DIR/curl"
+    cat > "$MOCK_DIR/primer-caddy-route" <<'EOF'
+#!/bin/sh
+printf 'primer-caddy-route %s\n' "$*" >> "$MOCK_LOG"
+EOF
+    chmod +x "$MOCK_DIR/systemctl" "$MOCK_DIR/loginctl" "$MOCK_DIR/docker" "$MOCK_DIR/curl" "$MOCK_DIR/primer-caddy-route"
     cat > "$TEST_CONF" <<EOF
 [basil]
 repo_path = $TEST_HOME/code/basil
@@ -63,6 +70,7 @@ run_module() {
         export PRIMER_DIR='$PRIMER_DIR' DRY_RUN='${DRY_RUN:-false}' MOD_DIR='$PRIMER_DIR/modules/basil'
         export MOD_NAME=basil MOD_STATUS_FILE='$(mktemp)' MOD_ITEMS_FILE='$(mktemp)' HOME='$TEST_HOME'
         export CADDY_TAILSCALE_HOSTNAME=tombook-linux.example.ts.net
+        export CADDY_ROUTE_HELPER='$MOCK_DIR/primer-caddy-route'
         export BASIL_TEST_ROOT='$BASIL_TEST_ROOT' BASIL_ROOT_LOG='$BASIL_ROOT_LOG' MOCK_LOG='$MOCK_LOG'
         export PATH='$MOCK_DIR':/usr/bin:/bin:/usr/sbin:/sbin
         source '$PRIMER_DIR/lib/module.zsh'
@@ -103,13 +111,33 @@ run_module() {
     grep -F "/2026.8.2/cloudflared-linux-amd64" "$MOCK_LOG"
 }
 
-@test "basil: enables Docker and routes every container command through root" {
-    run_module '_basil::enable_docker && _basil::install_compose && _basil::containers_ready'
+@test "basil: enables Docker and routes update commands through root" {
+    run_module '_basil::enable_docker && _basil::install_compose'
     assert_success
     grep -Fx "systemctl enable --now docker.service" "$BASIL_ROOT_LOG"
-    [ "$(grep -c ' docker ' "$BASIL_ROOT_LOG")" -eq 3 ]
+    [ "$(grep -c ' docker ' "$BASIL_ROOT_LOG")" -eq 2 ]
     grep -F "docker inspect" "$MOCK_LOG"
     grep -F "docker compose --project-name basil" "$MOCK_LOG"
+}
+
+@test "basil: status checks services without root" {
+    repo="$TEST_HOME/code/basil"
+    unit_dir="$TEST_HOME/.config/systemd/user"
+    config_dir="$TEST_HOME/.config/primer/basil"
+    mkdir -p "$repo/deploy" "$unit_dir" "$config_dir"
+    for unit in basil-tunnel.service basil-webhook-shim.service basil-brain-sync.service basil-brain-sync.timer; do
+        printf 'unit=%s\n' "$unit" > "$repo/deploy/$unit"
+        cp "$repo/deploy/$unit" "$unit_dir/$unit"
+    done
+    cp "$PRIMER_DIR/modules/basil/files/compose.yaml" "$config_dir/compose.yaml"
+    : > "$BASIL_ROOT_LOG"
+
+    run_module '_basil::root() { return 99; }; mod_status'
+
+    assert_success
+    [ ! -s "$BASIL_ROOT_LOG" ]
+    grep -F 'curl -fsS --max-time 5 http://127.0.0.1:18090/v1/health' "$MOCK_LOG"
+    grep -F 'primer-caddy-route status basil' "$MOCK_LOG"
 }
 
 @test "basil: detects deployed unit and compose drift" {

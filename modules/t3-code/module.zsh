@@ -240,7 +240,7 @@ _t3_code::route_ready() {
     local local_port="$1" temp
     temp="$(mktemp)" || return 1
     _t3_code::route_contents "$local_port" >"$temp" || { rm -f "$temp"; return 1; }
-    _t3_code::root "$(_t3_code::route_helper)" status t3-code "$temp"
+    "$(_t3_code::route_helper)" status t3-code "$temp"
     local rc=$?
     rm -f "$temp"
     return "$rc"

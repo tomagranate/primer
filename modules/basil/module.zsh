@@ -169,11 +169,8 @@ _basil::enable_docker() {
 }
 
 _basil::containers_ready() {
-    local services
-    services="$(_basil::docker compose --project-name basil \
-        --file "$(_basil::config_dir)/compose.yaml" ps --status running --services 2>/dev/null)" || return 1
-    print -r -- "$services" | grep -Fxq ntfy \
-        && print -r -- "$services" | grep -Fxq uptime-kuma
+    curl -fsS --max-time 5 http://127.0.0.1:18090/v1/health >/dev/null \
+        && curl -fsS --max-time 5 http://127.0.0.1:18091/ >/dev/null
 }
 
 _basil::boot_ready() {
@@ -231,7 +228,7 @@ mod_status() {
     route="$(mktemp)" || return 1
     _basil::route_contents >"$route" || { rm -f "$route"; return 1; }
     _basil::containers_ready \
-        && _basil::root "check Basil routes" "$(_basil::route_helper)" status basil "$route" || {
+        && "$(_basil::route_helper)" status basil "$route" || {
             rm -f "$route"
             primer::status_msg "containers or route not ready"
             return 1

@@ -118,7 +118,7 @@ Environment=T3CODE_PORT=3773
 EOF
     run_t3_code_module "_t3_code::install_launcher"
     assert_success
-    run_t3_code_module "mod_status"
+    run_t3_code_module "_t3_code::root() { return 99; }; mod_status"
     assert_success
     grep -E 'primer-caddy-route status t3-code /tmp/' "$MOCK_LOG"
 }

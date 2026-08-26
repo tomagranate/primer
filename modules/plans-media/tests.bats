@@ -98,3 +98,13 @@ run_module() {
     grep -Fx 'systemctl restart caddy.service' "$MOCK_LOG"
     refute_output --partial private
 }
+
+@test "plans-media: status does not require root" {
+    mkdir -p "$TEST_ROOT/etc/caddy/env.d"
+    printf 'GATE_SECRET=private\n' > "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
+    chmod 0600 "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
+
+    run_module '_plans_media::root() { return 99; }; mod_status'
+
+    assert_success
+}
