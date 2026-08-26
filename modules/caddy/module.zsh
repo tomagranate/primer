@@ -60,10 +60,17 @@ _caddy::root() {
 }
 
 _caddy::custom_binary_ready() {
-    local binary version modules
+    local binary version modules owner=root group=root
     binary="$(_caddy::binary)"
     version="$(mod_config caddy_version | head -1)"
+    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
+        owner="$(id -un)"
+        group="$(id -gn)"
+    fi
     [[ -x "$binary" ]] || return 1
+    [[ "$(stat -c %a "$binary" 2>/dev/null)" == 755 ]] \
+        && [[ "$(stat -c %U "$binary" 2>/dev/null)" == "$owner" ]] \
+        && [[ "$(stat -c %G "$binary" 2>/dev/null)" == "$group" ]] || return 1
     [[ "$($binary version 2>/dev/null)" == "$version "* || "$($binary version 2>/dev/null)" == "$version" ]] || return 1
     modules="$($binary list-modules 2>/dev/null)" || return 1
     print -r -- "$modules" | grep -Fxq dns.providers.cloudflare \
@@ -378,16 +385,26 @@ _caddy::deploy() {
 }
 
 _caddy::definitions_ready() {
-    local managed_path
-    for managed_path in \
-        /etc/caddy/Caddyfile \
-        /etc/systemd/system/caddy.service \
-        /etc/systemd/system/caddy-validate.service \
-        /etc/systemd/system/tailscaled.service.d/primer-caddy.conf \
-        /usr/local/libexec/primer-caddy-tailnet \
-        /usr/local/libexec/primer-caddy-route \
-        /usr/local/libexec/primer-caddy-fragment; do
+    local spec managed_path expected_mode owner=root group=root
+    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
+        owner="$(id -un)"
+        group="$(id -gn)"
+    fi
+    for spec in \
+        '/etc/caddy/Caddyfile 644' \
+        '/etc/systemd/system/caddy.service 644' \
+        '/etc/systemd/system/caddy-validate.service 644' \
+        '/etc/systemd/system/tailscaled.service.d/primer-caddy.conf 644' \
+        '/usr/local/libexec/primer-caddy-tailnet 755' \
+        '/usr/local/libexec/primer-caddy-route 755' \
+        '/usr/local/libexec/primer-caddy-fragment 755'; do
+        managed_path="${spec% *}"
+        expected_mode="${spec##* }"
         cmp -s "$MOD_DIR/files$managed_path" "$(_caddy::root_path "$managed_path")" || return 1
+        [[ "$(stat -c %a "$(_caddy::root_path "$managed_path")" 2>/dev/null)" == "$expected_mode" ]] \
+            && [[ "$(stat -c %U "$(_caddy::root_path "$managed_path")" 2>/dev/null)" == "$owner" ]] \
+            && [[ "$(stat -c %G "$(_caddy::root_path "$managed_path")" 2>/dev/null)" == "$group" ]] \
+            || return 1
     done
 }
 
