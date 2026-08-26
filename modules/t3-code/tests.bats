@@ -34,9 +34,10 @@ case "$*" in
     "service status") printf 'T3 Code service\n  Status: installed · t3@test\n' ;;
 esac
 EOF
-    cat > "$MOCK_DIR/systemctl" <<'EOF'
+cat > "$MOCK_DIR/systemctl" <<'EOF'
 #!/bin/sh
 printf 'systemctl %s\n' "$*" >> "$MOCK_LOG"
+[ "$*" = "--user restart t3code.service" ] && [ -e "$TEST_HOME/reject-service-restart" ] && exit 1
 exit 0
 EOF
     cat > "$MOCK_DIR/primer-caddy-route" <<'EOF'
@@ -126,6 +127,22 @@ EOF
 @test "t3-code: status fails without the managed service settings" {
     run_t3_code_module "mod_status"
     assert_failure
+}
+
+@test "t3-code: preserves an interrupted service restart" {
+    marker="$TEST_HOME/.config/primer/t3-code/service.restart-required"
+    touch "$TEST_HOME/reject-service-restart"
+
+    run_t3_code_module mod_update
+    assert_failure
+    [ -f "$marker" ]
+    run_t3_code_module mod_status
+    assert_failure
+
+    rm "$TEST_HOME/reject-service-restart"
+    run_t3_code_module mod_update
+    assert_success
+    [ ! -e "$marker" ]
 }
 
 @test "t3-code: missing t3 fails every item with a visible log" {

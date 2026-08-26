@@ -62,6 +62,18 @@ _t3_code::unit_dir() {
     print -r -- "${T3_CODE_SYSTEMD_USER_DIR:-$HOME/.config/systemd/user}"
 }
 
+_t3_code::service_restart_marker() {
+    print -r -- "$HOME/.config/primer/t3-code/service.restart-required"
+}
+
+_t3_code::mark_service_restart() {
+    install -D -m 0644 /dev/null "$(_t3_code::service_restart_marker)"
+}
+
+_t3_code::clear_service_restart() {
+    rm -f "$(_t3_code::service_restart_marker)"
+}
+
 _t3_code::drop_in_path() {
     print -r -- "$(_t3_code::unit_dir)/t3code.service.d/primer.conf"
 }
@@ -279,6 +291,7 @@ mod_update() {
     done
 
     primer::status_msg "installing service..."
+    _t3_code::mark_service_restart || return 1
     if ! _t3_code::run t3 service install; then
         primer::item_update "service" "failed" "service install failed"
         primer::status_msg "service install failed"
@@ -293,6 +306,7 @@ mod_update() {
         primer::status_msg "service start failed"
         return 1
     fi
+    _t3_code::clear_service_restart || return 1
     primer::item_update "service" "done"
 
     primer::status_msg "installing Caddy route..."
@@ -325,6 +339,7 @@ mod_status() {
         && systemctl --user is-enabled --quiet t3code.service \
         && systemctl --user is-active --quiet t3code.service \
         && _t3_code::drop_in_matches "$local_port" \
+        && [[ ! -e "$(_t3_code::service_restart_marker)" ]] \
         && _t3_code::route_ready "$local_port" \
         && _t3_code::launcher_matches || {
             primer::status_msg "service or proxy not ready"
