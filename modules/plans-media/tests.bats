@@ -110,6 +110,18 @@ run_module() {
     refute_output --partial private
 }
 
+@test "plans-media: preserves an installed quoted secret without another source" {
+    mkdir -p "$TEST_ROOT/etc/caddy/env.d"
+    printf '%s\n' 'GATE_SECRET="slash\\quote\"private"' > "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
+
+    run_module _plans_media::install_secrets
+
+    assert_success
+    [ "$(cat "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 'GATE_SECRET="slash\\quote\"private"' ]
+    [ "$(stat -c %a "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 600 ]
+    refute_output --partial private
+}
+
 @test "plans-media: status does not require root" {
     mkdir -p "$TEST_ROOT/etc/caddy/env.d"
     printf 'GATE_SECRET=private\n' > "$TEST_ROOT/etc/caddy/env.d/plans-media.env"

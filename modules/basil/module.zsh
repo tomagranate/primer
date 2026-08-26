@@ -242,6 +242,10 @@ mod_status() {
         primer::status_msg "credentials need update"
         return 1
     }
+    _basil::required_sources || {
+        primer::status_msg "runtime sources need update"
+        return 1
+    }
     _basil::definitions_match || {
         primer::status_msg "service definitions need update"
         return 1

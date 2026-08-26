@@ -130,8 +130,10 @@ run_module() {
         printf 'unit=%s\n' "$unit" > "$repo/deploy/$unit"
         cp "$repo/deploy/$unit" "$unit_dir/$unit"
     done
-    cp "$PRIMER_DIR/modules/basil/files/compose.yaml" "$config_dir/compose.yaml"
     mkdir -p "$repo/deploy/infra"
+    printf 'script\n' > "$repo/deploy/brain-sync.sh"
+    printf 'script\n' > "$repo/deploy/infra/kuma-webhook-shim.py"
+    cp "$PRIMER_DIR/modules/basil/files/compose.yaml" "$config_dir/compose.yaml"
     printf 'credential\n' > "$repo/deploy/infra/tunnel.env"
     printf 'credential\n' > "$repo/deploy/infra/webhook-shim.env"
     chmod 0600 "$repo/deploy/infra/tunnel.env" "$repo/deploy/infra/webhook-shim.env"
@@ -153,6 +155,12 @@ run_module() {
     run_module _basil::install_cloudflared
     assert_success
     rm "$repo/deploy/infra/tunnel.env"
+    run_module '_basil::root() { return 99; }; mod_status'
+    assert_failure
+
+    printf 'credential\n' > "$repo/deploy/infra/tunnel.env"
+    chmod 0600 "$repo/deploy/infra/tunnel.env"
+    rm "$repo/deploy/brain-sync.sh"
     run_module '_basil::root() { return 99; }; mod_status'
     assert_failure
 }

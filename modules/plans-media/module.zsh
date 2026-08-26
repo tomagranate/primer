@@ -61,7 +61,13 @@ _plans_media::install_secrets() {
     fi
 
     if [[ -z "$gate" ]] && _plans_media::root test -s "$target"; then
-        gate="$(_plans_media::root sed -n 's/^GATE_SECRET=//p' "$target" 2>/dev/null | head -1)"
+        if [[ -n "${PLANS_MEDIA_TEST_ROOT:-}" ]]; then
+            chmod 0600 "$target"
+        else
+            _plans_media::root chown root:root "$target" \
+                && _plans_media::root chmod 0600 "$target"
+        fi
+        return $?
     fi
     if [[ -z "$gate" && -z "$gate_ref" ]]; then
         print "Plans secrets are not configured." >&2
