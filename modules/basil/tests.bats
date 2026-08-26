@@ -23,10 +23,26 @@ case "$*" in
 esac
 exit 0
 EOF
-    chmod +x "$MOCK_DIR/systemctl" "$MOCK_DIR/docker"
+    cat > "$MOCK_DIR/curl" <<'EOF'
+#!/bin/sh
+printf 'curl %s\n' "$*" >> "$MOCK_LOG"
+while [ "$#" -gt 0 ]; do
+    if [ "$1" = -o ]; then
+        output="$2"
+        break
+    fi
+    shift
+done
+cat > "$output" <<'SCRIPT'
+#!/bin/sh
+printf '%s\n' 'cloudflared version 2026.8.2 (built test)'
+SCRIPT
+EOF
+    chmod +x "$MOCK_DIR/systemctl" "$MOCK_DIR/docker" "$MOCK_DIR/curl"
     cat > "$TEST_CONF" <<EOF
 [basil]
 repo_path = $TEST_HOME/code/basil
+cloudflared_version = 2026.8.2
 ntfy_gateway_port = 8090
 kuma_gateway_port = 8443
 EOF
@@ -56,7 +72,7 @@ run_module() {
     export DRY_RUN=true
     run_module mod_update
     assert_success
-    assert_output --partial "install Hermes, tunnel, webhook, and brain-sync user services"
+    assert_output --partial "install Hermes, cloudflared, tunnel, webhook, and brain-sync user services"
     assert_output --partial "systemctl enable --now docker.service"
     assert_output --partial "docker compose --project-name basil up -d"
 }
@@ -73,6 +89,13 @@ run_module() {
     run_module _basil::required_sources
     assert_failure
     assert_output --partial "Basil source is missing"
+}
+
+@test "basil: installs its pinned cloudflared executable" {
+    run_module _basil::install_cloudflared
+    assert_success
+    [ -x "$TEST_HOME/.local/bin/cloudflared" ]
+    grep -F "/2026.8.2/cloudflared-linux-amd64" "$MOCK_LOG"
 }
 
 @test "basil: enables Docker and routes every container command through root" {

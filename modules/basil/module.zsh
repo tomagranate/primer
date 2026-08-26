@@ -34,6 +34,32 @@ _basil::docker() {
     _basil::root "manage Basil containers" env BASIL_REPO="$(_basil::repo)" docker "$@"
 }
 
+_basil::install_cloudflared() {
+    local version architecture target temp
+    version="$(mod_config cloudflared_version | head -1)"
+    [[ "$version" == <->.<->.<-> ]] || {
+        print "basil.cloudflared_version is invalid" >&2
+        return 1
+    }
+    case "$(uname -m)" in
+        x86_64) architecture=amd64 ;;
+        aarch64|arm64) architecture=arm64 ;;
+        *) print "cloudflared does not support this architecture: $(uname -m)" >&2; return 1 ;;
+    esac
+    target="$HOME/.local/bin/cloudflared"
+    if [[ -x "$target" ]] && "$target" --version 2>/dev/null | grep -Fq "version $version "; then
+        return 0
+    fi
+    mkdir -p "$HOME/.local/bin"
+    temp="$(mktemp)" || return 1
+    curl -fsSL \
+        "https://github.com/cloudflare/cloudflared/releases/download/$version/cloudflared-linux-$architecture" \
+        -o "$temp" || { rm -f "$temp"; return 1; }
+    install -m 0755 "$temp" "$target" || { rm -f "$temp"; return 1; }
+    rm -f "$temp"
+    "$target" --version 2>/dev/null | grep -Fq "version $version "
+}
+
 _basil::required_sources() {
     local repo="$(_basil::repo)" file
     for file in \
@@ -117,7 +143,7 @@ _basil::install_route() {
 
 _basil::enable_services() {
     command -v hermes >/dev/null 2>&1 || { print "hermes not found" >&2; return 1; }
-    command -v cloudflared >/dev/null 2>&1 || { print "cloudflared not found" >&2; return 1; }
+    _basil::install_cloudflared || { print "cloudflared install failed" >&2; return 1; }
     hermes gateway install || return 1
     systemctl --user enable --now hermes-gateway.service || return 1
     systemctl --user enable --now basil-tunnel.service basil-webhook-shim.service basil-brain-sync.timer
@@ -139,7 +165,7 @@ mod_update() {
     primer::items_init gateway tunnel webhook brain-sync containers route
     if [[ "$DRY_RUN" == true ]]; then
         print "[dry-run] verify Basil source and credential files under $(_basil::repo)"
-        print "[dry-run] install Hermes, tunnel, webhook, and brain-sync user services"
+        print "[dry-run] install Hermes, cloudflared, tunnel, webhook, and brain-sync user services"
         print "[dry-run] sudo systemctl enable --now docker.service"
         print "[dry-run] docker compose --project-name basil up -d"
         print "[dry-run] install Caddy route basil"
@@ -149,6 +175,7 @@ mod_update() {
         return 0
     fi
 
+    _basil::install_cloudflared || return 1
     _basil::required_sources && _basil::required_credentials || return 1
     _basil::install_units || return 1
     _basil::root "enable Basil user services at boot" loginctl enable-linger "${USER:-$LOGNAME}" || return 1

@@ -483,8 +483,11 @@ _caddy::reconcile_routes() {
         _caddy::root "$(_caddy::route_helper)" reconcile "${routes[@]}"
 }
 
-_caddy::migrate_listeners() {
-    local serve_port plans_present=false plans_selected=false plans_managed=false
+typeset -g _CADDY_MIGRATED_SERVE=false
+typeset -g _CADDY_MIGRATED_PLANS=false
+
+_caddy::check_listener_migration() {
+    local plans_present=false plans_selected=false plans_managed=false
     systemctl cat plans.service >/dev/null 2>&1 && plans_present=true
     _caddy::desired_routes | grep -Fxq plans-media && plans_selected=true
     if $plans_present && { systemctl is-active --quiet plans.service \
@@ -496,12 +499,73 @@ _caddy::migrate_listeners() {
         print "Select plans-media before Primer migrates the Plans listener." >&2
         return 1
     fi
+}
+
+_caddy::migrate_listeners() {
+    local serve_port serve_target serve_status plans_present=false plans_selected=false
+    _CADDY_MIGRATED_SERVE=false
+    _CADDY_MIGRATED_PLANS=false
+    _caddy::check_listener_migration || return 1
+
+    systemctl cat plans.service >/dev/null 2>&1 && plans_present=true
+    _caddy::desired_routes | grep -Fxq plans-media && plans_selected=true
     serve_port="$(mod_config migrate_tailscale_serve_port | head -1)"
-    if [[ -n "$serve_port" ]] && tailscale serve status --json >/dev/null 2>&1; then
-        _caddy::root tailscale serve --https="$serve_port" off
+    serve_target="$(mod_config migrate_tailscale_serve_target | head -1)"
+    if [[ -n "$serve_port" ]]; then
+        serve_status="$(tailscale serve status --json 2>/dev/null || true)"
+        if print -r -- "$serve_status" | jq -e --arg port "$serve_port" \
+            '.TCP[$port] != null' >/dev/null 2>&1; then
+            [[ -n "$serve_target" ]] || {
+                print "caddy.migrate_tailscale_serve_target is required for rollback" >&2
+                return 1
+            }
+            _caddy::root tailscale serve --https="$serve_port" off || return 1
+            _CADDY_MIGRATED_SERVE=true
+        fi
     fi
     if $plans_present && $plans_selected; then
-        _caddy::root systemctl disable --now plans.service
+        if ! _caddy::root systemctl disable --now plans.service; then
+            _caddy::restore_listeners
+            return 1
+        fi
+        _CADDY_MIGRATED_PLANS=true
+    fi
+}
+
+_caddy::restore_listeners() {
+    local rc=0 serve_port serve_target
+    if $_CADDY_MIGRATED_PLANS; then
+        _caddy::root systemctl enable --now plans.service || rc=1
+    fi
+    if $_CADDY_MIGRATED_SERVE; then
+        serve_port="$(mod_config migrate_tailscale_serve_port | head -1)"
+        serve_target="$(mod_config migrate_tailscale_serve_target | head -1)"
+        _caddy::root tailscale serve --bg --https="$serve_port" "$serve_target" || rc=1
+    fi
+    return "$rc"
+}
+
+_caddy::activate_gateway() {
+    local gateway_needs_restart="$1"
+    _caddy::root systemctl enable caddy.service || return 1
+    if _caddy::root systemctl is-active --quiet caddy.service; then
+        if [[ "$gateway_needs_restart" == true ]]; then
+            _caddy::root systemctl restart caddy.service
+        else
+            _caddy::root systemctl reload caddy.service
+        fi
+    else
+        _caddy::root systemctl start caddy.service
+    fi
+}
+
+_caddy::activate_gateway_with_rollback() {
+    local gateway_needs_restart="$1"
+    _caddy::migrate_listeners || return 1
+    if ! _caddy::activate_gateway "$gateway_needs_restart"; then
+        _caddy::restore_listeners \
+            || print "Caddy activation and legacy listener restoration failed." >&2
+        return 1
     fi
 }
 
@@ -547,23 +611,14 @@ mod_update() {
     _caddy::reconcile_dns \
         || { primer::item_update dns failed "Cloudflare update failed"; return 1; }
     primer::item_update dns done
-    _caddy::migrate_listeners || return 1
     _caddy::root systemctl daemon-reload || return 1
     if $tailscale_needs_restart; then
         _caddy::root systemctl restart tailscaled.service || return 1
     fi
     _caddy::root "$(_caddy::root_path /usr/local/libexec/primer-caddy-tailnet)" || return 1
     _caddy::root systemctl start --wait caddy-validate.service || return 1
-    _caddy::root systemctl enable caddy.service || return 1
-    if _caddy::root systemctl is-active --quiet caddy.service; then
-        if $gateway_needs_restart; then
-            _caddy::root systemctl restart caddy.service || return 1
-        else
-            _caddy::root systemctl reload caddy.service || return 1
-        fi
-    else
-        _caddy::root systemctl start caddy.service || return 1
-    fi
+    _caddy::check_listener_migration || return 1
+    _caddy::activate_gateway_with_rollback "$gateway_needs_restart" || return 1
     _caddy::reconcile_routes || { primer::item_update routes failed "reconcile failed"; return 1; }
     primer::item_update routes done
     _caddy::root systemctl is-active --quiet caddy.service || return 1

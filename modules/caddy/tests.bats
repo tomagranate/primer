@@ -28,6 +28,9 @@ if [ "$1 $2" = "reload caddy.service" ] && [ -e "$TEST_ROOT/reject-reload" ]; th
     rm -f "$TEST_ROOT/reject-reload"
     exit 1
 fi
+if [ "$1 $2" = "restart caddy.service" ] && [ -e "$TEST_ROOT/reject-activation" ]; then
+    exit 1
+fi
 exit 0
 EOF
     chmod +x "$MOCK_DIR/systemctl"
@@ -44,6 +47,7 @@ cloudflare_account_id_ref = op://Agents/Cloudflare Token Minter/account id
 legacy_cloudflare_env = $TEST_ROOT/legacy.env
 cloudflare_token_ref =
 migrate_tailscale_serve_port = 443
+migrate_tailscale_serve_target = http://127.0.0.1:3773
 dns_names =
     t3.{machine}.tomagranate.com
 routes =
@@ -378,9 +382,12 @@ EOF
     cat >> "$TEST_CONF" <<'EOF'
     plans-media
 EOF
-    cat > "$MOCK_DIR/tailscale" <<'EOF'
+cat > "$MOCK_DIR/tailscale" <<'EOF'
 #!/bin/sh
 printf 'tailscale %s\n' "$*" >> "$MOCK_LOG"
+case "$*" in
+    "serve status --json") printf '%s\n' '{"TCP":{"443":{"HTTPS":true}}}' ;;
+esac
 exit 0
 EOF
     chmod +x "$MOCK_DIR/tailscale"
@@ -397,6 +404,35 @@ EOF
     assert_success
     grep -F "tailscale serve --https=443 off" "$MOCK_LOG"
     grep -F "systemctl disable --now plans.service" "$MOCK_LOG"
+}
+
+@test "caddy: failed activation restores legacy listeners" {
+    cat >> "$TEST_CONF" <<'EOF'
+    plans-media
+EOF
+    touch "$TEST_ROOT/reject-activation"
+    cat > "$MOCK_DIR/tailscale" <<'EOF'
+#!/bin/sh
+printf 'tailscale %s\n' "$*" >> "$MOCK_LOG"
+case "$*" in
+    "serve status --json") printf '%s\n' '{"TCP":{"443":{"HTTPS":true}}}' ;;
+esac
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/tailscale"
+
+    run_caddy_function '_caddy::activate_gateway_with_rollback true'
+
+    assert_failure
+    grep -F "tailscale serve --https=443 off" "$MOCK_LOG"
+    grep -F "systemctl disable --now plans.service" "$MOCK_LOG"
+    grep -F "systemctl enable --now plans.service" "$MOCK_LOG"
+    grep -F "tailscale serve --bg --https=443 http://127.0.0.1:3773" "$MOCK_LOG"
+}
+
+@test "caddy: service permits its generator to update /etc/caddy" {
+    grep -Fx "ReadWritePaths=/etc/caddy" \
+        "$PRIMER_DIR/modules/caddy/files/etc/systemd/system/caddy.service"
 }
 
 @test "caddy: a present but disabled Plans unit does not require the addon" {

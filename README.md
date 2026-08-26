@@ -97,7 +97,7 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | **caddy** | mise + Tailscale login | Linux base: builds the Cloudflare-enabled gateway, binds tailnet routes, validates config, and reconciles app routes |
 | **t3-code** | npm-global + caddy | Runs T3 Code at boot at `t3.<machine>.tomagranate.com` |
 | **plans-media** | caddy | Addon: proxies the private Agents Worker and supplies its gate credential |
-| **basil** | caddy + agents | Addon: manages Hermes, tunnel, webhook, brain sync, ntfy, Uptime Kuma, and Basil routes |
+| **basil** | caddy + agents + shell-installers | Addon: installs Hermes and cloudflared, then manages Basil services and routes |
 | **managed-settings** | shell-installers/homebrew-apps | Applies configured JSON/TOML user settings, including AI CLI permission defaults |
 | **login-shell** | zsh | Changes the user's login shell to zsh when possible |
 | **xcode-cli-tools** | -- | Installs Xcode Command Line Tools and waits for the installer dialog to be accepted |
@@ -355,9 +355,9 @@ secret values in Git.
 The Agents project still owns Worker, R2, and D1 deployment.
 
 The Basil addon expects `~/code/basil` and its documented local credential
-files. Primer does not create or copy those credentials. It runs ntfy and
-Uptime Kuma from a Primer compose file. Cloudflare Tunnel remains only for
-the public ntfy ingress.
+files. Primer installs Hermes and a pinned `cloudflared` release. It does not
+create or copy credentials. It runs ntfy and Uptime Kuma from a Primer compose
+file. Cloudflare Tunnel remains only for the public ntfy ingress.
 
 ### Shared Caddy route contract
 

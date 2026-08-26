@@ -228,7 +228,10 @@ github_command = gh auth login
       .toBe("true");
     expect(plans.find((node) => node.id === "caddy")?.config["caddy.dns_names"])
       .toBe("\nt3.{machine}.tomagranate.com\nplans.tomagranate.com");
-    expect(basil.find((node) => node.id === "basil")?.deps).toEqual(["caddy", "agents"]);
+    expect(basil.find((node) => node.id === "basil")?.deps)
+      .toEqual(["caddy", "agents", "shell-installers"]);
+    expect(basil.find((node) => node.id === "shell-installers")
+      ?.config["shell-installers.installers"]).toContain("name: hermes");
     expect(basil.find((node) => node.id === "caddy")?.config["caddy.routes"])
       .toBe("\nt3-code\nbasil");
   });
