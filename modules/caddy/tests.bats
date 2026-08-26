@@ -338,6 +338,23 @@ run_caddy_function() {
     assert_failure
 }
 
+@test "caddy: clears abandoned cleanup when the current token validates" {
+    mkdir -p "$TEST_ROOT/etc/caddy/env.d" "$TEST_ROOT/var/lib/primer/caddy"
+    printf '%s\n' \
+        'CLOUDFLARE_API_TOKEN=current-private' \
+        'CLOUDFLARE_API_TOKEN_ID=current-token-id' \
+        'CLOUDFLARE_ZONE_ID=dddddddddddddddddddddddddddddddd' \
+        > "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    printf 'current-token-id\n' > "$TEST_ROOT/var/lib/primer/caddy/cloudflare-token-cleanup"
+
+    run_caddy_function _caddy::install_cloudflare_token
+
+    assert_success
+    [ ! -e "$TEST_ROOT/var/lib/primer/caddy/cloudflare-token-cleanup" ]
+    run grep -E '^(POST|DELETE) ' "$MOCK_LOG"
+    assert_failure
+}
+
 @test "caddy: replaces a readable stored token without proven DNS Write access" {
     mkdir -p "$TEST_ROOT/etc/caddy/env.d"
     printf '%s\n' \
@@ -1024,6 +1041,12 @@ EOF
 
 @test "caddy: service permits its generator to update /etc/caddy" {
     grep -Fx "ReadWritePaths=/etc/caddy" \
+        "$PRIMER_DIR/modules/caddy/files/etc/systemd/system/caddy.service"
+    grep -Fx $'\tadmin unix//run/caddy/admin.sock' \
+        "$PRIMER_DIR/modules/caddy/files/etc/caddy/Caddyfile"
+    grep -Fx "ExecReload=/usr/local/bin/caddy reload --config /etc/caddy/Caddyfile --address unix//run/caddy/admin.sock --force" \
+        "$PRIMER_DIR/modules/caddy/files/etc/systemd/system/caddy.service"
+    grep -Fx "RuntimeDirectoryMode=0750" \
         "$PRIMER_DIR/modules/caddy/files/etc/systemd/system/caddy.service"
 }
 

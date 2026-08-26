@@ -391,6 +391,15 @@ _caddy::cleanup_replaced_cloudflare_token() {
     _caddy::root rm -f "$pending"
 }
 
+_caddy::clear_abandoned_cloudflare_cleanup() {
+    local pending="$(_caddy::cloudflare_cleanup_file)" token_id current_id
+    [[ -e "$pending" ]] || return 0
+    token_id="$(_caddy::root sed -n '1p' "$pending")" || return 1
+    current_id="$(_caddy::env_value "$(_caddy::cloudflare_env)" CLOUDFLARE_API_TOKEN_ID 2>/dev/null || true)"
+    [[ -n "$token_id" && "$token_id" == "$current_id" ]] || return 1
+    _caddy::root rm -f "$pending"
+}
+
 _caddy::install_cloudflare_token_file() {
     local source="$1" target="$(_caddy::cloudflare_env)"
     if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
@@ -410,6 +419,7 @@ _caddy::install_cloudflare_token() {
     _caddy::cleanup_replaced_cloudflare_token || return 1
     if _caddy::cloudflare_token_ready && _caddy::cloudflare_zone_id_ready; then
         if _caddy::stored_cloudflare_token_ready; then
+            _caddy::clear_abandoned_cloudflare_cleanup || return 1
             _caddy::cloudflare_file_integrity_ready \
                 || _caddy::mark_restart gateway \
                 || return 1

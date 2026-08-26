@@ -1,5 +1,5 @@
 {
-	admin localhost:2019
+	admin unix//run/caddy/admin.sock
 }
 
 import /etc/caddy/tailnet.caddy
