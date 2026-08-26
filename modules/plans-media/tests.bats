@@ -100,6 +100,23 @@ run_module() {
     refute_output --partial private
 }
 
+@test "plans-media: keeps a restart pending after secret installation" {
+    mkdir -p "$TEST_ROOT/etc/caddy/env.d"
+    printf 'GATE_SECRET=old-private\n' > "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
+    printf 'GATE_SECRET=new-private\n' > "$TEST_ROOT/legacy.env"
+
+    run_module _plans_media::install_secrets
+
+    assert_success
+    [ -f "$TEST_ROOT/etc/caddy/env.d/plans-media.env.restart-required" ]
+    run_module _plans_media::secrets_ready
+    assert_failure
+
+    run_module mod_update
+    assert_success
+    [ ! -e "$TEST_ROOT/etc/caddy/env.d/plans-media.env.restart-required" ]
+}
+
 @test "plans-media: quotes systemd environment metacharacters" {
     printf '%s\n' 'GATE_SECRET=slash\quote"private' > "$TEST_ROOT/legacy.env"
 
@@ -148,6 +165,8 @@ run_module() {
     chmod 0600 "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
     run_module _plans_media::install_secrets
     assert_success
+    run_module _plans_media::clear_restart
+    assert_success
 
     run_module '_plans_media::root() { return 99; }; mod_status'
 
@@ -158,6 +177,8 @@ run_module() {
     assert_failure
     printf 'GATE_SECRET=private\n' > "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
     run_module _plans_media::install_secrets
+    assert_success
+    run_module _plans_media::clear_restart
     assert_success
 
     export PLANS_MEDIA_EXPECTED_OWNER=__not_the_owner__

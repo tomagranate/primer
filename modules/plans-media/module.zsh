@@ -43,6 +43,24 @@ _plans_media::secret_validity_file() {
     print -r -- "$(_plans_media::secrets_file).valid"
 }
 
+_plans_media::restart_marker() {
+    print -r -- "$(_plans_media::secrets_file).restart-required"
+}
+
+_plans_media::mark_restart() {
+    local marker
+    marker="$(_plans_media::restart_marker)"
+    if [[ -n "${PLANS_MEDIA_TEST_ROOT:-}" ]]; then
+        install -D -m 0644 /dev/null "$marker"
+    else
+        _plans_media::root install -D -o root -g root -m 0644 /dev/null "$marker"
+    fi
+}
+
+_plans_media::clear_restart() {
+    _plans_media::root rm -f "$(_plans_media::restart_marker)"
+}
+
 _plans_media::secret_fingerprint() {
     stat -c '%d:%i:%s:%Y' "$(_plans_media::secrets_file)" 2>/dev/null
 }
@@ -124,6 +142,9 @@ _plans_media::install_secrets() {
         printf 'GATE_SECRET=%s\n' "$(_plans_media::systemd_env_quote "$gate")" >"$temp"
     fi
     unset gate
+    if [[ ! -f "$target" ]] || ! cmp -s "$temp" "$target"; then
+        _plans_media::mark_restart || { rm -f "$temp"; return 1; }
+    fi
     _plans_media::install_secret_file "$temp" "$target" \
         && _plans_media::record_secret_validity
     local rc=$?
@@ -144,7 +165,8 @@ _plans_media::secrets_ready() {
         && [[ -s "$validity" ]] \
         && [[ "$(stat -c %a "$validity" 2>/dev/null)" == 644 ]] \
         && [[ "$(stat -c %U "$validity" 2>/dev/null)" == "$owner" ]] \
-        && [[ "$(<"$validity")" == "$(_plans_media::secret_fingerprint)" ]]
+        && [[ "$(<"$validity")" == "$(_plans_media::secret_fingerprint)" ]] \
+        && [[ ! -e "$(_plans_media::restart_marker)" ]]
 }
 
 _plans_media::route_contents() {
@@ -179,7 +201,9 @@ mod_update() {
     _plans_media::install_secrets || { primer::item_update secrets failed "configuration required"; return 1; }
     primer::item_update secrets done
     _plans_media::install_route || { primer::item_update route failed "validation failed"; return 1; }
-    _plans_media::restart_gateway || { primer::item_update route failed "restart failed"; return 1; }
+    _plans_media::restart_gateway \
+        && _plans_media::clear_restart \
+        || { primer::item_update route failed "restart failed"; return 1; }
     primer::item_update route done
     primer::status_msg "Plans and Media ready"
 }

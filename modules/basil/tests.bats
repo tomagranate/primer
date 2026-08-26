@@ -141,6 +141,8 @@ run_module() {
     assert_success
     run_module _basil::reconcile_credentials
     assert_success
+    run_module _basil::install_compose
+    assert_success
     : > "$BASIL_ROOT_LOG"
 
     run_module '_basil::root() { return 99; }; mod_status'
@@ -184,6 +186,21 @@ run_module() {
     printf 'drift\n' >> "$unit_dir/basil-tunnel.service"
     run_module _basil::definitions_match
     assert_failure
+}
+
+@test "basil: detects a Compose file that was not activated" {
+    config_dir="$TEST_HOME/.config/primer/basil"
+    mkdir -p "$config_dir"
+    cp "$PRIMER_DIR/modules/basil/files/compose.yaml" "$config_dir/compose.yaml"
+    printf 'stale\n' > "$config_dir/compose.sha256"
+
+    run_module _basil::compose_active
+    assert_failure
+
+    run_module _basil::install_compose
+    assert_success
+    run_module _basil::compose_active
+    assert_success
 }
 
 @test "basil: restarts an active service when its unit changes" {

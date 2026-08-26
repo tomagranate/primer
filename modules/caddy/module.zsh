@@ -446,9 +446,22 @@ _caddy::routes_ready() {
 }
 
 _caddy::tailnet_ready() {
+    local file owner=root group=root
+    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
+        owner="$(id -un)"
+        group="$(id -gn)"
+    fi
     CADDY_CONFIG_DIR="$(_caddy::root_path /etc/caddy)" \
     CADDY_RUNTIME_DIR="$(_caddy::root_path /run/caddy)" \
-        "$(_caddy::root_path /usr/local/libexec/primer-caddy-tailnet)" status
+        "$(_caddy::root_path /usr/local/libexec/primer-caddy-tailnet)" status || return 1
+    for file in \
+        "$(_caddy::root_path /etc/caddy/tailnet.caddy)" \
+        "$(_caddy::root_path /run/caddy/tailnet.env)"; do
+        [[ "$(stat -c %a "$file" 2>/dev/null)" == 644 ]] \
+            && [[ "$(stat -c %U "$file" 2>/dev/null)" == "$owner" ]] \
+            && [[ "$(stat -c %G "$file" 2>/dev/null)" == "$group" ]] \
+            || return 1
+    done
 }
 
 _caddy::tailnet_fingerprint() {

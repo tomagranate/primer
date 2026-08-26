@@ -157,6 +157,25 @@ _basil::definitions_match() {
         && cmp -s "$MOD_DIR/files/compose.yaml" "$config_dir/compose.yaml"
 }
 
+_basil::compose_activation_file() {
+    print -r -- "$(_basil::config_dir)/compose.sha256"
+}
+
+_basil::compose_active() {
+    local state="$(_basil::compose_activation_file)" digest
+    digest="$(sha256sum "$MOD_DIR/files/compose.yaml" 2>/dev/null | awk '{print $1}')" || return 1
+    [[ -n "$digest" && -f "$state" && "$(<"$state")" == "$digest" ]]
+}
+
+_basil::record_compose_activation() {
+    local state="$(_basil::compose_activation_file)" temp digest
+    digest="$(sha256sum "$MOD_DIR/files/compose.yaml" | awk '{print $1}')" || return 1
+    temp="$(mktemp "$(_basil::config_dir)/.compose.XXXXXX")" || return 1
+    print -r -- "$digest" > "$temp"
+    chmod 0600 "$temp" || { rm -f "$temp"; return 1; }
+    mv -f "$temp" "$state" || { rm -f "$temp"; return 1; }
+}
+
 _basil::install_compose() {
     local repo="$(_basil::repo)" config_dir="$(_basil::config_dir)" current_config
     mkdir -p "$config_dir"
@@ -167,7 +186,8 @@ _basil::install_compose() {
         # survives this one-time container migration behind Caddy.
         _basil::docker compose --file "$repo/deploy/infra/compose.yaml" down || return 1
     fi
-    _basil::docker compose --project-name basil --file "$config_dir/compose.yaml" up -d
+    _basil::docker compose --project-name basil --file "$config_dir/compose.yaml" up -d \
+        && _basil::record_compose_activation
 }
 
 _basil::route_contents() {
@@ -274,6 +294,10 @@ mod_status() {
     }
     _basil::definitions_match || {
         primer::status_msg "service definitions need update"
+        return 1
+    }
+    _basil::compose_active || {
+        primer::status_msg "container configuration needs activation"
         return 1
     }
     _basil::boot_ready || {

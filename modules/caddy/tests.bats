@@ -445,6 +445,11 @@ EOF
     assert_failure
     printf 'TAILSCALE_HOSTNAME=host.tailnet.ts.net\n' > "$TEST_ROOT/run/caddy/tailnet.env"
 
+    chmod 0664 "$TEST_ROOT/etc/caddy/tailnet.caddy"
+    run_caddy_function mod_status
+    assert_failure
+    chmod 0644 "$TEST_ROOT/etc/caddy/tailnet.caddy"
+
     chmod 0775 "$TEST_ROOT/etc/caddy/apps.d"
     run_caddy_function mod_status
     assert_failure
