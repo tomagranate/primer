@@ -377,6 +377,9 @@ EOF
     chmod +x "$TEST_ROOT/usr/local/bin/caddy"
     printf 't3-code\n' > "$TEST_ROOT/etc/caddy/primer-routes"
     printf 'route\n' > "$TEST_ROOT/etc/caddy/apps.d/t3-code.caddy"
+    mkdir -p "$TEST_ROOT/etc/caddy/env.d"
+    printf 'credentials\n' > "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    chmod 0600 "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
 
     run_caddy_function mod_status
     assert_success
@@ -388,6 +391,11 @@ EOF
     run_caddy_function mod_status
     assert_failure
     printf 't3-code\n' > "$TEST_ROOT/etc/caddy/primer-routes"
+
+    chmod 0644 "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    run_caddy_function mod_status
+    assert_failure
+    chmod 0600 "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
 
     printf 'drift\n' >> "$TEST_ROOT/etc/systemd/system/caddy.service"
     run_caddy_function mod_status

@@ -130,6 +130,8 @@ run_module() {
         cp "$repo/deploy/$unit" "$unit_dir/$unit"
     done
     cp "$PRIMER_DIR/modules/basil/files/compose.yaml" "$config_dir/compose.yaml"
+    run_module _basil::install_cloudflared
+    assert_success
     : > "$BASIL_ROOT_LOG"
 
     run_module '_basil::root() { return 99; }; mod_status'
@@ -138,6 +140,10 @@ run_module() {
     [ ! -s "$BASIL_ROOT_LOG" ]
     grep -F 'curl -fsS --max-time 5 http://127.0.0.1:18090/v1/health' "$MOCK_LOG"
     grep -F 'primer-caddy-route status basil' "$MOCK_LOG"
+
+    rm "$TEST_HOME/.local/bin/cloudflared"
+    run_module '_basil::root() { return 99; }; mod_status'
+    assert_failure
 }
 
 @test "basil: detects deployed unit and compose drift" {

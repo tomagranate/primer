@@ -89,6 +89,16 @@ _caddy::cloudflare_zone_id_ready() {
     _caddy::env_value "$(_caddy::cloudflare_env)" CLOUDFLARE_ZONE_ID >/dev/null
 }
 
+_caddy::cloudflare_file_ready() {
+    _caddy::cloudflare_required || return 0
+    local file owner=root
+    file="$(_caddy::cloudflare_env)"
+    [[ -n "${CADDY_TEST_ROOT:-}" ]] && owner="$(id -un)"
+    [[ -s "$file" ]] \
+        && [[ "$(stat -c %a "$file" 2>/dev/null)" == 600 ]] \
+        && [[ "$(stat -c %U "$file" 2>/dev/null)" == "$owner" ]]
+}
+
 _caddy::op_read() {
     local ref="$1" ticket
     if [[ -n "${OP_SERVICE_ACCOUNT_TOKEN:-}" ]]; then
@@ -821,6 +831,7 @@ mod_update() {
 mod_status() {
     _caddy::custom_binary_ready \
         && _caddy::definitions_ready \
+        && _caddy::cloudflare_file_ready \
         && systemctl is-enabled --quiet caddy.service \
         && systemctl is-active --quiet caddy.service || {
             primer::status_msg "gateway not ready"

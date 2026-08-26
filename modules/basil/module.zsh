@@ -34,22 +34,32 @@ _basil::docker() {
     _basil::root "manage Basil containers" env BASIL_REPO="$(_basil::repo)" docker "$@"
 }
 
-_basil::install_cloudflared() {
-    local version architecture target temp
+_basil::cloudflared_version() {
+    local version
     version="$(mod_config cloudflared_version | head -1)"
     [[ "$version" == <->.<->.<-> ]] || {
         print "basil.cloudflared_version is invalid" >&2
         return 1
     }
+    print -r -- "$version"
+}
+
+_basil::cloudflared_ready() {
+    local version target="$HOME/.local/bin/cloudflared"
+    version="$(_basil::cloudflared_version)" || return 1
+    [[ -x "$target" ]] && "$target" --version 2>/dev/null | grep -Fq "version $version "
+}
+
+_basil::install_cloudflared() {
+    local version architecture target temp
+    version="$(_basil::cloudflared_version)" || return 1
     case "$(uname -m)" in
         x86_64) architecture=amd64 ;;
         aarch64|arm64) architecture=arm64 ;;
         *) print "cloudflared does not support this architecture: $(uname -m)" >&2; return 1 ;;
     esac
     target="$HOME/.local/bin/cloudflared"
-    if [[ -x "$target" ]] && "$target" --version 2>/dev/null | grep -Fq "version $version "; then
-        return 0
-    fi
+    _basil::cloudflared_ready && return 0
     mkdir -p "$HOME/.local/bin"
     temp="$(mktemp)" || return 1
     curl -fsSL \
@@ -211,6 +221,10 @@ mod_update() {
 
 mod_status() {
     local unit route
+    _basil::cloudflared_ready || {
+        primer::status_msg "cloudflared needs update"
+        return 1
+    }
     _basil::definitions_match || {
         primer::status_msg "service definitions need update"
         return 1
