@@ -758,6 +758,25 @@ EOF
     assert_failure
 }
 
+@test "caddy: does not migrate a selected but already disabled Plans unit" {
+    cat >> "$TEST_CONF" <<'EOF'
+    plans-media
+EOF
+    touch "$TEST_ROOT/plans-disabled"
+    cat > "$MOCK_DIR/tailscale" <<'EOF'
+#!/bin/sh
+printf 'tailscale %s\n' "$*" >> "$MOCK_LOG"
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/tailscale"
+
+    run_caddy_function _caddy::migrate_listeners
+
+    assert_success
+    run grep -F "systemctl disable --now plans.service" "$MOCK_LOG"
+    assert_failure
+}
+
 @test "caddy: tailnet generator binds every Tailscale address" {
     cat > "$MOCK_DIR/tailscale" <<'EOF'
 #!/bin/sh

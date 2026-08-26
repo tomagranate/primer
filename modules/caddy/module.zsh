@@ -674,15 +674,13 @@ _caddy::stage_migration_routes() {
 }
 
 _caddy::migrate_listeners() {
-    local serve_port serve_target plans_present=false plans_selected=false
+    local serve_port serve_target
     _CADDY_MIGRATED_SERVE=false
     _CADDY_MIGRATED_PLANS=false
     _CADDY_PLANS_WAS_ACTIVE=false
     _CADDY_PLANS_WAS_ENABLED=false
     _caddy::check_listener_migration || return 1
 
-    systemctl cat plans.service >/dev/null 2>&1 && plans_present=true
-    _caddy::desired_routes | grep -Fxq plans-media && plans_selected=true
     serve_port="$(mod_config migrate_tailscale_serve_port | head -1)"
     serve_target="$(mod_config migrate_tailscale_serve_target | head -1)"
     if _caddy::serve_migration_needed; then
@@ -693,7 +691,7 @@ _caddy::migrate_listeners() {
         _caddy::root tailscale serve --https="$serve_port" off || return 1
         _CADDY_MIGRATED_SERVE=true
     fi
-    if $plans_present && $plans_selected; then
+    if _caddy::plans_migration_needed; then
         systemctl is-active --quiet plans.service && _CADDY_PLANS_WAS_ACTIVE=true
         systemctl is-enabled --quiet plans.service && _CADDY_PLANS_WAS_ENABLED=true
         _CADDY_MIGRATED_PLANS=true

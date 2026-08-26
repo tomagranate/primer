@@ -51,7 +51,7 @@ _basil::cloudflared_ready() {
 }
 
 _basil::install_cloudflared() {
-    local version architecture target temp
+    local version architecture target temp tunnel_was_active=false
     version="$(_basil::cloudflared_version)" || return 1
     case "$(uname -m)" in
         x86_64) architecture=amd64 ;;
@@ -60,6 +60,7 @@ _basil::install_cloudflared() {
     esac
     target="$HOME/.local/bin/cloudflared"
     _basil::cloudflared_ready && return 0
+    systemctl --user is-active --quiet basil-tunnel.service && tunnel_was_active=true
     mkdir -p "$HOME/.local/bin"
     temp="$(mktemp)" || return 1
     curl -fsSL \
@@ -67,7 +68,11 @@ _basil::install_cloudflared() {
         -o "$temp" || { rm -f "$temp"; return 1; }
     install -m 0755 "$temp" "$target" || { rm -f "$temp"; return 1; }
     rm -f "$temp"
-    "$target" --version 2>/dev/null | grep -Fq "version $version "
+    "$target" --version 2>/dev/null | grep -Fq "version $version " || return 1
+    if $tunnel_was_active; then
+        systemctl --user restart basil-tunnel.service || return 1
+    fi
+    return 0
 }
 
 _basil::required_sources() {

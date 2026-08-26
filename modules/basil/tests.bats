@@ -109,6 +109,7 @@ run_module() {
     assert_success
     [ -x "$TEST_HOME/.local/bin/cloudflared" ]
     grep -F "/2026.8.2/cloudflared-linux-amd64" "$MOCK_LOG"
+    grep -Fx "systemctl --user restart basil-tunnel.service" "$MOCK_LOG"
 }
 
 @test "basil: enables Docker and routes update commands through root" {
