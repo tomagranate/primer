@@ -490,6 +490,8 @@ _caddy::reconcile_routes() {
 
 typeset -g _CADDY_MIGRATED_SERVE=false
 typeset -g _CADDY_MIGRATED_PLANS=false
+typeset -g _CADDY_PLANS_WAS_ACTIVE=false
+typeset -g _CADDY_PLANS_WAS_ENABLED=false
 
 _caddy::plans_migration_needed() {
     systemctl cat plans.service >/dev/null 2>&1 \
@@ -588,6 +590,8 @@ _caddy::migrate_listeners() {
     local serve_port serve_target serve_status plans_present=false plans_selected=false
     _CADDY_MIGRATED_SERVE=false
     _CADDY_MIGRATED_PLANS=false
+    _CADDY_PLANS_WAS_ACTIVE=false
+    _CADDY_PLANS_WAS_ENABLED=false
     _caddy::check_listener_migration || return 1
 
     systemctl cat plans.service >/dev/null 2>&1 && plans_present=true
@@ -607,18 +611,29 @@ _caddy::migrate_listeners() {
         fi
     fi
     if $plans_present && $plans_selected; then
+        systemctl is-active --quiet plans.service && _CADDY_PLANS_WAS_ACTIVE=true
+        systemctl is-enabled --quiet plans.service && _CADDY_PLANS_WAS_ENABLED=true
+        _CADDY_MIGRATED_PLANS=true
         if ! _caddy::root systemctl disable --now plans.service; then
             _caddy::restore_listeners
             return 1
         fi
-        _CADDY_MIGRATED_PLANS=true
     fi
 }
 
 _caddy::restore_listeners() {
     local rc=0 serve_port serve_target
     if $_CADDY_MIGRATED_PLANS; then
-        _caddy::root systemctl enable --now plans.service || rc=1
+        if $_CADDY_PLANS_WAS_ENABLED; then
+            _caddy::root systemctl enable plans.service || rc=1
+        else
+            _caddy::root systemctl disable plans.service || rc=1
+        fi
+        if $_CADDY_PLANS_WAS_ACTIVE; then
+            _caddy::root systemctl start plans.service || rc=1
+        else
+            _caddy::root systemctl stop plans.service || rc=1
+        fi
     fi
     if $_CADDY_MIGRATED_SERVE; then
         serve_port="$(mod_config migrate_tailscale_serve_port | head -1)"

@@ -31,6 +31,9 @@ fi
 if [ "$1 $2" = "restart caddy.service" ] && [ -e "$TEST_ROOT/reject-activation" ]; then
     exit 1
 fi
+if [ "$1 $2 $3" = "disable --now plans.service" ] && [ -e "$TEST_ROOT/reject-plans-stop" ]; then
+    exit 1
+fi
 exit 0
 EOF
     chmod +x "$MOCK_DIR/systemctl"
@@ -440,8 +443,28 @@ EOF
     assert_failure
     grep -F "tailscale serve --https=443 off" "$MOCK_LOG"
     grep -F "systemctl disable --now plans.service" "$MOCK_LOG"
-    grep -F "systemctl enable --now plans.service" "$MOCK_LOG"
+    grep -F "systemctl enable plans.service" "$MOCK_LOG"
+    grep -F "systemctl start plans.service" "$MOCK_LOG"
     grep -F "tailscale serve --bg --https=443 http://127.0.0.1:3773" "$MOCK_LOG"
+}
+
+@test "caddy: partial Plans disable failure restores its prior state" {
+    cat >> "$TEST_CONF" <<'EOF'
+    plans-media
+EOF
+    touch "$TEST_ROOT/reject-plans-stop"
+    cat > "$MOCK_DIR/tailscale" <<'EOF'
+#!/bin/sh
+printf '%s\n' '{}'
+EOF
+    chmod +x "$MOCK_DIR/tailscale"
+
+    run_caddy_function _caddy::migrate_listeners
+
+    assert_failure
+    grep -F "systemctl disable --now plans.service" "$MOCK_LOG"
+    grep -F "systemctl enable plans.service" "$MOCK_LOG"
+    grep -F "systemctl start plans.service" "$MOCK_LOG"
 }
 
 @test "caddy: stages matching T3 and Plans routes before migration" {
@@ -483,11 +506,12 @@ exit 0
 EOF
     chmod +x "$MOCK_DIR/tailscale"
 
-    run_caddy_function '_CADDY_MIGRATED_SERVE=true; _CADDY_MIGRATED_PLANS=true; _caddy::reconcile_routes_with_rollback'
+    run_caddy_function '_CADDY_MIGRATED_SERVE=true; _CADDY_MIGRATED_PLANS=true; _CADDY_PLANS_WAS_ACTIVE=true; _CADDY_PLANS_WAS_ENABLED=true; _caddy::reconcile_routes_with_rollback'
 
     assert_failure
     grep -F "systemctl disable --now caddy.service" "$MOCK_LOG"
-    grep -F "systemctl enable --now plans.service" "$MOCK_LOG"
+    grep -F "systemctl enable plans.service" "$MOCK_LOG"
+    grep -F "systemctl start plans.service" "$MOCK_LOG"
     grep -F "tailscale serve --bg --https=443 http://127.0.0.1:3773" "$MOCK_LOG"
 }
 
