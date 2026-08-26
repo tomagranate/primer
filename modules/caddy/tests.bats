@@ -263,6 +263,21 @@ run_caddy_function() {
     refute_output --partial private
 }
 
+@test "caddy: restarts the gateway after replacing its token" {
+    mkdir -p "$TEST_ROOT/etc/caddy/env.d"
+    printf '%s\n' \
+        'CLOUDFLARE_API_TOKEN=read-only-private' \
+        'CLOUDFLARE_ZONE_ID=dddddddddddddddddddddddddddddddd' \
+        > "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+
+    run_caddy_function '_caddy::install_cloudflare_token && _caddy::activate_gateway "$_CADDY_CREDENTIALS_CHANGED"'
+
+    assert_success
+    grep -Fx 'systemctl restart caddy.service' "$MOCK_LOG"
+    run grep -Fx 'systemctl reload caddy.service' "$MOCK_LOG"
+    assert_failure
+}
+
 @test "caddy: creates DNS-only A and AAAA records for each private host" {
     mkdir -p "$TEST_ROOT/etc/caddy/env.d"
     printf '%s\n' \

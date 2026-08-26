@@ -264,7 +264,10 @@ _caddy::install_cloudflare_token_file() {
 }
 
 # Caddy owns the DNS token because multiple routes can use Cloudflare DNS-01.
+typeset -g _CADDY_CREDENTIALS_CHANGED=false
+
 _caddy::install_cloudflare_token() {
+    _CADDY_CREDENTIALS_CHANGED=false
     _caddy::cloudflare_required || return 0
     local target token_id
     target="$(_caddy::cloudflare_env)"
@@ -276,11 +279,13 @@ _caddy::install_cloudflare_token() {
         fi
         token_id="$(_caddy::env_value "$target" CLOUDFLARE_API_TOKEN_ID 2>/dev/null || true)"
         _caddy::mint_cloudflare_token || return 1
+        _CADDY_CREDENTIALS_CHANGED=true
         _caddy::delete_cloudflare_token "$token_id" \
             || print "Warning: could not remove the replaced Cloudflare token." >&2
         return 0
     fi
-    _caddy::mint_cloudflare_token
+    _caddy::mint_cloudflare_token || return 1
+    _CADDY_CREDENTIALS_CHANGED=true
 }
 
 _caddy::install_binary() {
@@ -773,6 +778,7 @@ mod_update() {
     primer::item_update configuration done
     _caddy::install_cloudflare_token \
         || { primer::item_update credentials failed "configuration required"; return 1; }
+    $_CADDY_CREDENTIALS_CHANGED && gateway_needs_restart=true
     primer::item_update credentials done
     _caddy::reconcile_dns \
         || { primer::item_update dns failed "Cloudflare update failed"; return 1; }
