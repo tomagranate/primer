@@ -185,6 +185,8 @@ route_helper() {
         CADDY_APPS_DIR="$CADDY_APPS_DIR" \
         CADDY_ROUTE_MANIFEST="$CADDY_ROUTE_MANIFEST" \
         CADDY_ROUTE_LOCK="$CADDY_ROUTE_LOCK" \
+        CADDY_EXPECTED_OWNER="$(id -un)" \
+        CADDY_EXPECTED_GROUP="$(id -gn)" \
         SYSTEMCTL_BIN="$SYSTEMCTL_BIN" \
         TEST_ROOT="$TEST_ROOT" \
         MOCK_LOG="$MOCK_LOG" \
@@ -466,7 +468,13 @@ EOF
     printf 'http://example.test { respond "ok" }\n' > "$TEST_ROOT/route"
     route_helper install example "$TEST_ROOT/route"
     assert_success
+    chmod 0666 "$CADDY_APPS_DIR/example.caddy"
+    route_helper status example "$TEST_ROOT/route"
+    assert_failure
     route_helper install example "$TEST_ROOT/route"
+    assert_success
+    [ "$(stat -c %a "$CADDY_APPS_DIR/example.caddy")" = 644 ]
+    route_helper status example "$TEST_ROOT/route"
     assert_success
     [ "$(grep -c 'systemctl start --wait caddy-validate.service' "$MOCK_LOG")" -eq 2 ]
     [ "$(grep -c 'systemctl reload caddy.service' "$MOCK_LOG")" -eq 2 ]

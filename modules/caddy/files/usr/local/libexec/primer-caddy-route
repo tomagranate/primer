@@ -9,6 +9,8 @@ lock_file="${CADDY_ROUTE_LOCK:-/run/lock/primer-caddy-route.lock}"
 systemctl_bin="${SYSTEMCTL_BIN:-systemctl}"
 validate_unit="${CADDY_VALIDATE_UNIT:-caddy-validate.service}"
 gateway_unit="${CADDY_SERVICE:-caddy.service}"
+expected_owner="${CADDY_EXPECTED_OWNER:-root}"
+expected_group="${CADDY_EXPECTED_GROUP:-root}"
 
 valid_name() {
     [[ "$1" =~ ^[a-z0-9][a-z0-9-]*$ ]]
@@ -19,6 +21,9 @@ route_ready() {
     valid_name "$name" || return 2
     target="$apps_dir/$name.caddy"
     grep -Fxq "$name" "$manifest" && [[ -f "$target" ]] || return 1
+    [[ "$(stat -c %a "$target" 2>/dev/null)" == 644 ]] \
+        && [[ "$(stat -c %U "$target" 2>/dev/null)" == "$expected_owner" ]] \
+        && [[ "$(stat -c %G "$target" 2>/dev/null)" == "$expected_group" ]] || return 1
     [[ -z "$source" ]] || { [[ -f "$source" ]] && cmp -s "$source" "$target"; }
 }
 
@@ -58,6 +63,7 @@ install_route() {
     [[ -f "$source" ]] || { echo "route source is not a file: $source" >&2; return 2; }
     target="$apps_dir/$name.caddy"
     if [[ -f "$target" ]] && cmp -s "$source" "$target"; then
+        install -m 0644 "$source" "$target"
         mapfile -t owned < <(read_manifest)
         if printf '%s\n' "${owned[@]}" | grep -Fxq "$name"; then
             if $reload; then

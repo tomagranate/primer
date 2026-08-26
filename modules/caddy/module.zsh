@@ -409,7 +409,11 @@ _caddy::definitions_ready() {
 }
 
 _caddy::routes_ready() {
-    local manifest desired actual route
+    local manifest desired actual route owner=root group=root
+    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
+        owner="$(id -un)"
+        group="$(id -gn)"
+    fi
     manifest="$(_caddy::root_path /etc/caddy/primer-routes)"
     [[ -f "$manifest" ]] || return 1
     desired="$(_caddy::desired_routes | sed '/^$/d' | sort -u)"
@@ -420,6 +424,8 @@ _caddy::routes_ready() {
         CADDY_CONFIG_DIR="$(_caddy::root_path /etc/caddy)" \
         CADDY_APPS_DIR="$(_caddy::root_path /etc/caddy/apps.d)" \
         CADDY_ROUTE_MANIFEST="$manifest" \
+        CADDY_EXPECTED_OWNER="$owner" \
+        CADDY_EXPECTED_GROUP="$group" \
             "$(_caddy::route_helper)" status "$route" || return 1
     done <<< "$desired"
 }
