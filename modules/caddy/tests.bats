@@ -480,6 +480,13 @@ EOF
     run grep -F 'sudo ' "$MOCK_LOG"
     assert_failure
 
+    fingerprint="$(head -1 "$TEST_ROOT/etc/caddy/env.d/cloudflare.env.valid")"
+    printf '%s\n0\n' "$fingerprint" > "$TEST_ROOT/etc/caddy/env.d/cloudflare.env.valid"
+    run_caddy_function mod_status
+    assert_failure
+    run_caddy_function _caddy::record_cloudflare_validity
+    assert_success
+
     printf 'stale-addon\n' >> "$TEST_ROOT/etc/caddy/primer-routes"
     printf 'stale route\n' > "$TEST_ROOT/etc/caddy/apps.d/stale-addon.caddy"
     run_caddy_function mod_status

@@ -109,6 +109,7 @@ _caddy::record_cloudflare_validity() {
     target="$(_caddy::cloudflare_validity_file)"
     temp="$(mktemp)" || return 1
     _caddy::cloudflare_fingerprint > "$temp" || { rm -f "$temp"; return 1; }
+    date +%s >> "$temp" || { rm -f "$temp"; return 1; }
     if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
         install -D -m 0644 "$temp" "$target"
     else
@@ -121,17 +122,24 @@ _caddy::record_cloudflare_validity() {
 
 _caddy::cloudflare_file_ready() {
     _caddy::cloudflare_required || return 0
-    local file validity owner=root
+    local file validity owner=root fingerprint checked_at now max_age=86400
     file="$(_caddy::cloudflare_env)"
     validity="$(_caddy::cloudflare_validity_file)"
     [[ -n "${CADDY_TEST_ROOT:-}" ]] && owner="$(id -un)"
+    fingerprint="$(sed -n '1p' "$validity" 2>/dev/null)"
+    checked_at="$(sed -n '2p' "$validity" 2>/dev/null)"
+    now="$(date +%s)"
+    # Status cannot read the root-only token. Expire its validation daily
+    # so the next update authenticates it against Cloudflare again.
     [[ -s "$file" ]] \
         && [[ "$(stat -c %a "$file" 2>/dev/null)" == 600 ]] \
         && [[ "$(stat -c %U "$file" 2>/dev/null)" == "$owner" ]] \
         && [[ -s "$validity" ]] \
         && [[ "$(stat -c %a "$validity" 2>/dev/null)" == 644 ]] \
         && [[ "$(stat -c %U "$validity" 2>/dev/null)" == "$owner" ]] \
-        && [[ "$(<"$validity")" == "$(_caddy::cloudflare_fingerprint)" ]]
+        && [[ "$fingerprint" == "$(_caddy::cloudflare_fingerprint)" ]] \
+        && [[ "$checked_at" == <-> && "$now" == <-> ]] \
+        && (( checked_at <= now && now - checked_at <= max_age ))
 }
 
 _caddy::restart_marker() {
