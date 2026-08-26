@@ -136,17 +136,21 @@ _caddy::cloudflare_file_ready() {
 
 _caddy::restart_marker() {
     case "$1" in
-        gateway|tailscale) print -r -- "$(_caddy::root_path /var/lib/caddy/primer-$1-restart-required)" ;;
+        gateway|tailscale) print -r -- "$(_caddy::root_path /var/lib/primer/caddy/$1-restart-required)" ;;
         *) return 2 ;;
     esac
 }
 
 _caddy::mark_restart() {
-    local marker
+    local marker owner=root group=root
     marker="$(_caddy::restart_marker "$1")" || return 1
+    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
+        owner="$(id -un)"
+        group="$(id -gn)"
+    fi
     _caddy::root install -d -m 0755 "${marker:h}" \
-        && _caddy::root touch "$marker" \
-        && _caddy::root chmod 0644 "$marker"
+        && _caddy::root chown "$owner:$group" "${marker:h}" \
+        && _caddy::root install -m 0644 /dev/null "$marker"
 }
 
 _caddy::restart_pending() {
@@ -406,11 +410,15 @@ _caddy::deploy() {
         "$(_caddy::root_path /etc/caddy)" \
         "$(_caddy::root_path /etc/caddy/apps.d)" \
         "$(_caddy::root_path /etc/caddy/env.d)" \
-        "$(_caddy::root_path /var/lib/caddy)"
+        "$(_caddy::root_path /var/lib/caddy)" \
+        "$(_caddy::root_path /var/lib/primer)" \
+        "$(_caddy::root_path /var/lib/primer/caddy)"
     _caddy::root chown "$owner:$group" \
         "$(_caddy::root_path /etc/caddy)" \
         "$(_caddy::root_path /etc/caddy/apps.d)" \
-        "$(_caddy::root_path /etc/caddy/env.d)" || return 1
+        "$(_caddy::root_path /etc/caddy/env.d)" \
+        "$(_caddy::root_path /var/lib/primer)" \
+        "$(_caddy::root_path /var/lib/primer/caddy)" || return 1
     for managed_path in \
         /etc/caddy/Caddyfile \
         /etc/systemd/system/caddy.service \
@@ -430,7 +438,9 @@ _caddy::definitions_ready() {
         owner="$(id -un)"
         group="$(id -gn)"
     fi
-    for managed_path in /etc/caddy /etc/caddy/apps.d /etc/caddy/env.d; do
+    for managed_path in \
+        /etc/caddy /etc/caddy/apps.d /etc/caddy/env.d \
+        /var/lib/primer /var/lib/primer/caddy; do
         [[ "$(stat -c %a "$(_caddy::root_path "$managed_path")" 2>/dev/null)" == 755 ]] \
             && [[ "$(stat -c %U "$(_caddy::root_path "$managed_path")" 2>/dev/null)" == "$owner" ]] \
             && [[ "$(stat -c %G "$(_caddy::root_path "$managed_path")" 2>/dev/null)" == "$group" ]] \

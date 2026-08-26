@@ -330,7 +330,7 @@ EOF
     run_caddy_function '_caddy::tailnet_ready() { return 1; }; _caddy::refresh_tailnet'
 
     assert_success
-    [ -f "$TEST_ROOT/var/lib/caddy/primer-gateway-restart-required" ]
+    [ -f "$TEST_ROOT/var/lib/primer/caddy/gateway-restart-required" ]
 }
 
 @test "caddy: creates DNS-only A and AAAA records for each private host" {
@@ -420,7 +420,10 @@ EOF
         mkdir -p "$TEST_ROOT${path%/*}"
         cp "$PRIMER_DIR/modules/caddy/files$path" "$TEST_ROOT$path"
     done
-    mkdir -p "$TEST_ROOT/etc/caddy/apps.d" "$TEST_ROOT/usr/local/bin"
+    mkdir -p \
+        "$TEST_ROOT/etc/caddy/apps.d" \
+        "$TEST_ROOT/usr/local/bin" \
+        "$TEST_ROOT/var/lib/primer/caddy"
     cat > "$TEST_ROOT/usr/local/bin/caddy" <<'EOF'
 #!/bin/sh
 case "$1" in
@@ -537,7 +540,7 @@ EOF
     assert_success
     cmp -s "$TEST_ROOT/route" "$CADDY_APPS_DIR/example.caddy"
     grep -Fx example "$CADDY_ROUTE_MANIFEST"
-    [ -f "$TEST_ROOT/var/lib/caddy/primer-gateway-restart-required" ]
+    [ -f "$TEST_ROOT/var/lib/primer/caddy/gateway-restart-required" ]
     run grep -F "systemctl reload caddy.service" "$MOCK_LOG"
     assert_failure
 }
