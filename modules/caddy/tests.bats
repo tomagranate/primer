@@ -236,6 +236,7 @@ run_caddy_function() {
     grep -Fx 'CLOUDFLARE_API_TOKEN=minted-dns-private' "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
     grep -Fx 'CLOUDFLARE_API_TOKEN_ID=cccccccccccccccccccccccccccccccc' "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
     grep -Fx 'CLOUDFLARE_ZONE_ID=dddddddddddddddddddddddddddddddd' "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    [ -s "$TEST_ROOT/etc/caddy/env.d/cloudflare.env.valid" ]
 }
 
 @test "caddy: mints one per-machine token with only zone DNS access" {
@@ -432,8 +433,14 @@ EOF
     printf 't3-code\n' > "$TEST_ROOT/etc/caddy/primer-routes"
     printf 'route\n' > "$TEST_ROOT/etc/caddy/apps.d/t3-code.caddy"
     mkdir -p "$TEST_ROOT/etc/caddy/env.d"
-    printf 'credentials\n' > "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    printf '%s\n' \
+        'CLOUDFLARE_API_TOKEN=dns-private' \
+        'CLOUDFLARE_API_TOKEN_ID=cccccccccccccccccccccccccccccccc' \
+        'CLOUDFLARE_ZONE_ID=dddddddddddddddddddddddddddddddd' \
+        > "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
     chmod 0600 "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    run_caddy_function _caddy::record_cloudflare_validity
+    assert_success
     CADDY_CONFIG_DIR="$TEST_ROOT/etc/caddy" \
     CADDY_RUNTIME_DIR="$TEST_ROOT/run/caddy" \
     TAILSCALE_BIN="$MOCK_DIR/tailscale" \
@@ -454,6 +461,13 @@ EOF
     run_caddy_function mod_status
     assert_failure
     chmod 0600 "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+
+    printf 'CORRUPTED=1\n' >> "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    run_caddy_function mod_status
+    assert_failure
+    sed -i '$d' "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    run_caddy_function _caddy::record_cloudflare_validity
+    assert_success
 
     printf 'TAILSCALE_HOSTNAME=old.tailnet.ts.net\n' > "$TEST_ROOT/run/caddy/tailnet.env"
     run_caddy_function mod_status
@@ -796,6 +810,26 @@ EOF
 
     assert_success
     grep -Fx 'GATE_SECRET="gate-private"' "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
+}
+
+@test "caddy: replaces stale managed Plans credentials before migration" {
+    cat >> "$TEST_CONF" <<'EOF'
+    plans-media
+migrate_plans_route = plans-media
+migrate_plans_host = plans.tomagranate.com
+migrate_plans_worker_host = agents-infra.sunburst-d5c.workers.dev
+EOF
+    mkdir -p "$TEST_ROOT/etc/caddy/env.d"
+    printf 'GATE_SECRET=""\n' > "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
+    chmod 0600 "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
+    stat -c '%d:%i:%s:%Y' "$TEST_ROOT/etc/caddy/env.d/plans-media.env" \
+        > "$TEST_ROOT/etc/caddy/env.d/plans-media.env.valid"
+    printf 'GATE_SECRET=gate-private\n' > "$TEST_ROOT/legacy.env"
+
+    run_caddy_function _caddy::stage_migration_routes
+
+    assert_success
+    grep -Fx 'GATE_SECRET=gate-private' "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
 }
 
 @test "caddy: rollback preserves a gateway that was already active" {

@@ -96,14 +96,42 @@ _caddy::cloudflare_zone_id_ready() {
     _caddy::env_value "$(_caddy::cloudflare_env)" CLOUDFLARE_ZONE_ID >/dev/null
 }
 
+_caddy::cloudflare_validity_file() {
+    print -r -- "$(_caddy::cloudflare_env).valid"
+}
+
+_caddy::cloudflare_fingerprint() {
+    stat -c '%d:%i:%s:%Y' "$(_caddy::cloudflare_env)" 2>/dev/null
+}
+
+_caddy::record_cloudflare_validity() {
+    local target temp
+    target="$(_caddy::cloudflare_validity_file)"
+    temp="$(mktemp)" || return 1
+    _caddy::cloudflare_fingerprint > "$temp" || { rm -f "$temp"; return 1; }
+    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
+        install -D -m 0644 "$temp" "$target"
+    else
+        _caddy::root install -D -o root -g root -m 0644 "$temp" "$target"
+    fi
+    local rc=$?
+    rm -f "$temp"
+    return "$rc"
+}
+
 _caddy::cloudflare_file_ready() {
     _caddy::cloudflare_required || return 0
-    local file owner=root
+    local file validity owner=root
     file="$(_caddy::cloudflare_env)"
+    validity="$(_caddy::cloudflare_validity_file)"
     [[ -n "${CADDY_TEST_ROOT:-}" ]] && owner="$(id -un)"
     [[ -s "$file" ]] \
         && [[ "$(stat -c %a "$file" 2>/dev/null)" == 600 ]] \
-        && [[ "$(stat -c %U "$file" 2>/dev/null)" == "$owner" ]]
+        && [[ "$(stat -c %U "$file" 2>/dev/null)" == "$owner" ]] \
+        && [[ -s "$validity" ]] \
+        && [[ "$(stat -c %a "$validity" 2>/dev/null)" == 644 ]] \
+        && [[ "$(stat -c %U "$validity" 2>/dev/null)" == "$owner" ]] \
+        && [[ "$(<"$validity")" == "$(_caddy::cloudflare_fingerprint)" ]]
 }
 
 _caddy::restart_marker() {
@@ -301,9 +329,11 @@ _caddy::delete_cloudflare_token() {
 _caddy::install_cloudflare_token_file() {
     local source="$1" target="$(_caddy::cloudflare_env)"
     if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
-        install -D -m 0600 "$source" "$target"
+        install -D -m 0600 "$source" "$target" \
+            && _caddy::record_cloudflare_validity
     else
-        _caddy::root install -D -o root -g root -m 0600 "$source" "$target"
+        _caddy::root install -D -o root -g root -m 0600 "$source" "$target" \
+            && _caddy::record_cloudflare_validity
     fi
 }
 
@@ -316,7 +346,8 @@ _caddy::install_cloudflare_token() {
         if _caddy::stored_cloudflare_token_ready; then
             _caddy::root chmod 0600 "$target"
             [[ -n "${CADDY_TEST_ROOT:-}" ]] || _caddy::root chown root:root "$target"
-            return 0
+            _caddy::record_cloudflare_validity
+            return $?
         fi
         token_id="$(_caddy::env_value "$target" CLOUDFLARE_API_TOKEN_ID 2>/dev/null || true)"
         _caddy::mark_restart gateway || return 1
@@ -811,7 +842,9 @@ _caddy::stage_route() {
 _caddy::stage_plans_credentials() {
     local target legacy assignment temp
     target="$(_caddy::root_path /etc/caddy/env.d/plans-media.env)"
-    _caddy::env_value "$target" GATE_SECRET >/dev/null 2>&1 && return 0
+    if _caddy::managed_plans_credentials_ready "$target"; then
+        return 0
+    fi
     legacy="$(mod_config legacy_cloudflare_env | head -1)"
     assignment="$(_caddy::root sed -n '/^GATE_SECRET=/p' "$legacy" 2>/dev/null)" || return 1
     if [[ -z "$assignment" || "$assignment" == *$'\n'* ]]; then
@@ -821,6 +854,7 @@ _caddy::stage_plans_credentials() {
     temp="$(mktemp)" || return 1
     chmod 0600 "$temp"
     print -r -- "$assignment" >"$temp"
+    _caddy::mark_restart gateway || { rm -f "$temp"; return 1; }
     if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
         install -D -m 0600 "$temp" "$target"
     else
@@ -829,6 +863,22 @@ _caddy::stage_plans_credentials() {
     local rc=$?
     rm -f "$temp"
     return "$rc"
+}
+
+_caddy::managed_plans_credentials_ready() {
+    local file="$1" validity="$1.valid" restart="$1.restart-required"
+    local owner=root assignment fingerprint
+    [[ -n "${CADDY_TEST_ROOT:-}" ]] && owner="$(id -un)"
+    assignment="$(_caddy::root sed -n '/^GATE_SECRET=/p' "$file" 2>/dev/null)" || return 1
+    [[ -n "$assignment" && "$assignment" != *$'\n'* ]] || return 1
+    case "${assignment#GATE_SECRET=}" in
+        ''|'""'|"''") return 1 ;;
+    esac
+    fingerprint="$(stat -c '%d:%i:%s:%Y' "$file" 2>/dev/null)" || return 1
+    [[ "$(stat -c %a "$file" 2>/dev/null)" == 600 ]] \
+        && [[ "$(stat -c %U "$file" 2>/dev/null)" == "$owner" ]] \
+        && [[ -s "$validity" && "$(<"$validity")" == "$fingerprint" ]] \
+        && [[ ! -e "$restart" ]]
 }
 
 _caddy::stage_migration_routes() {
