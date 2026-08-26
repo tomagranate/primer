@@ -26,6 +26,16 @@ EOF
 printf 'docker %s\n' "$*" >> "$MOCK_LOG"
 case "$*" in
     *" ps --status running --services") printf 'ntfy\nuptime-kuma\n' ;;
+    *".State.Running"*)
+        for argument in "$@"; do container="$argument"; done
+        service="$container"
+        if [ -e "$TEST_HOME/wrong-compose-labels" ]; then
+            printf 'true|legacy|%s/code/basil/deploy/infra/compose.yaml|%s\n' "$TEST_HOME" "$service"
+        else
+            printf 'true|basil|%s/.config/primer/basil/compose.yaml|%s\n' "$TEST_HOME" "$service"
+        fi
+        ;;
+    *"com.docker.compose.project.config_files"*) printf '%s/.config/primer/basil/compose.yaml\n' "$TEST_HOME" ;;
 esac
 exit 0
 EOF
@@ -231,6 +241,15 @@ run_module() {
 repo_path = $TEST_HOME/code/other-basil
 EOF
     run_module _basil::compose_active
+    assert_failure
+}
+
+@test "basil: verifies the running Compose project identity" {
+    run_module _basil::compose_runtime_ready
+    assert_success
+
+    touch "$TEST_HOME/wrong-compose-labels"
+    run_module _basil::compose_runtime_ready
     assert_failure
 }
 

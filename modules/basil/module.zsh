@@ -240,6 +240,16 @@ _basil::compose_active() {
     [[ -n "$expected" && -f "$state" && "$(<"$state")" == "$expected" ]]
 }
 
+_basil::compose_runtime_ready() {
+    local config="$(_basil::config_dir)/compose.yaml" container service actual
+    command -v docker >/dev/null 2>&1 || return 1
+    for container service in ntfy ntfy uptime-kuma uptime-kuma; do
+        actual="$(docker inspect --format '{{ .State.Running }}|{{ index .Config.Labels "com.docker.compose.project" }}|{{ index .Config.Labels "com.docker.compose.project.config_files" }}|{{ index .Config.Labels "com.docker.compose.service" }}' "$container" 2>/dev/null)" \
+            || return 1
+        [[ "$actual" == "true|basil|$config|$service" ]] || return 1
+    done
+}
+
 _basil::record_compose_activation() {
     local state="$(_basil::compose_activation_file)" temp expected
     expected="$(_basil::compose_activation_state)" || return 1
@@ -310,7 +320,8 @@ _basil::enable_docker() {
 }
 
 _basil::containers_ready() {
-    curl -fsS --max-time 5 http://127.0.0.1:18090/v1/health >/dev/null \
+    _basil::compose_runtime_ready \
+        && curl -fsS --max-time 5 http://127.0.0.1:18090/v1/health >/dev/null \
         && curl -fsS --max-time 5 http://127.0.0.1:18091/ >/dev/null
 }
 
