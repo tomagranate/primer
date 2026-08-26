@@ -100,6 +100,14 @@ _basil::required_credentials() {
     done
 }
 
+_basil::credentials_ready() {
+    local repo="$(_basil::repo)" file
+    for file in deploy/infra/tunnel.env deploy/infra/webhook-shim.env; do
+        [[ -s "$repo/$file" ]] \
+            && [[ "$(stat -c %a "$repo/$file" 2>/dev/null)" == 600 ]] || return 1
+    done
+}
+
 _basil::install_units() {
     local repo="$(_basil::repo)" unit_dir="$(_basil::unit_dir)" unit
     local -a restart_units=()
@@ -228,6 +236,10 @@ mod_status() {
     local unit route
     _basil::cloudflared_ready || {
         primer::status_msg "cloudflared needs update"
+        return 1
+    }
+    _basil::credentials_ready || {
+        primer::status_msg "credentials need update"
         return 1
     }
     _basil::definitions_match || {

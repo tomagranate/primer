@@ -631,7 +631,9 @@ _caddy::stage_plans_credentials() {
     }
     temp="$(mktemp)" || return 1
     chmod 0600 "$temp"
-    printf 'GATE_SECRET=%s\n' "$gate" >"$temp"
+    gate="${gate//\\/\\\\}"
+    gate="${gate//\"/\\\"}"
+    printf 'GATE_SECRET="%s"\n' "$gate" >"$temp"
     unset gate
     if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
         install -D -m 0600 "$temp" "$target"

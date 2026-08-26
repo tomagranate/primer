@@ -131,6 +131,10 @@ run_module() {
         cp "$repo/deploy/$unit" "$unit_dir/$unit"
     done
     cp "$PRIMER_DIR/modules/basil/files/compose.yaml" "$config_dir/compose.yaml"
+    mkdir -p "$repo/deploy/infra"
+    printf 'credential\n' > "$repo/deploy/infra/tunnel.env"
+    printf 'credential\n' > "$repo/deploy/infra/webhook-shim.env"
+    chmod 0600 "$repo/deploy/infra/tunnel.env" "$repo/deploy/infra/webhook-shim.env"
     run_module _basil::install_cloudflared
     assert_success
     : > "$BASIL_ROOT_LOG"
@@ -143,6 +147,12 @@ run_module() {
     grep -F 'primer-caddy-route status basil' "$MOCK_LOG"
 
     rm "$TEST_HOME/.local/bin/cloudflared"
+    run_module '_basil::root() { return 99; }; mod_status'
+    assert_failure
+
+    run_module _basil::install_cloudflared
+    assert_success
+    rm "$repo/deploy/infra/tunnel.env"
     run_module '_basil::root() { return 99; }; mod_status'
     assert_failure
 }

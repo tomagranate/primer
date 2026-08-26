@@ -39,6 +39,13 @@ _plans_media::install_secret_file() {
     fi
 }
 
+_plans_media::systemd_env_quote() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    print -r -- "\"$value\""
+}
+
 _plans_media::install_secrets() {
     local target legacy gate_ref gate temp
     target="$(_plans_media::secrets_file)"
@@ -67,7 +74,7 @@ _plans_media::install_secrets() {
     }
     temp="$(mktemp)" || return 1
     chmod 0600 "$temp"
-    printf 'GATE_SECRET=%s\n' "$gate" >"$temp"
+    printf 'GATE_SECRET=%s\n' "$(_plans_media::systemd_env_quote "$gate")" >"$temp"
     unset gate
     _plans_media::install_secret_file "$temp" "$target"
     local rc=$?

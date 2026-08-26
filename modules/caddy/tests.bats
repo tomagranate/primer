@@ -429,6 +429,18 @@ EOF
     [ "$(grep -c 'systemctl reload caddy.service' "$MOCK_LOG")" -eq 1 ]
 }
 
+@test "caddy: identical unowned route validates and reloads before restoring ownership" {
+    printf 'http://example.test { respond "ok" }\n' > "$TEST_ROOT/route"
+    cp "$TEST_ROOT/route" "$CADDY_APPS_DIR/example.caddy"
+
+    route_helper install example "$TEST_ROOT/route"
+
+    assert_success
+    grep -Fx example "$CADDY_ROUTE_MANIFEST"
+    grep -Fx "systemctl start --wait caddy-validate.service" "$MOCK_LOG"
+    grep -Fx "systemctl reload caddy.service" "$MOCK_LOG"
+}
+
 @test "caddy: stages a route without reloading the inactive gateway" {
     printf 'http://example.test { respond "ok" }\n' > "$TEST_ROOT/route"
     route_helper stage example "$TEST_ROOT/route"
@@ -681,7 +693,7 @@ EOF
     grep -F "reverse_proxy https://agents-infra.sunburst-d5c.workers.dev" \
         "$TEST_ROOT/etc/caddy/apps.d/plans-media.caddy"
     [ "$(stat -c %a "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 600 ]
-    grep -Fx 'GATE_SECRET=gate-private' "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
+    grep -Fx 'GATE_SECRET="gate-private"' "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
     [ "$(grep -c 'systemctl reload caddy.service' "$MOCK_LOG")" -eq 0 ]
 }
 

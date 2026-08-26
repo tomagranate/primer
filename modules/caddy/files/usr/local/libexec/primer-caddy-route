@@ -52,13 +52,31 @@ restore_active_config() {
 }
 
 install_route() {
-    local name="$1" source="$2" reload="$3" target backup_dir candidate
+    local name="$1" source="$2" reload="$3" target backup_dir candidate manifest_existed=false
+    local -a owned
     valid_name "$name" || { echo "invalid route name: $name" >&2; return 2; }
     [[ -f "$source" ]] || { echo "route source is not a file: $source" >&2; return 2; }
     target="$apps_dir/$name.caddy"
     if [[ -f "$target" ]] && cmp -s "$source" "$target"; then
         mapfile -t owned < <(read_manifest)
+        if printf '%s\n' "${owned[@]}" | grep -Fxq "$name"; then
+            echo "route unchanged: $name"
+            return 0
+        fi
+        if $reload; then
+            validate || { echo "route rejected by Caddy: $name" >&2; return 1; }
+        fi
+        [[ -f "$manifest" ]] && manifest_existed=true
         write_manifest "${owned[@]}" "$name"
+        if $reload && ! reload_gateway; then
+            if $manifest_existed; then
+                write_manifest "${owned[@]}"
+            else
+                rm -f "$manifest"
+            fi
+            echo "route reload failed; restored prior ownership: $name" >&2
+            return 1
+        fi
         echo "route unchanged: $name"
         return 0
     fi
