@@ -1046,7 +1046,9 @@ EOF
         "$PRIMER_DIR/modules/caddy/files/etc/caddy/Caddyfile"
     grep -Fx "ExecReload=/usr/local/bin/caddy reload --config /etc/caddy/Caddyfile --address unix//run/caddy/admin.sock --force" \
         "$PRIMER_DIR/modules/caddy/files/etc/systemd/system/caddy.service"
-    grep -Fx "RuntimeDirectoryMode=0750" \
+    grep -Fx "RuntimeDirectoryMode=0755" \
+        "$PRIMER_DIR/modules/caddy/files/etc/systemd/system/caddy.service"
+    grep -Fx "UMask=0077" \
         "$PRIMER_DIR/modules/caddy/files/etc/systemd/system/caddy.service"
 }
 
