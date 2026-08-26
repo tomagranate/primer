@@ -618,6 +618,8 @@ typeset -g _CADDY_MIGRATED_SERVE=false
 typeset -g _CADDY_MIGRATED_PLANS=false
 typeset -g _CADDY_PLANS_WAS_ACTIVE=false
 typeset -g _CADDY_PLANS_WAS_ENABLED=false
+typeset -g _CADDY_GATEWAY_WAS_ACTIVE=false
+typeset -g _CADDY_GATEWAY_WAS_ENABLED=false
 
 _caddy::plans_service_managed() {
     systemctl cat plans.service >/dev/null 2>&1 \
@@ -823,6 +825,10 @@ _caddy::activate_gateway() {
 
 _caddy::activate_gateway_with_rollback() {
     local gateway_needs_restart="$1"
+    _CADDY_GATEWAY_WAS_ACTIVE=false
+    _CADDY_GATEWAY_WAS_ENABLED=false
+    systemctl is-active --quiet caddy.service && _CADDY_GATEWAY_WAS_ACTIVE=true
+    systemctl is-enabled --quiet caddy.service && _CADDY_GATEWAY_WAS_ENABLED=true
     _caddy::migrate_listeners || return 1
     if ! _caddy::activate_gateway "$gateway_needs_restart"; then
         _caddy::rollback_migration
@@ -835,7 +841,16 @@ _caddy::rollback_migration() {
         return 0
     fi
     local rc=0
-    _caddy::root systemctl disable --now caddy.service || rc=1
+    if $_CADDY_GATEWAY_WAS_ACTIVE; then
+        _caddy::root systemctl start caddy.service || rc=1
+    else
+        _caddy::root systemctl stop caddy.service || rc=1
+    fi
+    if $_CADDY_GATEWAY_WAS_ENABLED; then
+        _caddy::root systemctl enable caddy.service || rc=1
+    else
+        _caddy::root systemctl disable caddy.service || rc=1
+    fi
     _caddy::restore_listeners || rc=1
     (( rc == 0 )) || print "Caddy migration rollback failed." >&2
     return "$rc"

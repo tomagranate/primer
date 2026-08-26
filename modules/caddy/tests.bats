@@ -22,6 +22,9 @@ printf 'systemctl %s\n' "$*" >> "$MOCK_LOG"
 if { [ "$1" = "is-active" ] || [ "$1" = "is-enabled" ]; } && [ -e "$TEST_ROOT/plans-disabled" ]; then
     exit 1
 fi
+if [ "$1 $2 $3" = "is-active --quiet plans.service" ] && [ -e "$TEST_ROOT/plans-inactive" ]; then
+    exit 1
+fi
 if [ "$1 $2 $3" = "is-active --quiet caddy.service" ] && [ -e "$TEST_ROOT/reject-health" ]; then
     exit 1
 fi
@@ -750,6 +753,30 @@ EOF
     grep -Fx 'GATE_SECRET="gate-private"' "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
 }
 
+@test "caddy: rollback preserves a gateway that was already active" {
+    cat >> "$TEST_CONF" <<'EOF'
+    plans-media
+EOF
+    printf 'old\n' > "$CADDY_APPS_DIR/old.caddy"
+    printf 'old\n' > "$CADDY_ROUTE_MANIFEST"
+    touch "$TEST_ROOT/plans-inactive" "$TEST_ROOT/reject"
+    cat > "$MOCK_DIR/tailscale" <<'EOF'
+#!/bin/sh
+printf '%s\n' '{}'
+EOF
+    chmod +x "$MOCK_DIR/tailscale"
+
+    run_caddy_function '_caddy::activate_gateway_with_rollback false && _caddy::reconcile_routes_with_rollback'
+
+    assert_failure
+    grep -F "systemctl start caddy.service" "$MOCK_LOG"
+    grep -F "systemctl enable caddy.service" "$MOCK_LOG"
+    run grep -F "systemctl disable --now caddy.service" "$MOCK_LOG"
+    assert_failure
+    grep -F "systemctl enable plans.service" "$MOCK_LOG"
+    grep -F "systemctl stop plans.service" "$MOCK_LOG"
+}
+
 @test "caddy: route reconciliation rollback stops Caddy before restoring listeners" {
     printf 'old\n' > "$CADDY_APPS_DIR/old.caddy"
     printf 'old\n' > "$CADDY_ROUTE_MANIFEST"
@@ -761,10 +788,11 @@ exit 0
 EOF
     chmod +x "$MOCK_DIR/tailscale"
 
-    run_caddy_function '_CADDY_MIGRATED_SERVE=true; _CADDY_MIGRATED_PLANS=true; _CADDY_PLANS_WAS_ACTIVE=true; _CADDY_PLANS_WAS_ENABLED=true; _caddy::reconcile_routes_with_rollback'
+    run_caddy_function '_CADDY_MIGRATED_SERVE=true; _CADDY_MIGRATED_PLANS=true; _CADDY_PLANS_WAS_ACTIVE=true; _CADDY_PLANS_WAS_ENABLED=true; _CADDY_GATEWAY_WAS_ACTIVE=false; _CADDY_GATEWAY_WAS_ENABLED=false; _caddy::reconcile_routes_with_rollback'
 
     assert_failure
-    grep -F "systemctl disable --now caddy.service" "$MOCK_LOG"
+    grep -F "systemctl stop caddy.service" "$MOCK_LOG"
+    grep -F "systemctl disable caddy.service" "$MOCK_LOG"
     grep -F "systemctl enable plans.service" "$MOCK_LOG"
     grep -F "systemctl start plans.service" "$MOCK_LOG"
     grep -F "tailscale serve --bg --https=443 http://127.0.0.1:3773" "$MOCK_LOG"
@@ -779,10 +807,11 @@ exit 0
 EOF
     chmod +x "$MOCK_DIR/tailscale"
 
-    run_caddy_function '_CADDY_MIGRATED_SERVE=true; _CADDY_MIGRATED_PLANS=true; _CADDY_PLANS_WAS_ACTIVE=true; _CADDY_PLANS_WAS_ENABLED=true; _caddy::verify_gateway_with_rollback'
+    run_caddy_function '_CADDY_MIGRATED_SERVE=true; _CADDY_MIGRATED_PLANS=true; _CADDY_PLANS_WAS_ACTIVE=true; _CADDY_PLANS_WAS_ENABLED=true; _CADDY_GATEWAY_WAS_ACTIVE=false; _CADDY_GATEWAY_WAS_ENABLED=false; _caddy::verify_gateway_with_rollback'
 
     assert_failure
-    grep -F "systemctl disable --now caddy.service" "$MOCK_LOG"
+    grep -F "systemctl stop caddy.service" "$MOCK_LOG"
+    grep -F "systemctl disable caddy.service" "$MOCK_LOG"
     grep -F "systemctl enable plans.service" "$MOCK_LOG"
     grep -F "systemctl start plans.service" "$MOCK_LOG"
     grep -F "tailscale serve --bg --https=443 http://127.0.0.1:3773" "$MOCK_LOG"
