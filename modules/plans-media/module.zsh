@@ -75,6 +75,17 @@ _plans_media::install_secrets() {
     return "$rc"
 }
 
+_plans_media::secrets_ready() {
+    local file owner=root
+    file="$(_plans_media::secrets_file)"
+    if [[ -n "${PLANS_MEDIA_TEST_ROOT:-}" ]]; then
+        owner="${PLANS_MEDIA_EXPECTED_OWNER:-$(id -un)}"
+    fi
+    [[ -s "$file" ]] \
+        && [[ "$(stat -c %a "$file" 2>/dev/null)" == 600 ]] \
+        && [[ "$(stat -c %U "$file" 2>/dev/null)" == "$owner" ]]
+}
+
 _plans_media::route_contents() {
     local host worker
     host="$(mod_config host | head -1)"
@@ -116,8 +127,7 @@ mod_status() {
     local route
     route="$(mktemp)" || return 1
     _plans_media::route_contents >"$route" || { rm -f "$route"; return 1; }
-    test -s "$(_plans_media::secrets_file)" \
-        && test "$(stat -c %a "$(_plans_media::secrets_file)" 2>/dev/null || true)" = 600 \
+    _plans_media::secrets_ready \
         && "$(_plans_media::route_helper)" status plans-media "$route" || {
             rm -f "$route"
             primer::status_msg "route or secrets not ready"

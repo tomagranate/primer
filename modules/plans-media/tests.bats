@@ -38,6 +38,7 @@ run_module() {
         export MOD_NAME=plans-media MOD_STATUS_FILE='$(mktemp)' MOD_ITEMS_FILE='$(mktemp)'
         export PLANS_MEDIA_ROOT_DIR='$PLANS_MEDIA_ROOT_DIR' PLANS_MEDIA_TEST_ROOT=1
         export CADDY_ROUTE_HELPER='$CADDY_ROUTE_HELPER' SYSTEMCTL_BIN='$SYSTEMCTL_BIN'
+        export PLANS_MEDIA_EXPECTED_OWNER='${PLANS_MEDIA_EXPECTED_OWNER:-}'
         export MOCK_LOG='$MOCK_LOG' TEST_ROOT='$TEST_ROOT'
         source '$PRIMER_DIR/lib/module.zsh'
         source '$PRIMER_DIR/tests/helpers/module-config.zsh'
@@ -107,4 +108,8 @@ run_module() {
     run_module '_plans_media::root() { return 99; }; mod_status'
 
     assert_success
+
+    export PLANS_MEDIA_EXPECTED_OWNER=__not_the_owner__
+    run_module '_plans_media::root() { return 99; }; mod_status'
+    assert_failure
 }

@@ -157,4 +157,8 @@ EOF
     export T3_CODE_MACHINE_NAME='not.a.short.name'
     run_t3_code_module "_t3_code::route_contents 3773"
     assert_failure
+    run_t3_code_module "_t3_code::install_route 3773"
+    assert_failure
+    run grep -F 'primer-caddy-route install t3-code' "$MOCK_LOG"
+    assert_failure
 }

@@ -229,7 +229,10 @@ _t3_code::install_route() {
         return 0
     fi
     temp="$(mktemp)" || return 1
-    _t3_code::route_contents "$local_port" >"$temp"
+    _t3_code::route_contents "$local_port" >"$temp" || {
+        rm -f "$temp"
+        return 1
+    }
     _t3_code::root "$(_t3_code::route_helper)" install t3-code "$temp"
     local rc=$?
     rm -f "$temp"
