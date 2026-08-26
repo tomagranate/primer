@@ -345,6 +345,20 @@ EOF
     [ -f "$TEST_ROOT/var/lib/primer/caddy/gateway-restart-required" ]
 }
 
+@test "caddy: unchanged tailnet bindings preserve only prior restart requirements" {
+    mkdir -p "$TEST_ROOT/usr/local/libexec"
+    printf '#!/bin/sh\n' > "$TEST_ROOT/usr/local/libexec/primer-caddy-tailnet"
+    chmod +x "$TEST_ROOT/usr/local/libexec/primer-caddy-tailnet"
+
+    run_caddy_function _caddy::refresh_tailnet
+    assert_success
+    [ ! -e "$TEST_ROOT/var/lib/primer/caddy/gateway-restart-required" ]
+
+    run_caddy_function '_caddy::mark_restart gateway && _caddy::refresh_tailnet'
+    assert_success
+    [ -f "$TEST_ROOT/var/lib/primer/caddy/gateway-restart-required" ]
+}
+
 @test "caddy: creates DNS-only A and AAAA records for each private host" {
     mkdir -p "$TEST_ROOT/etc/caddy/env.d"
     printf '%s\n' \

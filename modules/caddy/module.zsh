@@ -519,12 +519,15 @@ _caddy::tailnet_fingerprint() {
 }
 
 _caddy::refresh_tailnet() {
-    local before after
+    local before after restart_was_pending=false
+    _caddy::restart_pending gateway && restart_was_pending=true
     before="$(_caddy::tailnet_fingerprint)"
+    _caddy::mark_restart gateway || return 1
     _caddy::root "$(_caddy::root_path /usr/local/libexec/primer-caddy-tailnet)" || return 1
     after="$(_caddy::tailnet_fingerprint)"
-    # Keep the restart requirement if a later validation or migration step fails.
-    [[ "$before" == "$after" ]] || _caddy::mark_restart gateway
+    if [[ "$before" == "$after" ]] && ! $restart_was_pending; then
+        _caddy::clear_restart gateway
+    fi
 }
 
 _caddy::desired_routes() {
