@@ -120,24 +120,30 @@ _caddy::record_cloudflare_validity() {
     return "$rc"
 }
 
-_caddy::cloudflare_file_ready() {
-    _caddy::cloudflare_required || return 0
-    local file validity owner=root fingerprint checked_at now max_age=86400
+_caddy::cloudflare_file_integrity_ready() {
+    local file validity owner=root fingerprint
     file="$(_caddy::cloudflare_env)"
     validity="$(_caddy::cloudflare_validity_file)"
     [[ -n "${CADDY_TEST_ROOT:-}" ]] && owner="$(id -un)"
     fingerprint="$(sed -n '1p' "$validity" 2>/dev/null)"
-    checked_at="$(sed -n '2p' "$validity" 2>/dev/null)"
-    now="$(date +%s)"
-    # Status cannot read the root-only token. Expire its validation daily
-    # so the next update authenticates it against Cloudflare again.
     [[ -s "$file" ]] \
         && [[ "$(stat -c %a "$file" 2>/dev/null)" == 600 ]] \
         && [[ "$(stat -c %U "$file" 2>/dev/null)" == "$owner" ]] \
         && [[ -s "$validity" ]] \
         && [[ "$(stat -c %a "$validity" 2>/dev/null)" == 644 ]] \
         && [[ "$(stat -c %U "$validity" 2>/dev/null)" == "$owner" ]] \
-        && [[ "$fingerprint" == "$(_caddy::cloudflare_fingerprint)" ]] \
+        && [[ "$fingerprint" == "$(_caddy::cloudflare_fingerprint)" ]]
+}
+
+_caddy::cloudflare_file_ready() {
+    _caddy::cloudflare_required || return 0
+    local validity checked_at now max_age=86400
+    validity="$(_caddy::cloudflare_validity_file)"
+    checked_at="$(sed -n '2p' "$validity" 2>/dev/null)"
+    now="$(date +%s)"
+    # Status cannot read the root-only token. Expire its validation daily
+    # so the next update authenticates it against Cloudflare again.
+    _caddy::cloudflare_file_integrity_ready \
         && [[ "$checked_at" == <-> && "$now" == <-> ]] \
         && (( checked_at <= now && now - checked_at <= max_age ))
 }
@@ -356,6 +362,9 @@ _caddy::install_cloudflare_token() {
     target="$(_caddy::cloudflare_env)"
     if _caddy::cloudflare_token_ready && _caddy::cloudflare_zone_id_ready; then
         if _caddy::stored_cloudflare_token_ready; then
+            _caddy::cloudflare_file_integrity_ready \
+                || _caddy::mark_restart gateway \
+                || return 1
             _caddy::root chmod 0600 "$target"
             [[ -n "${CADDY_TEST_ROOT:-}" ]] || _caddy::root chown root:root "$target"
             _caddy::record_cloudflare_validity

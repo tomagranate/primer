@@ -274,6 +274,26 @@ run_caddy_function() {
     grep -E '^DELETE.*/tokens/old-token-id$' "$MOCK_LOG"
 }
 
+@test "caddy: activates an externally replaced valid Cloudflare token" {
+    mkdir -p "$TEST_ROOT/etc/caddy/env.d"
+    printf '%s\n' \
+        'CLOUDFLARE_API_TOKEN=old-private' \
+        'CLOUDFLARE_API_TOKEN_ID=cccccccccccccccccccccccccccccccc' \
+        'CLOUDFLARE_ZONE_ID=dddddddddddddddddddddddddddddddd' \
+        > "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    chmod 0600 "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    run_caddy_function _caddy::record_cloudflare_validity
+    assert_success
+
+    sed -i 's/old-private/replacement-private/' "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    run_caddy_function _caddy::install_cloudflare_token
+
+    assert_success
+    [ -f "$TEST_ROOT/var/lib/primer/caddy/gateway-restart-required" ]
+    run_caddy_function _caddy::cloudflare_file_ready
+    assert_success
+}
+
 @test "caddy: replaces a readable stored token without proven DNS Write access" {
     mkdir -p "$TEST_ROOT/etc/caddy/env.d"
     printf '%s\n' \
