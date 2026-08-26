@@ -75,6 +75,19 @@ EOF
 #!/bin/sh
 printf '%s\n' '{"Self":{"TailscaleIPs":["100.64.0.7","fd7a:115c:a1e0::7"]}}'
 EOF
+    cat > "$MOCK_DIR/getent" <<'EOF'
+#!/bin/sh
+case "$1" in
+    ahostsv4) printf '%s STREAM %s\n' 100.64.0.7 "$2" ;;
+    ahostsv6) printf '%s STREAM %s\n' fd7a:115c:a1e0::7 "$2" ;;
+    *) exit 1 ;;
+esac
+EOF
+    cat > "$MOCK_DIR/sudo" <<'EOF'
+#!/bin/sh
+printf 'sudo %s\n' "$*" >> "$MOCK_LOG"
+exit 99
+EOF
 cat > "$MOCK_DIR/curl" <<'EOF'
 #!/bin/sh
 printf 'curl-args %s\n' "$*" >> "$MOCK_LOG"
@@ -144,7 +157,7 @@ case "$url" in
 esac
 if [ -n "$output" ]; then printf '%s\n' "$response" > "$output"; else printf '%s\n' "$response"; fi
 EOF
-    chmod +x "$MOCK_DIR/op" "$MOCK_DIR/tailscale" "$MOCK_DIR/curl"
+    chmod +x "$MOCK_DIR/op" "$MOCK_DIR/tailscale" "$MOCK_DIR/getent" "$MOCK_DIR/sudo" "$MOCK_DIR/curl"
     printf '%s\n' ticket-private > "$TEST_ROOT/op-ticket"
 }
 
@@ -303,6 +316,41 @@ run_caddy_function() {
     assert_output --partial "build custom Caddy v2.11.4"
     assert_output --partial "validate caddy-validate.service before reload"
     assert_output --partial "reconcile Primer routes: t3-code"
+}
+
+@test "caddy: status detects definition drift without requiring sudo" {
+    for path in \
+        /etc/caddy/Caddyfile \
+        /etc/systemd/system/caddy.service \
+        /etc/systemd/system/caddy-validate.service \
+        /etc/systemd/system/tailscaled.service.d/primer-caddy.conf \
+        /usr/local/libexec/primer-caddy-tailnet \
+        /usr/local/libexec/primer-caddy-route \
+        /usr/local/libexec/primer-caddy-fragment; do
+        mkdir -p "$TEST_ROOT${path%/*}"
+        cp "$PRIMER_DIR/modules/caddy/files$path" "$TEST_ROOT$path"
+    done
+    mkdir -p "$TEST_ROOT/etc/caddy/apps.d" "$TEST_ROOT/usr/local/bin"
+    cat > "$TEST_ROOT/usr/local/bin/caddy" <<'EOF'
+#!/bin/sh
+case "$1" in
+    version) printf '%s\n' 'v2.11.4' ;;
+    list-modules) printf '%s\n' dns.providers.cloudflare tls.get_certificate.tailscale ;;
+    *) exit 1 ;;
+esac
+EOF
+    chmod +x "$TEST_ROOT/usr/local/bin/caddy"
+    printf 't3-code\n' > "$TEST_ROOT/etc/caddy/primer-routes"
+    printf 'route\n' > "$TEST_ROOT/etc/caddy/apps.d/t3-code.caddy"
+
+    run_caddy_function mod_status
+    assert_success
+    run grep -F 'sudo ' "$MOCK_LOG"
+    assert_failure
+
+    printf 'drift\n' >> "$TEST_ROOT/etc/systemd/system/caddy.service"
+    run_caddy_function mod_status
+    assert_failure
 }
 
 @test "caddy: installs a valid route and records ownership" {

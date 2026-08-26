@@ -379,22 +379,36 @@ _caddy::install_file() {
 }
 
 _caddy::deploy() {
-    local path
+    local managed_path
     _caddy::root install -d -m 0755 \
         "$(_caddy::root_path /etc/caddy/apps.d)" \
         "$(_caddy::root_path /etc/caddy/env.d)" \
         "$(_caddy::root_path /var/lib/caddy)"
-    for path in \
+    for managed_path in \
         /etc/caddy/Caddyfile \
         /etc/systemd/system/caddy.service \
         /etc/systemd/system/caddy-validate.service \
         /etc/systemd/system/tailscaled.service.d/primer-caddy.conf; do
-        _caddy::install_file "$path" 0644 || return 1
+        _caddy::install_file "$managed_path" 0644 || return 1
     done
     _caddy::install_file /usr/local/libexec/primer-caddy-tailnet 0755 || return 1
     _caddy::install_file /usr/local/libexec/primer-caddy-route 0755 || return 1
     _caddy::install_file /usr/local/libexec/primer-caddy-fragment 0755 || return 1
     _caddy::root chown -R caddy:caddy "$(_caddy::root_path /var/lib/caddy)"
+}
+
+_caddy::definitions_ready() {
+    local managed_path
+    for managed_path in \
+        /etc/caddy/Caddyfile \
+        /etc/systemd/system/caddy.service \
+        /etc/systemd/system/caddy-validate.service \
+        /etc/systemd/system/tailscaled.service.d/primer-caddy.conf \
+        /usr/local/libexec/primer-caddy-tailnet \
+        /usr/local/libexec/primer-caddy-route \
+        /usr/local/libexec/primer-caddy-fragment; do
+        cmp -s "$MOD_DIR/files$managed_path" "$(_caddy::root_path "$managed_path")" || return 1
+    done
 }
 
 _caddy::desired_routes() {
@@ -530,6 +544,25 @@ _caddy::dns_ready() {
         done
     done
     unset token
+}
+
+_caddy::dns_resolves() {
+    local name entry type address results
+    local -a addresses names
+    addresses=("${(@f)$(_caddy::tailscale_addresses)}") || return 1
+    names=("${(@f)$(_caddy::desired_dns_names)}") || return 1
+    for name in "${names[@]}"; do
+        for entry in "${addresses[@]}"; do
+            type="${entry%% *}"
+            address="${entry#* }"
+            if [[ "$type" == A ]]; then
+                results="$(getent ahostsv4 "$name" 2>/dev/null)" || return 1
+            else
+                results="$(getent ahostsv6 "$name" 2>/dev/null)" || return 1
+            fi
+            print -r -- "$results" | awk '{print $1}' | grep -Fxq "$address" || return 1
+        done
+    done
 }
 
 _caddy::reconcile_routes() {
@@ -821,23 +854,23 @@ mod_update() {
 
 mod_status() {
     _caddy::custom_binary_ready \
+        && _caddy::definitions_ready \
         && systemctl is-enabled --quiet caddy.service \
         && systemctl is-active --quiet caddy.service || {
             primer::status_msg "gateway not ready"
             return 1
         }
-    if _caddy::cloudflare_required && ! _caddy::cloudflare_token_ready; then
-        primer::status_msg "Cloudflare DNS token missing"
-        return 1
-    fi
-    if ! _caddy::dns_ready; then
+    if ! _caddy::dns_resolves; then
         primer::status_msg "Cloudflare DNS records need update"
         return 1
     fi
     local route
     while IFS= read -r route; do
         [[ -n "$route" ]] || continue
-        _caddy::root "$(_caddy::route_helper)" status "$route" || {
+        CADDY_CONFIG_DIR="$(_caddy::root_path /etc/caddy)" \
+        CADDY_APPS_DIR="$(_caddy::root_path /etc/caddy/apps.d)" \
+        CADDY_ROUTE_MANIFEST="$(_caddy::root_path /etc/caddy/primer-routes)" \
+            "$(_caddy::route_helper)" status "$route" || {
             primer::status_msg "route missing: $route"
             return 1
         }

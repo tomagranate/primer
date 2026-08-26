@@ -13,7 +13,12 @@ setup() {
     cat > "$MOCK_DIR/systemctl" <<'EOF'
 #!/bin/sh
 printf 'systemctl %s\n' "$*" >> "$MOCK_LOG"
+[ "$1 $2 $3" = "is-enabled --quiet docker.service" ] && [ -e "$TEST_HOME/docker-disabled" ] && exit 1
 exit 0
+EOF
+    cat > "$MOCK_DIR/loginctl" <<'EOF'
+#!/bin/sh
+[ -e "$TEST_HOME/linger-disabled" ] && printf '%s\n' no || printf '%s\n' yes
 EOF
     cat > "$MOCK_DIR/docker" <<'EOF'
 #!/bin/sh
@@ -38,7 +43,7 @@ cat > "$output" <<'SCRIPT'
 printf '%s\n' 'cloudflared version 2026.8.2 (built test)'
 SCRIPT
 EOF
-    chmod +x "$MOCK_DIR/systemctl" "$MOCK_DIR/docker" "$MOCK_DIR/curl"
+    chmod +x "$MOCK_DIR/systemctl" "$MOCK_DIR/loginctl" "$MOCK_DIR/docker" "$MOCK_DIR/curl"
     cat > "$TEST_CONF" <<EOF
 [basil]
 repo_path = $TEST_HOME/code/basil
@@ -140,4 +145,18 @@ run_module() {
 
     assert_success
     grep -Fx "systemctl --user restart basil-tunnel.service" "$MOCK_LOG"
+}
+
+@test "basil: verifies linger and Docker boot settings" {
+    run_module _basil::boot_ready
+    assert_success
+
+    touch "$TEST_HOME/linger-disabled"
+    run_module _basil::boot_ready
+    assert_failure
+    rm "$TEST_HOME/linger-disabled"
+
+    touch "$TEST_HOME/docker-disabled"
+    run_module _basil::boot_ready
+    assert_failure
 }

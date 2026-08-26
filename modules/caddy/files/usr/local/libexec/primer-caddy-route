@@ -151,12 +151,21 @@ reconcile_routes() {
     rm -r "$backup_dir"
 }
 
+command="${1:-}"
+shift || true
+if [[ "$command" == status ]]; then
+    [[ $# -ge 1 && $# -le 2 ]] || {
+        echo "usage: primer-caddy-route status NAME [SOURCE]" >&2
+        exit 2
+    }
+    route_ready "$@"
+    exit $?
+fi
+
 mkdir -p "$apps_dir" "$(dirname "$lock_file")"
 exec 9>"$lock_file"
 flock 9
 
-command="${1:-}"
-shift || true
 case "$command" in
     install)
         [[ $# -eq 2 ]] || { echo "usage: primer-caddy-route install NAME SOURCE" >&2; exit 2; }
@@ -168,13 +177,6 @@ case "$command" in
         ;;
     reconcile)
         reconcile_routes "$@"
-        ;;
-    status)
-        [[ $# -ge 1 && $# -le 2 ]] || {
-            echo "usage: primer-caddy-route status NAME [SOURCE]" >&2
-            exit 2
-        }
-        route_ready "$@"
         ;;
     *)
         echo "usage: primer-caddy-route {install NAME SOURCE|stage NAME SOURCE|reconcile [NAME...]|status NAME [SOURCE]}" >&2

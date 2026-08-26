@@ -176,6 +176,11 @@ _basil::containers_ready() {
         && print -r -- "$services" | grep -Fxq uptime-kuma
 }
 
+_basil::boot_ready() {
+    [[ "$(loginctl show-user "${USER:-$LOGNAME}" -p Linger --value 2>/dev/null)" == yes ]] \
+        && systemctl is-enabled --quiet docker.service
+}
+
 mod_update() {
     primer::items_init gateway tunnel webhook brain-sync containers route
     if [[ "$DRY_RUN" == true ]]; then
@@ -211,6 +216,10 @@ mod_status() {
     local unit route
     _basil::definitions_match || {
         primer::status_msg "service definitions need update"
+        return 1
+    }
+    _basil::boot_ready || {
+        primer::status_msg "boot services need update"
         return 1
     }
     for unit in hermes-gateway.service basil-tunnel.service basil-webhook-shim.service basil-brain-sync.timer; do
