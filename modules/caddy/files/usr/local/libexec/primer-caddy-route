@@ -1,0 +1,167 @@
+#!/bin/bash
+# Install and reconcile Primer-owned raw Caddy route fragments.
+set -euo pipefail
+
+config_dir="${CADDY_CONFIG_DIR:-/etc/caddy}"
+apps_dir="${CADDY_APPS_DIR:-$config_dir/apps.d}"
+manifest="${CADDY_ROUTE_MANIFEST:-$config_dir/primer-routes}"
+lock_file="${CADDY_ROUTE_LOCK:-/run/lock/primer-caddy-route.lock}"
+systemctl_bin="${SYSTEMCTL_BIN:-systemctl}"
+validate_unit="${CADDY_VALIDATE_UNIT:-caddy-validate.service}"
+gateway_unit="${CADDY_SERVICE:-caddy.service}"
+
+valid_name() {
+    [[ "$1" =~ ^[a-z0-9][a-z0-9-]*$ ]]
+}
+
+read_manifest() {
+    [[ -f "$manifest" ]] && sed -n '/^[a-z0-9][a-z0-9-]*$/p' "$manifest" || true
+}
+
+write_manifest() {
+    local temp
+    temp="$(mktemp "$config_dir/.primer-routes.XXXXXX")"
+    printf '%s\n' "$@" | sed '/^$/d' | sort -u >"$temp"
+    chmod 0644 "$temp"
+    mv -f "$temp" "$manifest"
+}
+
+validate() {
+    "$systemctl_bin" reset-failed "$validate_unit" >/dev/null 2>&1 || true
+    "$systemctl_bin" start --wait "$validate_unit"
+}
+
+reload_gateway() {
+    "$systemctl_bin" reload "$gateway_unit"
+}
+
+restore_active_config() {
+    if validate; then
+        reload_gateway || echo "Caddy could not reload the restored config" >&2
+    else
+        echo "Caddy rejected the restored config" >&2
+    fi
+}
+
+install_route() {
+    local name="$1" source="$2" target backup_dir candidate
+    valid_name "$name" || { echo "invalid route name: $name" >&2; return 2; }
+    [[ -f "$source" ]] || { echo "route source is not a file: $source" >&2; return 2; }
+    target="$apps_dir/$name.caddy"
+    if [[ -f "$target" ]] && cmp -s "$source" "$target"; then
+        mapfile -t owned < <(read_manifest)
+        write_manifest "${owned[@]}" "$name"
+        echo "route unchanged: $name"
+        return 0
+    fi
+
+    backup_dir="$(mktemp -d "$config_dir/.route-backup.XXXXXX")"
+    [[ -f "$target" ]] && cp -p "$target" "$backup_dir/route.caddy"
+    [[ -f "$manifest" ]] && cp -p "$manifest" "$backup_dir/manifest"
+    candidate="$(mktemp "$apps_dir/.$name.caddy.XXXXXX")"
+    install -m 0644 "$source" "$candidate"
+    mv -f "$candidate" "$target"
+
+    if ! validate; then
+        if [[ -f "$backup_dir/route.caddy" ]]; then
+            mv -f "$backup_dir/route.caddy" "$target"
+        else
+            rm -f "$target"
+        fi
+        rm -r "$backup_dir"
+        echo "route rejected by Caddy: $name" >&2
+        return 1
+    fi
+    mapfile -t owned < <(read_manifest)
+    write_manifest "${owned[@]}" "$name"
+    if ! reload_gateway; then
+        if [[ -f "$backup_dir/route.caddy" ]]; then
+            mv -f "$backup_dir/route.caddy" "$target"
+        else
+            rm -f "$target"
+        fi
+        if [[ -f "$backup_dir/manifest" ]]; then
+            mv -f "$backup_dir/manifest" "$manifest"
+        else
+            rm -f "$manifest"
+        fi
+        restore_active_config
+        rm -r "$backup_dir"
+        echo "route reload failed; restored prior config: $name" >&2
+        return 1
+    fi
+    rm -r "$backup_dir"
+    echo "route installed: $name"
+}
+
+reconcile_routes() {
+    local name changed=false backup_dir
+    declare -A wanted=()
+    for name in "$@"; do
+        valid_name "$name" || { echo "invalid desired route name: $name" >&2; return 2; }
+        wanted["$name"]=1
+    done
+    mapfile -t owned < <(read_manifest)
+    backup_dir="$(mktemp -d "$config_dir/.route-backup.XXXXXX")"
+    [[ -f "$manifest" ]] && cp -p "$manifest" "$backup_dir/manifest"
+    for name in "${owned[@]}"; do
+        [[ -n "${wanted[$name]:-}" ]] && continue
+        [[ -f "$apps_dir/$name.caddy" ]] && cp -p "$apps_dir/$name.caddy" "$backup_dir/$name.caddy"
+        rm -f "$apps_dir/$name.caddy"
+        changed=true
+    done
+    write_manifest "$@"
+    if $changed; then
+        if ! validate; then
+            for name in "${owned[@]}"; do
+                [[ -f "$backup_dir/$name.caddy" ]] && mv -f "$backup_dir/$name.caddy" "$apps_dir/$name.caddy"
+            done
+            if [[ -f "$backup_dir/manifest" ]]; then
+                mv -f "$backup_dir/manifest" "$manifest"
+            else
+                rm -f "$manifest"
+            fi
+            rm -r "$backup_dir"
+            echo "route cleanup rejected by Caddy; restored prior routes" >&2
+            return 1
+        fi
+        if ! reload_gateway; then
+            for name in "${owned[@]}"; do
+                [[ -f "$backup_dir/$name.caddy" ]] && mv -f "$backup_dir/$name.caddy" "$apps_dir/$name.caddy"
+            done
+            if [[ -f "$backup_dir/manifest" ]]; then
+                mv -f "$backup_dir/manifest" "$manifest"
+            else
+                rm -f "$manifest"
+            fi
+            restore_active_config
+            rm -r "$backup_dir"
+            echo "route cleanup reload failed; restored prior config" >&2
+            return 1
+        fi
+    fi
+    rm -r "$backup_dir"
+}
+
+mkdir -p "$apps_dir" "$(dirname "$lock_file")"
+exec 9>"$lock_file"
+flock 9
+
+command="${1:-}"
+shift || true
+case "$command" in
+    install)
+        [[ $# -eq 2 ]] || { echo "usage: primer-caddy-route install NAME SOURCE" >&2; exit 2; }
+        install_route "$1" "$2"
+        ;;
+    reconcile)
+        reconcile_routes "$@"
+        ;;
+    status)
+        [[ $# -eq 1 ]] && valid_name "$1" && grep -Fxq "$1" "$manifest" && [[ -f "$apps_dir/$1.caddy" ]]
+        ;;
+    *)
+        echo "usage: primer-caddy-route {install NAME SOURCE|reconcile [NAME...]|status NAME}" >&2
+        exit 2
+        ;;
+esac

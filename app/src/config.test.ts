@@ -125,7 +125,7 @@ github_command = gh auth login
       .toEqual(["ssh", "git", "interactive:onepassword"]);
   });
 
-  test("fedora KDE profile makes GitHub and Tailscale logins wait for 1Password", async () => {
+  test("fedora KDE verifies interactive access before dependent setup", async () => {
     const primerDir = join(import.meta.dir, "..", "..");
     const config: RawConfig = { order: [], values: new Map() };
     parseConf(await readFile(join(primerDir, "configs", "common.conf"), "utf8"), config);
@@ -143,16 +143,35 @@ github_command = gh auth login
       deps: ["1password"],
     });
     expect(result.find((node) => node.id === "interactive:onepassword")?.config.status)
-      .toContain("length > 0");
+      .toContain("developers.mcpIntegration.enabled");
+    expect(result.find((node) => node.id === "interactive:onepassword")?.config.status)
+      .toContain("op vault list");
+    expect(result.find((node) => node.id === "interactive:onepassword")?.config.status)
+      .toContain("-u OP_SERVICE_ACCOUNT_TOKEN");
+    expect(result.find((node) => node.id === "interactive:onepassword")?.config.requires)
+      .toContain("1password-mcp");
     expect(result.find((node) => node.id === "interactive:onepassword")?.config.mode).toBe("pane");
+    expect(result.find((node) => node.id === "interactive:onepassword")?.config.prepare)
+      .toContain("1password");
     expect(result.find((node) => node.id === "interactive:onepassword")?.config.command)
-      .not.toContain("read -r");
+      .toBeUndefined();
     expect(result.find((node) => node.id === "interactive:github")?.config.mode).toBe("pane");
     expect(result.find((node) => node.id === "interactive:github")?.deps)
       .toEqual(["ssh", "git", "dnf", "interactive:onepassword"]);
     expect(result.find((node) => node.id === "interactive:tailscale")?.config.mode).toBe("pane");
     expect(result.find((node) => node.id === "interactive:tailscale")?.deps)
       .toEqual(["tailscale", "interactive:onepassword"]);
+    expect(result.find((node) => node.id === "interactive:agents-sudo")).toMatchObject({
+      deps: ["agents", "interactive:onepassword"],
+      config: {
+        requires: "agents op",
+        mode: "pane",
+      },
+    });
+    expect(result.find((node) => node.id === "interactive:agents-sudo")?.config.status)
+      .toContain("op://Agents/Cloudflare Token Minter/account id");
+    expect(result.find((node) => node.id === "caddy")?.deps)
+      .toEqual(["tailscale", "mise", "1password", "agents", "interactive:tailscale", "interactive:onepassword", "interactive:agents-sudo"]);
     expect(result.find((node) => node.id === "kde-desktop-settings")?.needsSudo).toBe(true);
   });
 
@@ -168,6 +187,49 @@ github_command = gh auth login
     expect(gaming.some((node) => node.id === "fedora-gaming")).toBe(true);
     expect(gaming.find((node) => node.id === "kde-taskbar-pins")?.config["kde-taskbar-pins.launchers"])
       .toContain("steam.desktop");
+  });
+
+  test("enables Caddy on Linux, keeps it off macOS, and migrates T3", async () => {
+    const primerDir = join(import.meta.dir, "..", "..");
+    const fedora = await loadNodes(primerDir, "fedora-kde");
+    const vps = await loadNodes(primerDir, "linux-vps");
+    const mac = await loadNodes(primerDir, "mac");
+    expect(fedora.find((node) => node.id === "caddy")).toMatchObject({
+      needsSudo: true,
+      deps: ["tailscale", "mise", "1password", "agents", "interactive:tailscale", "interactive:onepassword", "interactive:agents-sudo"],
+    });
+    expect(vps.some((node) => node.id === "caddy")).toBe(true);
+    expect(mac.some((node) => node.id === "caddy")).toBe(false);
+    expect(fedora.find((node) => node.id === "t3-code")?.deps)
+      .toContain("caddy");
+    expect(fedora.find((node) => node.id === "t3-code")?.config["t3-code.tailscale_serve_port"])
+      .toBeUndefined();
+    expect(fedora.find((node) => node.id === "t3-code")?.config["t3-code.domain_suffix"])
+      .toBe("tomagranate.com");
+    expect(fedora.find((node) => node.id === "caddy")?.config["caddy.cloudflare_token_required"])
+      .toBe("true");
+    expect(fedora.find((node) => node.id === "caddy")?.config["caddy.dns_names"])
+      .toBe("\nt3.{machine}.tomagranate.com");
+    expect(vps.find((node) => node.id === "caddy")?.deps)
+      .toEqual(["tailscale", "mise", "agents", "interactive:tailscale", "interactive:agents-sudo"]);
+  });
+
+  test("selects Plans and Basil addons and appends their owned routes", async () => {
+    const primerDir = join(import.meta.dir, "..", "..");
+    const base = await loadNodes(primerDir, "fedora-kde");
+    const plans = await loadNodes(primerDir, "fedora-kde", ["plans-media"]);
+    const basil = await loadNodes(primerDir, "fedora-kde", ["basil"]);
+    expect(base.some((node) => node.id === "plans-media" || node.id === "basil")).toBe(false);
+    expect(plans.find((node) => node.id === "plans-media")?.deps).toEqual(["caddy"]);
+    expect(plans.find((node) => node.id === "caddy")?.config["caddy.routes"])
+      .toBe("\nt3-code\nplans-media");
+    expect(plans.find((node) => node.id === "caddy")?.config["caddy.cloudflare_token_required"])
+      .toBe("true");
+    expect(plans.find((node) => node.id === "caddy")?.config["caddy.dns_names"])
+      .toBe("\nt3.{machine}.tomagranate.com\nplans.tomagranate.com");
+    expect(basil.find((node) => node.id === "basil")?.deps).toEqual(["caddy", "agents"]);
+    expect(basil.find((node) => node.id === "caddy")?.config["caddy.routes"])
+      .toBe("\nt3-code\nbasil");
   });
 
 });

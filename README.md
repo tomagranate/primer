@@ -65,7 +65,9 @@ primer help
 
 ### Linux agent sudo sessions
 
-On Linux, `agents sudo` creates 12-hour sudo tickets.
+On Linux, `agents sudo` creates a 12-hour sudo ticket and a scoped 1Password
+ticket. Primer pauses before Cloudflare setup and asks you to run this command.
+Press Enter after it finishes. Primer verifies access before Caddy can start.
 
 ### Run logs
 
@@ -92,7 +94,10 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | **google-chrome** | apt / dnf | Installs Google Chrome from Google's native Linux package |
 | **github-cli** | apt | Installs GitHub CLI from GitHub's official apt repository |
 | **npm-global** | mise | Installs configured global npm CLIs |
-| **t3-code** | npm-global + Tailscale login | Runs T3 Code at boot and exposes it through Tailscale Serve |
+| **caddy** | mise + Tailscale login | Linux base: builds the Cloudflare-enabled gateway, binds tailnet routes, validates config, and reconciles app routes |
+| **t3-code** | npm-global + caddy | Runs T3 Code at boot at `t3.<machine>.tomagranate.com` |
+| **plans-media** | caddy | Addon: proxies the private Agents Worker and supplies its gate credential |
+| **basil** | caddy + agents | Addon: manages Hermes, tunnel, webhook, brain sync, ntfy, Uptime Kuma, and Basil routes |
 | **managed-settings** | shell-installers/homebrew-apps | Applies configured JSON/TOML user settings, including AI CLI permission defaults |
 | **login-shell** | zsh | Changes the user's login shell to zsh when possible |
 | **xcode-cli-tools** | -- | Installs Xcode Command Line Tools and waits for the installer dialog to be accepted |
@@ -140,27 +145,30 @@ does not configure shared NTFS libraries, Steam accounts, or BIOS settings.
 
 The Fedora profile installs the 1Password desktop app and CLI from 1Password's
 official RPM repository. A later interactive step launches the app and waits
-in the Primer pane until you sign in and enable **Settings > Developer >
-Integrate with 1Password CLI**. GitHub CLI login and Tailscale login wait
-until that step finishes. Those logins stay in the Primer pane. They do not
-pause the terminal.
+in the Primer pane until you sign in and enable both developer integrations:
+**Integrate with 1Password CLI** and **Integrate with MCP clients**. Press Enter
+after setup. Primer verifies the settings and CLI vault access. Failed checks
+show the instructions again. GitHub CLI, Tailscale, and Caddy wait until this
+step finishes.
 
 ### T3 Code remote access
 
 The Fedora profile installs T3 Code as a persistent systemd user service.
 User lingering starts the service during boot, before the user logs in.
-Tailscale Serve proxies HTTPS port 443 to the loopback T3 Code server.
+The shared Caddy gateway proxies `t3.<machine>.tomagranate.com` to T3.
+T3 remains at the root, so routes such as `/.well-known` stay unchanged.
 
 Open the server from another device on the same tailnet:
 
 ```text
-https://<machine>.<tailnet>.ts.net/
+https://t3.<machine>.tomagranate.com/
 ```
 
 Create a pairing link when a new client needs access:
 
 ```sh
-t3 pair --tailscale
+t3 auth pairing create \
+  --base-url "https://t3.$(hostname -s | tr '[:upper:]' '[:lower:]').tomagranate.com"
 ```
 
 ## Architecture
@@ -328,9 +336,52 @@ launchers +=
     applications:steam.desktop
 ```
 
-Primer ships the `gaming` addon for `fedora-kde`. It adds the Fedora gaming
-module and the Steam taskbar pin. Desktop hardware and Sunshine stay in the
-base Fedora profile.
+Primer ships three addons:
+
+- `gaming` adds the Fedora gaming module and Steam taskbar pin.
+- `plans-media` adds the private Plans and Media gateway on either Linux profile.
+- `basil` adds Basil services and routes on Fedora KDE.
+
+The Caddy module reuses the Cloudflare token in `/etc/agents-infra/plans.env`
+when it exists. On a new machine, Primer uses the Cloudflare Token Minter in
+the 1Password `Agents` vault. It creates one token for that machine. The token
+has Zone Read and DNS Write access only for `tomagranate.com`. Primer stores it
+only in the root-owned mode `0600` Caddy environment file.
+
+The Plans addon also reuses its gate secret from the legacy file. Set
+`plans-media.gate_secret_ref` when the file does not exist. Primer never stores
+secret values in Git.
+
+The Agents project still owns Worker, R2, and D1 deployment.
+
+The Basil addon expects `~/code/basil` and its documented local credential
+files. Primer does not create or copy those credentials. It runs ntfy and
+Uptime Kuma from a Primer compose file. Cloudflare Tunnel remains only for
+the public ntfy ingress.
+
+### Shared Caddy route contract
+
+Every Linux profile has one Caddy service. It owns port 443, certificates,
+validation, and reloads. Applications own one raw fragment named
+`/etc/caddy/apps.d/<app>.caddy`.
+
+Primer writes each fragment with an atomic move. It validates the complete
+config before reload. A failed check restores the prior fragment. The Caddy
+module records Primer-owned names in `/etc/caddy/primer-routes`. A later update
+removes owned routes that are no longer in the active profile and addons.
+
+Tailscale-host routes import `tailnet`. Custom private routes import
+`tailnet-bind` and select their own certificate source. Primer generates both
+snippets from the current Tailscale IPv4 and IPv6 addresses. Caddy does not
+bind those routes to non-Tailscale interfaces.
+
+T3 uses Cloudflare DNS-01 for `t3.<machine>.tomagranate.com`. Primer creates or
+updates its DNS-only A and AAAA records. It points them to the machine's current
+Tailscale addresses. The Plans addon does the same for `plans.tomagranate.com`.
+Primer refuses to overwrite duplicate records. It never enables the Cloudflare
+proxy because Cloudflare cannot reach tailnet addresses. DNS can resolve
+publicly, but Caddy accepts traffic only through the machine's Tailscale
+addresses.
 
 Linux profiles install Tailscale through its official Linux installer. The VPS profile uses GitHub's official APT repository for GitHub CLI. Fedora uses its `gh` package. The Fedora KDE profile enables the COPR repositories for Ghostty, keyd, Helium, and Sunshine. That profile also installs 1Password and 1Password CLI from 1Password's official RPM repository. GitHub CLI login and Tailscale login wait until the 1Password login finishes.
 
@@ -425,13 +476,16 @@ can use the account. Other logins run after installation finishes.
 `*_depends_on` names Primer modules that must complete first, `*_depends_on_logins`
 names other logins that must complete first, `*_requires` names commands that
 must exist, `*_status` detects whether the account is already logged in,
-`*_command` starts the login flow. Interactive steps stay in the Primer pane
-by default. Set `*_mode = terminal` to pause Primer and use the terminal.
+`*_prepare` opens an optional setup application, and `*_command` starts the
+login flow. Press Enter to run the command and check `*_status`. Primer shows
+the instructions again until the status check succeeds. Interactive steps stay
+in the Primer pane by default. Set `*_mode = terminal` to pause Primer and use
+the terminal.
 Linux profiles also use this flow for Tailscale. After the Tailscale module
 installs the client, Primer runs `sudo -n tailscale up --ssh` when the machine
 is not connected and then `sudo -n tailscale set --operator="$USER" --ssh`.
-That enables Tailscale SSH on the box and lets local tools such as T3 Code
-configure Tailscale Serve without requiring sudo.
+That enables Tailscale SSH and permits local Tailscale client administration.
+Caddy, not Tailscale Serve, owns application HTTPS routes.
 
 ```ini
 [logins]

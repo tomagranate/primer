@@ -11,11 +11,14 @@ setup() {
     export T3_CODE_SYSTEMD_USER_DIR="$TEST_HOME/systemd/user"
     export T3_CODE_APPLICATIONS_DIR="$TEST_HOME/applications"
     export T3_CODE_ICON_PATH="$TEST_HOME/icons/t3-code.png"
+    export CADDY_ROUTE_HELPER="$MOCK_DIR/primer-caddy-route"
+    export T3_CODE_TEST_ROOT=1
+    export T3_CODE_MACHINE_NAME=Tombook-Linux
 
     cat > "$TEST_CONF" <<'EOF'
 [t3-code]
 local_port = 3773
-tailscale_serve_port = 443
+domain_suffix = tomagranate.com
 browser_command = google-chrome-stable
 window_size = 1400,900
 window_position = 324,110
@@ -36,18 +39,16 @@ EOF
 printf 'systemctl %s\n' "$*" >> "$MOCK_LOG"
 exit 0
 EOF
-    cat > "$MOCK_DIR/tailscale" <<'EOF'
+    cat > "$MOCK_DIR/primer-caddy-route" <<'EOF'
 #!/bin/sh
-printf 'tailscale %s\n' "$*" >> "$MOCK_LOG"
-if [ "$1" = "serve" ] && [ "$2" = "status" ]; then
-    printf '%s\n' '{"TCP":{"443":{"HTTPS":true}},"Web":{"host:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:3773"}}}}}'
-fi
+printf 'primer-caddy-route %s\n' "$*" >> "$MOCK_LOG"
+exit 0
 EOF
     cat > "$MOCK_DIR/google-chrome-stable" <<'EOF'
 #!/bin/sh
 exit 0
 EOF
-    chmod +x "$MOCK_DIR/t3" "$MOCK_DIR/systemctl" "$MOCK_DIR/tailscale" "$MOCK_DIR/google-chrome-stable"
+    chmod +x "$MOCK_DIR/t3" "$MOCK_DIR/systemctl" "$MOCK_DIR/primer-caddy-route" "$MOCK_DIR/google-chrome-stable"
 }
 
 teardown() {
@@ -70,6 +71,9 @@ run_t3_code_module() {
         export T3_CODE_SYSTEMD_USER_DIR='${T3_CODE_SYSTEMD_USER_DIR}'
         export T3_CODE_APPLICATIONS_DIR='${T3_CODE_APPLICATIONS_DIR}'
         export T3_CODE_ICON_PATH='${T3_CODE_ICON_PATH}'
+        export CADDY_ROUTE_HELPER='${CADDY_ROUTE_HELPER}'
+        export T3_CODE_TEST_ROOT='${T3_CODE_TEST_ROOT}'
+        export T3_CODE_MACHINE_NAME='${T3_CODE_MACHINE_NAME}'
         source \"\$PRIMER_DIR/lib/module.zsh\"
         source \"\$PRIMER_DIR/tests/helpers/module-config.zsh\"
         test::load_module_config '${TEST_CONF}'
@@ -78,22 +82,23 @@ run_t3_code_module() {
     "
 }
 
-@test "t3-code: dry-run shows service and proxy commands" {
+@test "t3-code: dry-run shows service and shared Caddy route" {
     export DRY_RUN=true
     run_t3_code_module "mod_update"
     assert_success
     assert_output --partial "t3 service install"
-    assert_output --partial "tailscale serve --bg --https=443 http://127.0.0.1:3773"
+    assert_output --partial "install Caddy route t3-code -> http://127.0.0.1:3773"
+    refute_output --partial "tailscale serve"
     [ ! -s "$MOCK_LOG" ]
 }
 
-@test "t3-code: installs the service and persistent Tailscale proxy" {
+@test "t3-code: installs the service and custom-host Caddy route" {
     run_t3_code_module "mod_update"
     assert_success
     grep -Fx "t3 service install" "$MOCK_LOG"
     grep -Fx "systemctl --user daemon-reload" "$MOCK_LOG"
     grep -Fx "systemctl --user restart t3code.service" "$MOCK_LOG"
-    grep -Fx "tailscale serve --bg --https=443 http://127.0.0.1:3773" "$MOCK_LOG"
+    grep -F "primer-caddy-route install t3-code" "$MOCK_LOG"
     grep -Fx "Environment=T3CODE_PORT=3773" \
         "$T3_CODE_SYSTEMD_USER_DIR/t3code.service.d/primer.conf"
     grep -F -- "--ozone-platform=x11" "$T3_CODE_APPLICATIONS_DIR/t3-code.desktop"
@@ -103,7 +108,7 @@ run_t3_code_module() {
     cmp -s "$TEST_HOME/.t3/runtime/versions/0.0.33/node_modules/t3/dist/client/apple-touch-icon.png" "$T3_CODE_ICON_PATH"
 }
 
-@test "t3-code: status succeeds when the service and proxy are ready" {
+@test "t3-code: status succeeds when the service and route are ready" {
     mkdir -p "$T3_CODE_SYSTEMD_USER_DIR/t3code.service.d"
     cat > "$T3_CODE_SYSTEMD_USER_DIR/t3code.service.d/primer.conf" <<'EOF'
 [Service]
@@ -129,6 +134,26 @@ EOF
     assert_output --partial "t3 not found"
     run grep "$(printf 'failed\tservice\tt3 not found')" "$MOD_ITEMS_FILE"
     assert_success
-    run grep "$(printf 'failed\ttailscale-serve\tt3 not found')" "$MOD_ITEMS_FILE"
+    run grep "$(printf 'failed\tcaddy-route\tt3 not found')" "$MOD_ITEMS_FILE"
     assert_success
+}
+
+@test "t3-code: never manages Tailscale Serve" {
+    run grep -F "tailscale serve" "$PRIMER_DIR/modules/t3-code/module.zsh"
+    assert_failure
+    run grep -F "t3 pair --tailscale" "$PRIMER_DIR/README.md"
+    assert_failure
+    run_t3_code_module "_t3_code::route_contents 3773"
+    assert_success
+    assert_output --partial 'https://t3.tombook-linux.tomagranate.com:443 {'
+    assert_output --partial 'import tailnet-bind'
+    assert_output --partial 'dns cloudflare {env.CLOUDFLARE_API_TOKEN}'
+    assert_output --partial 'reverse_proxy http://127.0.0.1:3773'
+    refute_output --partial "handle_path"
+}
+
+@test "t3-code: rejects an invalid short machine name" {
+    export T3_CODE_MACHINE_NAME='not.a.short.name'
+    run_t3_code_module "_t3_code::route_contents 3773"
+    assert_failure
 }

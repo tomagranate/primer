@@ -1,0 +1,85 @@
+#!/usr/bin/env bats
+
+load '../../tests/helpers/common'
+
+setup() {
+    export TEST_HOME="$(mktemp -d)"
+    export TEST_CONF="$(mktemp)"
+    export MOCK_DIR="$(mktemp -d)"
+    export MOCK_LOG="$(mktemp)"
+    export BASIL_ROOT_LOG="$(mktemp)"
+    export BASIL_TEST_ROOT=1
+    export PATH="$MOCK_DIR:$PATH"
+    cat > "$MOCK_DIR/systemctl" <<'EOF'
+#!/bin/sh
+printf 'systemctl %s\n' "$*" >> "$MOCK_LOG"
+exit 0
+EOF
+    cat > "$MOCK_DIR/docker" <<'EOF'
+#!/bin/sh
+printf 'docker %s\n' "$*" >> "$MOCK_LOG"
+case "$*" in
+    *" ps --status running --services") printf 'ntfy\nuptime-kuma\n' ;;
+esac
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/systemctl" "$MOCK_DIR/docker"
+    cat > "$TEST_CONF" <<EOF
+[basil]
+repo_path = $TEST_HOME/code/basil
+ntfy_gateway_port = 8090
+kuma_gateway_port = 8443
+EOF
+}
+
+teardown() {
+    rm -rf "$TEST_HOME" "$MOCK_DIR"
+    rm -f "$TEST_CONF" "$MOCK_LOG" "$BASIL_ROOT_LOG"
+}
+
+run_module() {
+    run zsh -c "
+        export PRIMER_DIR='$PRIMER_DIR' DRY_RUN='${DRY_RUN:-false}' MOD_DIR='$PRIMER_DIR/modules/basil'
+        export MOD_NAME=basil MOD_STATUS_FILE='$(mktemp)' MOD_ITEMS_FILE='$(mktemp)' HOME='$TEST_HOME'
+        export CADDY_TAILSCALE_HOSTNAME=tombook-linux.example.ts.net
+        export BASIL_TEST_ROOT='$BASIL_TEST_ROOT' BASIL_ROOT_LOG='$BASIL_ROOT_LOG' MOCK_LOG='$MOCK_LOG'
+        export PATH='$MOCK_DIR':\"\$PATH\"
+        source '$PRIMER_DIR/lib/module.zsh'
+        source '$PRIMER_DIR/tests/helpers/module-config.zsh'
+        test::load_module_config '$TEST_CONF'
+        source '$PRIMER_DIR/modules/basil/module.zsh'
+        $1
+    "
+}
+
+@test "basil: dry-run plans services, containers, and route without credentials" {
+    export DRY_RUN=true
+    run_module mod_update
+    assert_success
+    assert_output --partial "install Hermes, tunnel, webhook, and brain-sync user services"
+    assert_output --partial "systemctl enable --now docker.service"
+    assert_output --partial "docker compose --project-name basil up -d"
+}
+
+@test "basil: route keeps ntfy ingress on loopback and Kuma on the tailnet" {
+    run_module _basil::route_contents
+    assert_success
+    assert_output --partial "http://127.0.0.1:8090"
+    assert_output --partial 'https://tombook-linux.example.ts.net:8443'
+    assert_output --partial "reverse_proxy http://127.0.0.1:18091"
+}
+
+@test "basil: missing repository files are explicit" {
+    run_module _basil::required_sources
+    assert_failure
+    assert_output --partial "Basil source is missing"
+}
+
+@test "basil: enables Docker and routes every container command through root" {
+    run_module '_basil::enable_docker && _basil::install_compose && _basil::containers_ready'
+    assert_success
+    grep -Fx "systemctl enable --now docker.service" "$BASIL_ROOT_LOG"
+    [ "$(grep -c ' docker ' "$BASIL_ROOT_LOG")" -eq 3 ]
+    grep -F "docker inspect" "$MOCK_LOG"
+    grep -F "docker compose --project-name basil" "$MOCK_LOG"
+}

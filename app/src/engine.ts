@@ -6,7 +6,9 @@
  * MOD_STATUS_FILE. The module.zsh files do not change.
  *
  * Interactive nodes wait for the user (state "needs-user"). The UI answers
- * them. Pane commands stream output into the TUI while other nodes run.
+ * them. Pane commands stream output into the TUI while other nodes run. A
+ * configured status command is authoritative: setup cannot complete until
+ * that command succeeds.
  */
 import { mkdtempSync, rmSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
@@ -432,20 +434,70 @@ export class Engine {
       return;
     }
 
-    const statusCmd = n.config["status"];
-    if (statusCmd) {
-      const proc = Bun.spawn(["zsh", "-c", statusCmd], { stdout: "ignore", stderr: "ignore" });
-      if ((await proc.exited) === 0) {
-        this.settle(n, "done", `already ${n.config["done_detail"] ?? "logged in"}`);
-        return;
-      }
+    const ready = await this.interactiveStatusReady(n);
+    if (this.interrupted || SETTLED.includes(n.state)) return;
+    if (ready) {
+      this.settle(n, "done", `already ${n.config["done_detail"] ?? "logged in"}`);
+      return;
     }
 
+    await this.runInteractivePrepare(n);
+    if (this.interrupted || SETTLED.includes(n.state)) return;
+    this.waitForInteractive(n, false);
+  }
+
+  private async interactiveStatusReady(n: EngineNode): Promise<boolean> {
+    const statusCmd = n.config["status"];
+    if (!statusCmd) return false;
+    const proc = Bun.spawn(["zsh", "-c", statusCmd], {
+      stdin: "ignore", stdout: "ignore", stderr: "ignore",
+      env: { ...process.env, NO_COLOR: "1" },
+    });
+    return (await proc.exited) === 0;
+  }
+
+  private async runInteractivePrepare(n: EngineNode): Promise<void> {
+    const prepareCmd = n.config["prepare"];
+    if (!prepareCmd) return;
+    const proc = Bun.spawn(["zsh", "-c", prepareCmd], {
+      stdin: "ignore", stdout: "ignore", stderr: "ignore",
+      env: { ...process.env, NO_COLOR: "1" },
+    });
+    if ((await proc.exited) !== 0) {
+      this.appendLog(n.logs, "Could not open the setup application. Follow the instructions manually.");
+    }
+  }
+
+  private waitForInteractive(n: EngineNode, verificationFailed: boolean): void {
     n.state = "needs-user";
-    n.detail = n.defaultOn ? "waiting for you" : "waiting for you (default: skip)";
-    n.notified = true;
-    this.opts.notify?.(`primer: ${n.label} is waiting for your input`);
+    const retry = verificationFailed ? "Setup not verified. Complete the steps, then press Enter again." : "Complete the setup, then press Enter.";
+    n.detail = n.defaultOn ? retry : `${retry} Default: skip.`;
+    if (!n.notified) {
+      n.notified = true;
+      this.opts.notify?.(`primer: ${n.label} is waiting for your input`);
+    }
     this.opts.onEvent?.(n, "needs-user");
+  }
+
+  private async verifyInteractive(n: EngineNode): Promise<void> {
+    const statusCmd = n.config["status"];
+    if (!statusCmd) {
+      this.settle(n, "done", n.config["done_detail"] ?? "complete");
+      return;
+    }
+
+    n.state = "checking";
+    n.detail = "verifying setup";
+    this.opts.onEvent?.(n, "checking");
+    const ready = await this.interactiveStatusReady(n);
+    if (this.interrupted || SETTLED.includes(n.state)) return;
+    if (ready) {
+      this.settle(n, "done", n.config["done_detail"] ?? "complete");
+      return;
+    }
+
+    this.appendLog(n.logs, "Setup verification failed. Complete the instructions and try again.");
+    this.waitForInteractive(n, true);
   }
 
   private async pipeLogs(n: EngineNode, stream: ReadableStream<Uint8Array>): Promise<void> {
@@ -456,14 +508,18 @@ export class Engine {
   async answerInteractive(n: EngineNode): Promise<void> {
     if (n.state !== "needs-user") return;
     const command = n.config["command"];
-    if (!command) { this.settle(n, "skipped", "no command configured"); return; }
+    if (!command) {
+      if (n.config["status"]) await this.verifyInteractive(n);
+      else this.settle(n, "skipped", "no command or status configured");
+      return;
+    }
 
     n.state = "interacting";
-    n.detail = "signing in";
+    n.detail = "running setup";
     this.opts.onEvent?.(n, "interacting");
 
     if ((n.config["mode"] ?? "pane") !== "terminal") {
-      this.appendLog(n.logs, "Starting sign-in.");
+      this.appendLog(n.logs, "Starting setup.");
       const proc = Bun.spawn(["zsh", "-c", command], {
         stdin: "ignore", stdout: "pipe", stderr: "pipe",
         env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" },
@@ -476,9 +532,12 @@ export class Engine {
       const code = await proc.exited;
       await Promise.all(readers);
       this.procs.delete(n.id);
-      if (code === 0) this.settle(n, "done", "complete");
-      else if (code === 130) this.settle(n, "skipped", "interrupted");
-      else this.settle(n, "failed", `exit ${code}`);
+      if (this.interrupted && SETTLED.includes(n.state)) return;
+      if (code === 0) await this.verifyInteractive(n);
+      else {
+        this.appendLog(n.logs, `Setup command exited with code ${code}.`);
+        this.waitForInteractive(n, true);
+      }
       return;
     }
 
@@ -502,13 +561,17 @@ export class Engine {
       this.opts.resumeUI?.();
     }
 
-    if (code === 0) this.settle(n, "done", "complete");
-    else if (code === 130) this.settle(n, "skipped", "interrupted");
-    else this.settle(n, "failed", `exit ${code}`);
+    if (this.interrupted && SETTLED.includes(n.state)) return;
+    if (code === 0) await this.verifyInteractive(n);
+    else {
+      this.appendLog(n.logs, `Setup command exited with code ${code}.`);
+      this.waitForInteractive(n, true);
+    }
   }
 
+  /** Settle interactive work when Primer has no terminal for user input. */
   skipInteractive(n: EngineNode): void {
-    if (n.state === "needs-user") this.settle(n, "skipped", "skipped by user");
+    if (n.state === "needs-user") this.settle(n, "skipped", "skipped without a terminal");
   }
 
   /* ── summary ── */
@@ -519,7 +582,7 @@ export class Engine {
       if (n.state === "done") c.done++;
       if (n.state === "failed") c.failed++;
       if (n.state === "skipped") c.skipped++;
-      if (n.state === "running" || n.state === "interacting") c.running++;
+      if (n.state === "running" || n.state === "checking" || n.state === "interacting") c.running++;
       if (SETTLED.includes(n.state)) c.settled++;
     }
     return c;

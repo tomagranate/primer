@@ -1,0 +1,11 @@
+[Unit]
+Description=Validate the Primer Caddy gateway
+After=tailscaled.service
+
+[Service]
+Type=oneshot
+User=caddy
+Group=caddy
+EnvironmentFile=-/etc/caddy/env.d/*.env
+ExecStartPre=+/usr/local/libexec/primer-caddy-tailnet
+ExecStart=/usr/local/bin/caddy validate --config /etc/caddy/Caddyfile

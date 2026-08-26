@@ -1,0 +1,67 @@
+#!/usr/bin/env bats
+
+load '../../tests/helpers/common'
+
+setup() {
+    export TEST_ROOT="$(mktemp -d)"
+    export TEST_CONF="$(mktemp)"
+    export MOCK_DIR="$(mktemp -d)"
+    export MOCK_LOG="$(mktemp)"
+    export PLANS_MEDIA_ROOT_DIR="$TEST_ROOT"
+    export PLANS_MEDIA_TEST_ROOT=1
+    export CADDY_ROUTE_HELPER="$MOCK_DIR/primer-caddy-route"
+    cat > "$TEST_CONF" <<EOF
+[plans-media]
+host = plans.tomagranate.com
+worker_host = agents-infra.sunburst-d5c.workers.dev
+legacy_secrets_file = $TEST_ROOT/legacy.env
+EOF
+    cat > "$CADDY_ROUTE_HELPER" <<'EOF'
+#!/bin/sh
+printf 'route %s\n' "$*" >> "$MOCK_LOG"
+if [ "$1" = install ]; then cp "$3" "$TEST_ROOT/installed.caddy"; fi
+EOF
+    chmod +x "$CADDY_ROUTE_HELPER"
+}
+
+teardown() { rm -rf "$TEST_ROOT" "$MOCK_DIR"; rm -f "$TEST_CONF" "$MOCK_LOG"; }
+
+run_module() {
+    run zsh -c "
+        export PRIMER_DIR='$PRIMER_DIR' DRY_RUN='${DRY_RUN:-false}' MOD_DIR='$PRIMER_DIR/modules/plans-media'
+        export MOD_NAME=plans-media MOD_STATUS_FILE='$(mktemp)' MOD_ITEMS_FILE='$(mktemp)'
+        export PLANS_MEDIA_ROOT_DIR='$PLANS_MEDIA_ROOT_DIR' PLANS_MEDIA_TEST_ROOT=1
+        export CADDY_ROUTE_HELPER='$CADDY_ROUTE_HELPER' MOCK_LOG='$MOCK_LOG' TEST_ROOT='$TEST_ROOT'
+        source '$PRIMER_DIR/lib/module.zsh'
+        source '$PRIMER_DIR/tests/helpers/module-config.zsh'
+        test::load_module_config '$TEST_CONF'
+        source '$PRIMER_DIR/modules/plans-media/module.zsh'
+        $1
+    "
+}
+
+@test "plans-media: dry-run does not require or expose secrets" {
+    export DRY_RUN=true
+    run_module mod_update
+    assert_success
+    assert_output --partial "root-owned mode 0600 Plans secret environment"
+    refute_output --partial "GATE_SECRET="
+}
+
+@test "plans-media: migrates the existing secret file without printing it" {
+    printf 'GATE_SECRET=private\nCLOUDFLARE_API_TOKEN=private\n' > "$TEST_ROOT/legacy.env"
+    run_module mod_update
+    assert_success
+    [ "$(stat -c %a "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 600 ]
+    [ "$(cat "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 'GATE_SECRET=private' ]
+    refute_output --partial "private"
+    grep -F 'import tailnet-bind' "$TEST_ROOT/installed.caddy"
+    grep -F 'header_up Authorization "Bearer {env.GATE_SECRET}"' "$TEST_ROOT/installed.caddy"
+}
+
+@test "plans-media: missing secret configuration is explicit" {
+    run_module mod_update
+    assert_failure
+    assert_output --partial "Set plans-media.gate_secret_ref"
+    [ ! -e "$TEST_ROOT/installed.caddy" ]
+}
