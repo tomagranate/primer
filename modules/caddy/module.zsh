@@ -554,6 +554,7 @@ _caddy::routes_ready() {
         group="$(id -gn)"
     fi
     manifest="$(_caddy::root_path /etc/caddy/primer-routes)"
+    [[ ! -e "$manifest.reload-required" && ! -L "$manifest.reload-required" ]] || return 1
     [[ -f "$manifest" && ! -L "$manifest" ]] \
         && [[ "$(stat -c %a "$manifest" 2>/dev/null)" == 644 ]] \
         && [[ "$(stat -c %U "$manifest" 2>/dev/null)" == "$owner" ]] \

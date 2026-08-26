@@ -5,6 +5,7 @@ set -euo pipefail
 config_dir="${CADDY_CONFIG_DIR:-/etc/caddy}"
 apps_dir="${CADDY_APPS_DIR:-$config_dir/apps.d}"
 manifest="${CADDY_ROUTE_MANIFEST:-$config_dir/primer-routes}"
+reload_marker="${CADDY_ROUTE_RELOAD_MARKER:-$manifest.reload-required}"
 lock_file="${CADDY_ROUTE_LOCK:-/run/lock/primer-caddy-route.lock}"
 systemctl_bin="${SYSTEMCTL_BIN:-systemctl}"
 validate_unit="${CADDY_VALIDATE_UNIT:-caddy-validate.service}"
@@ -23,11 +24,32 @@ manifest_ready() {
         && [[ "$(stat -c %G "$manifest" 2>/dev/null)" == "$expected_group" ]]
 }
 
+reload_marker_ready() {
+    [[ -f "$reload_marker" && ! -L "$reload_marker" ]] \
+        && [[ "$(stat -c %a "$reload_marker" 2>/dev/null)" == 644 ]] \
+        && [[ "$(stat -c %U "$reload_marker" 2>/dev/null)" == "$expected_owner" ]] \
+        && [[ "$(stat -c %G "$reload_marker" 2>/dev/null)" == "$expected_group" ]]
+}
+
+mark_reload_pending() {
+    local temp
+    [[ ! -e "$reload_marker" && ! -L "$reload_marker" ]] || return 0
+    temp="$(mktemp "$config_dir/.route-reload-required.XXXXXX")"
+    chmod 0644 "$temp"
+    mv -f "$temp" "$reload_marker"
+}
+
+clear_reload_pending() {
+    rm -f "$reload_marker"
+}
+
 route_ready() {
     local name="$1" source="${2:-}" target
     valid_name "$name" || return 2
     target="$apps_dir/$name.caddy"
-    manifest_ready && grep -Fxq "$name" "$manifest" && [[ -f "$target" ]] || return 1
+    manifest_ready \
+        && [[ ! -e "$reload_marker" && ! -L "$reload_marker" ]] \
+        && grep -Fxq "$name" "$manifest" && [[ -f "$target" ]] || return 1
     [[ "$(stat -c %a "$target" 2>/dev/null)" == 644 ]] \
         && [[ "$(stat -c %U "$target" 2>/dev/null)" == "$expected_owner" ]] \
         && [[ "$(stat -c %G "$target" 2>/dev/null)" == "$expected_group" ]] || return 1
@@ -57,9 +79,13 @@ reload_gateway() {
 
 restore_active_config() {
     if validate; then
-        reload_gateway || echo "Caddy could not reload the restored config" >&2
+        reload_gateway || {
+            echo "Caddy could not reload the restored config" >&2
+            return 1
+        }
     else
         echo "Caddy rejected the restored config" >&2
+        return 1
     fi
 }
 
@@ -138,23 +164,28 @@ install_route() {
 }
 
 reconcile_routes() {
-    local name changed=false backup_dir
+    local name changed=false pending=false backup_dir
     declare -A wanted=()
     for name in "$@"; do
         valid_name "$name" || { echo "invalid desired route name: $name" >&2; return 2; }
         wanted["$name"]=1
     done
     mapfile -t owned < <(read_manifest)
+    [[ -e "$reload_marker" || -L "$reload_marker" ]] && pending=true
     backup_dir="$(mktemp -d "$config_dir/.route-backup.XXXXXX")"
     [[ -f "$manifest" ]] && cp -p "$manifest" "$backup_dir/manifest"
     for name in "${owned[@]}"; do
         [[ -n "${wanted[$name]:-}" ]] && continue
+        if ! $pending; then
+            mark_reload_pending
+            pending=true
+        fi
         [[ -f "$apps_dir/$name.caddy" ]] && cp -p "$apps_dir/$name.caddy" "$backup_dir/$name.caddy"
         rm -f "$apps_dir/$name.caddy"
         changed=true
     done
     write_manifest "$@"
-    if $changed; then
+    if $changed || $pending; then
         if ! validate; then
             for name in "${owned[@]}"; do
                 [[ -f "$backup_dir/$name.caddy" ]] && mv -f "$backup_dir/$name.caddy" "$apps_dir/$name.caddy"
@@ -177,11 +208,12 @@ reconcile_routes() {
             else
                 rm -f "$manifest"
             fi
-            restore_active_config
+            restore_active_config && clear_reload_pending || true
             rm -r "$backup_dir"
             echo "route cleanup reload failed; restored prior config" >&2
             return 1
         fi
+        clear_reload_pending
     fi
     rm -r "$backup_dir"
 }
@@ -202,6 +234,10 @@ exec 9>"$lock_file"
 flock 9
 if [[ -e "$manifest" || -L "$manifest" ]] && ! manifest_ready; then
     echo "route manifest has unsafe ownership or permissions: $manifest" >&2
+    exit 1
+fi
+if [[ -e "$reload_marker" || -L "$reload_marker" ]] && ! reload_marker_ready; then
+    echo "route reload marker has unsafe ownership or permissions: $reload_marker" >&2
     exit 1
 fi
 

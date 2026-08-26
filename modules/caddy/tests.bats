@@ -742,6 +742,21 @@ EOF
     [ -e "$CADDY_APPS_DIR/keep.caddy" ]
     [ -e "$CADDY_APPS_DIR/unmanaged.caddy" ]
     [ "$(cat "$CADDY_ROUTE_MANIFEST")" = keep ]
+    [ ! -e "$CADDY_ROUTE_MANIFEST.reload-required" ]
+}
+
+@test "caddy: retries a pending route cleanup reload" {
+    printf 'keep\n' > "$CADDY_APPS_DIR/keep.caddy"
+    printf 'keep\n' > "$CADDY_ROUTE_MANIFEST"
+    touch "$CADDY_ROUTE_MANIFEST.reload-required"
+    chmod 0644 "$CADDY_ROUTE_MANIFEST.reload-required"
+
+    route_helper reconcile keep
+
+    assert_success
+    [ ! -e "$CADDY_ROUTE_MANIFEST.reload-required" ]
+    grep -Fx "systemctl start --wait caddy-validate.service" "$MOCK_LOG"
+    grep -Fx "systemctl reload caddy.service" "$MOCK_LOG"
 }
 
 @test "caddy: refuses to reconcile an unsafe route manifest" {
