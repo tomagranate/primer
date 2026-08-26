@@ -120,7 +120,7 @@ async function runUpdate(args: Args): Promise<never> {
         if (event === "start") console.log(`==> ${label}`);
         else if (event === "needs-user") {
           console.log(`--> ${label}: needs interactive input — skipped (no terminal)`);
-          engine.skipInteractive(n);
+          engine.skipInteractive(n, true);
         } else if (["done", "failed", "skipped"].includes(event)) {
           if (shouldPrintLogs(args.dryRun, event) && n.logs.length) {
             for (const line of n.logs) console.log(line);

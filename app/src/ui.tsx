@@ -302,6 +302,11 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
         return;
       }
       openLogs(target, "run");
+    } else if (name === "s") {
+      const target = follow ? nodes.find((n) => n.state === "needs-user") ?? focus : focus;
+      if (target.kind === "interactive" && target.state === "needs-user" && !target.defaultOn) {
+        engine.skipInteractive(target);
+      }
     } else if (isSpace) {
       openLogs(focus, "run");
     } else if (name === "q") {
@@ -519,7 +524,7 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
                 {instructionLines.length > 0 && <text fg={C.dim}> </text>}
                 {/not verified/i.test(focus.detail) && <text fg={C.yellow}>{focus.detail}</text>}
                 <text fg={C.text}>{focus.config["command"] ? "⏎ run setup and verify" : "⏎ verify setup"}</text>
-                {!focus.defaultOn && <text fg={C.dim}>config default: skip</text>}
+                {!focus.defaultOn && <text fg={C.dim}>s skip this optional setup</text>}
               </>
             ) : (
               <>

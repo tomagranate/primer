@@ -101,4 +101,36 @@ describe("interactive setup verification", () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  test("allows skipping only default-off interactive setup", async () => {
+    const root = await mkdtemp(join(tmpdir(), "primer-interactive-"));
+    const engine = new Engine([
+      interactive({ default: "yes", status: "false" }, "required"),
+      interactive({ default: "no", status: "false" }, "optional"),
+    ], {
+      primerDir: root,
+      dryRun: false,
+      skip: [],
+      only: [],
+      runLogRoot: join(root, "logs"),
+    });
+
+    try {
+      await engine.start();
+      await waitForState(engine, "needs-user", "required");
+      await waitForState(engine, "needs-user", "optional");
+
+      const required = engine.node("interactive:required")!;
+      const optional = engine.node("interactive:optional")!;
+      engine.skipInteractive(required);
+      engine.skipInteractive(optional);
+
+      expect(required.state).toBe("needs-user");
+      expect(optional.state).toBe("skipped");
+      expect(optional.detail).toBe("optional setup skipped");
+    } finally {
+      engine.cleanup();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

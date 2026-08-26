@@ -569,9 +569,11 @@ export class Engine {
     }
   }
 
-  /** Settle interactive work when Primer has no terminal for user input. */
-  skipInteractive(n: EngineNode): void {
-    if (n.state === "needs-user") this.settle(n, "skipped", "skipped without a terminal");
+  /** Skip an optional step. Headless runs can force-skip any interactive work. */
+  skipInteractive(n: EngineNode, force = false): void {
+    if (n.state === "needs-user" && (!n.defaultOn || force)) {
+      this.settle(n, "skipped", force ? "skipped without a terminal" : "optional setup skipped");
+    }
   }
 
   /* ── summary ── */
