@@ -547,7 +547,7 @@ _caddy::dns_ready() {
 }
 
 _caddy::dns_resolves() {
-    local name entry type address results
+    local name entry type address results resolved
     local -a addresses names
     addresses=("${(@f)$(_caddy::tailscale_addresses)}") || return 1
     names=("${(@f)$(_caddy::desired_dns_names)}") || return 1
@@ -560,7 +560,8 @@ _caddy::dns_resolves() {
             else
                 results="$(getent ahostsv6 "$name" 2>/dev/null)" || return 1
             fi
-            print -r -- "$results" | awk '{print $1}' | grep -Fxq "$address" || return 1
+            resolved="$(print -r -- "$results" | awk 'NF {print $1}' | sort -u)"
+            [[ "$resolved" == "$address" ]] || return 1
         done
     done
 }

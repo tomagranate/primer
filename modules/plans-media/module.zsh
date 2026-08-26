@@ -21,6 +21,15 @@ _plans_media::fragment_helper() {
     print -r -- "${CADDY_FRAGMENT_HELPER:-$PRIMER_DIR/modules/caddy/files/usr/local/libexec/primer-caddy-fragment}"
 }
 
+_plans_media::restart_gateway() {
+    local systemctl_bin=systemctl gateway=caddy.service
+    if [[ -n "${PLANS_MEDIA_TEST_ROOT:-}" ]]; then
+        systemctl_bin="${SYSTEMCTL_BIN:-systemctl}"
+        gateway="${CADDY_SERVICE:-caddy.service}"
+    fi
+    _plans_media::root "$systemctl_bin" restart "$gateway"
+}
+
 _plans_media::install_secret_file() {
     local source="$1" target="$2"
     if [[ -n "${PLANS_MEDIA_TEST_ROOT:-}" ]]; then
@@ -98,6 +107,7 @@ mod_update() {
     _plans_media::install_secrets || { primer::item_update secrets failed "configuration required"; return 1; }
     primer::item_update secrets done
     _plans_media::install_route || { primer::item_update route failed "validation failed"; return 1; }
+    _plans_media::restart_gateway || { primer::item_update route failed "restart failed"; return 1; }
     primer::item_update route done
     primer::status_msg "Plans and Media ready"
 }

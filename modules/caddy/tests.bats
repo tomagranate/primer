@@ -78,8 +78,14 @@ EOF
     cat > "$MOCK_DIR/getent" <<'EOF'
 #!/bin/sh
 case "$1" in
-    ahostsv4) printf '%s STREAM %s\n' 100.64.0.7 "$2" ;;
-    ahostsv6) printf '%s STREAM %s\n' fd7a:115c:a1e0::7 "$2" ;;
+    ahostsv4)
+        printf '%s STREAM %s\n' 100.64.0.7 "$2"
+        [ -z "${MOCK_RESOLVED_EXTRA:-}" ] || printf '%s STREAM %s\n' 100.64.0.99 "$2"
+        ;;
+    ahostsv6)
+        printf '%s STREAM %s\n' fd7a:115c:a1e0::7 "$2"
+        [ -z "${MOCK_RESOLVED_EXTRA:-}" ] || printf '%s STREAM %s\n' fd7a:115c:a1e0::99 "$2"
+        ;;
     *) exit 1 ;;
 esac
 EOF
@@ -187,6 +193,7 @@ run_caddy_function() {
         export CADDY_ROUTE_LOCK='$CADDY_ROUTE_LOCK'
         export PRIMER_OP_TICKET='$TEST_ROOT/op-ticket' PATH='$MOCK_DIR':\"\$PATH\"
         export MOCK_LOG='$MOCK_LOG' MOCK_CF_BODY='$MOCK_CF_BODY' MOCK_DNS_MODE='${MOCK_DNS_MODE:-empty}'
+        export MOCK_RESOLVED_EXTRA='${MOCK_RESOLVED_EXTRA:-}'
         export MOCK_STORED_TOKEN_MODE='${MOCK_STORED_TOKEN_MODE:-current}'
         source '$PRIMER_DIR/lib/module.zsh'
         source '$PRIMER_DIR/tests/helpers/module-config.zsh'
@@ -298,6 +305,15 @@ run_caddy_function() {
     assert_failure
     assert_output --partial "duplicate A records"
     run grep -E 'POST|PATCH' "$MOCK_LOG"
+    assert_failure
+}
+
+@test "caddy: DNS status rejects extra resolved addresses" {
+    run_caddy_function _caddy::dns_resolves
+    assert_success
+
+    export MOCK_RESOLVED_EXTRA=1
+    run_caddy_function _caddy::dns_resolves
     assert_failure
 }
 

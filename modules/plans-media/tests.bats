@@ -10,6 +10,7 @@ setup() {
     export PLANS_MEDIA_ROOT_DIR="$TEST_ROOT"
     export PLANS_MEDIA_TEST_ROOT=1
     export CADDY_ROUTE_HELPER="$MOCK_DIR/primer-caddy-route"
+    export SYSTEMCTL_BIN="$MOCK_DIR/systemctl"
     cat > "$TEST_CONF" <<EOF
 [plans-media]
 host = plans.tomagranate.com
@@ -22,6 +23,11 @@ printf 'route %s\n' "$*" >> "$MOCK_LOG"
 if [ "$1" = install ]; then cp "$3" "$TEST_ROOT/installed.caddy"; fi
 EOF
     chmod +x "$CADDY_ROUTE_HELPER"
+    cat > "$SYSTEMCTL_BIN" <<'EOF'
+#!/bin/sh
+printf 'systemctl %s\n' "$*" >> "$MOCK_LOG"
+EOF
+    chmod +x "$SYSTEMCTL_BIN"
 }
 
 teardown() { rm -rf "$TEST_ROOT" "$MOCK_DIR"; rm -f "$TEST_CONF" "$MOCK_LOG"; }
@@ -31,7 +37,8 @@ run_module() {
         export PRIMER_DIR='$PRIMER_DIR' DRY_RUN='${DRY_RUN:-false}' MOD_DIR='$PRIMER_DIR/modules/plans-media'
         export MOD_NAME=plans-media MOD_STATUS_FILE='$(mktemp)' MOD_ITEMS_FILE='$(mktemp)'
         export PLANS_MEDIA_ROOT_DIR='$PLANS_MEDIA_ROOT_DIR' PLANS_MEDIA_TEST_ROOT=1
-        export CADDY_ROUTE_HELPER='$CADDY_ROUTE_HELPER' MOCK_LOG='$MOCK_LOG' TEST_ROOT='$TEST_ROOT'
+        export CADDY_ROUTE_HELPER='$CADDY_ROUTE_HELPER' SYSTEMCTL_BIN='$SYSTEMCTL_BIN'
+        export MOCK_LOG='$MOCK_LOG' TEST_ROOT='$TEST_ROOT'
         source '$PRIMER_DIR/lib/module.zsh'
         source '$PRIMER_DIR/tests/helpers/module-config.zsh'
         test::load_module_config '$TEST_CONF'
@@ -57,6 +64,7 @@ run_module() {
     refute_output --partial "private"
     grep -F 'import tailnet-bind' "$TEST_ROOT/installed.caddy"
     grep -F 'header_up Authorization "Bearer {env.GATE_SECRET}"' "$TEST_ROOT/installed.caddy"
+    grep -Fx 'systemctl restart caddy.service' "$MOCK_LOG"
 }
 
 @test "plans-media: missing secret configuration is explicit" {
@@ -75,5 +83,18 @@ run_module() {
 
     assert_success
     [ "$(cat "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 'GATE_SECRET=new-private' ]
+    refute_output --partial private
+}
+
+@test "plans-media: restarts Caddy after rotating the secret" {
+    mkdir -p "$TEST_ROOT/etc/caddy/env.d"
+    printf 'GATE_SECRET=old-private\n' > "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
+    printf 'GATE_SECRET=new-private\n' > "$TEST_ROOT/legacy.env"
+
+    run_module mod_update
+
+    assert_success
+    [ "$(cat "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 'GATE_SECRET=new-private' ]
+    grep -Fx 'systemctl restart caddy.service' "$MOCK_LOG"
     refute_output --partial private
 }
