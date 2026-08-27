@@ -172,6 +172,7 @@ case "$url" in
         fi
         ;;
     */accounts/*/tokens)
+        [ "${MOCK_MINT_MODE:-success}" != fail ] || exit 1
         printf '%s' "$body" > "$MOCK_CF_BODY"
         response='{"success":true,"result":{"id":"cccccccccccccccccccccccccccccccc","value":"minted-dns-private"}}'
         ;;
@@ -239,6 +240,7 @@ run_caddy_function() {
         export MOCK_RESOLVED_EXTRA='${MOCK_RESOLVED_EXTRA:-}'
         export MOCK_STORED_TOKEN_MODE='${MOCK_STORED_TOKEN_MODE:-current}'
         export MOCK_DELETE_MODE='${MOCK_DELETE_MODE:-success}'
+        export MOCK_MINT_MODE='${MOCK_MINT_MODE:-success}'
         source '$PRIMER_DIR/lib/module.zsh'
         source '$PRIMER_DIR/tests/helpers/module-config.zsh'
         test::load_module_config '$TEST_CONF'
@@ -294,6 +296,26 @@ run_caddy_function() {
     grep -E '^DELETE.*/tokens/old-token-id$' "$MOCK_LOG"
 }
 
+@test "caddy: keeps the current token when replacement minting fails" {
+    mkdir -p "$TEST_ROOT/etc/caddy/env.d"
+    printf '%s\n' \
+        'CLOUDFLARE_API_TOKEN=current-private' \
+        'CLOUDFLARE_API_TOKEN_ID=current-token-id' \
+        'CLOUDFLARE_ZONE_ID=dddddddddddddddddddddddddddddddd' \
+        > "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    export MOCK_STORED_TOKEN_MODE=invalid
+    export MOCK_MINT_MODE=fail
+
+    run_caddy_function _caddy::install_cloudflare_token
+
+    assert_failure
+    grep -Fx 'CLOUDFLARE_API_TOKEN_ID=current-token-id' \
+        "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    [ "$(cat "$TEST_ROOT/var/lib/primer/caddy/cloudflare-token-cleanup")" = current-token-id ]
+    run grep -E '^DELETE.*/tokens/current-token-id$' "$MOCK_LOG"
+    assert_failure
+}
+
 @test "caddy: activates an externally replaced valid Cloudflare token" {
     mkdir -p "$TEST_ROOT/etc/caddy/env.d"
     printf '%s\n' \
@@ -328,14 +350,13 @@ run_caddy_function() {
 
     assert_failure
     [ "$(cat "$TEST_ROOT/var/lib/primer/caddy/cloudflare-token-cleanup")" = old-token-id ]
-    grep -Fx 'CLOUDFLARE_API_TOKEN_ID=old-token-id' \
+    grep -Fx 'CLOUDFLARE_API_TOKEN_ID=cccccccccccccccccccccccccccccccc' \
         "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
-    run grep -E '^POST .*/tokens$' "$MOCK_LOG"
-    assert_failure
+    grep -E '^POST .*/tokens$' "$MOCK_LOG"
     run_caddy_function _caddy::cloudflare_file_ready
     assert_failure
 
-    export MOCK_STORED_TOKEN_MODE=invalid
+    export MOCK_STORED_TOKEN_MODE=current
     export MOCK_DELETE_MODE=missing
     : > "$MOCK_LOG"
     run_caddy_function _caddy::install_cloudflare_token
@@ -343,7 +364,8 @@ run_caddy_function() {
     assert_success
     [ ! -e "$TEST_ROOT/var/lib/primer/caddy/cloudflare-token-cleanup" ]
     grep -E '^DELETE.*/tokens/old-token-id$' "$MOCK_LOG"
-    grep -E '^POST .*/tokens$' "$MOCK_LOG"
+    run grep -E '^POST .*/tokens$' "$MOCK_LOG"
+    assert_failure
 }
 
 @test "caddy: records a minted token before creating its local token file" {
@@ -359,7 +381,7 @@ EOF
     run_caddy_function _caddy::install_cloudflare_token
 
     assert_failure
-    [ "$(cat "$TEST_ROOT/var/lib/primer/caddy/cloudflare-token-cleanup")" = cccccccccccccccccccccccccccccccc ]
+    [ "$(cat "$TEST_ROOT/var/lib/primer/caddy/cloudflare-mint-token-cleanup")" = cccccccccccccccccccccccccccccccc ]
     [ ! -e "$TEST_ROOT/etc/caddy/env.d/cloudflare.env" ]
 
     rm "$MOCK_DIR/mktemp"
@@ -367,7 +389,7 @@ EOF
     run_caddy_function _caddy::install_cloudflare_token
 
     assert_success
-    [ ! -e "$TEST_ROOT/var/lib/primer/caddy/cloudflare-token-cleanup" ]
+    [ ! -e "$TEST_ROOT/var/lib/primer/caddy/cloudflare-mint-token-cleanup" ]
     grep -E '^DELETE.*/tokens/cccccccccccccccccccccccccccccccc$' "$MOCK_LOG"
     grep -E '^POST .*/tokens$' "$MOCK_LOG"
 }
