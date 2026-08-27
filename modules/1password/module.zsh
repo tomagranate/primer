@@ -55,6 +55,10 @@ _1password::cli_command() {
     [[ -n "$command_name" ]] && print -r -- "$command_name" || print op
 }
 
+_1password::mcp_command() {
+    mod_config mcp_command | head -1
+}
+
 _1password::run_as_root() {
     primer::run_as_root "1Password" "$@"
 }
@@ -87,6 +91,9 @@ _1password::installed() {
     done
     _1password::command_available "$(_1password::app_command)" || return 1
     _1password::command_available "$(_1password::cli_command)" || return 1
+    local mcp_command
+    mcp_command="$(_1password::mcp_command)"
+    [[ -z "$mcp_command" ]] || _1password::command_available "$mcp_command"
 }
 
 mod_update() {
@@ -177,6 +184,18 @@ mod_update() {
         primer::item_update "$package" "running" "installing"
     done
     if _1password::run_rpm dnf5 -y --color=never install "${packages[@]}"; then
+        local mcp_command
+        mcp_command="$(_1password::mcp_command)"
+        if [[ -n "$mcp_command" ]] && ! _1password::command_available "$mcp_command"; then
+            # A reinstall repairs older desktop packages and missing post-install symlinks.
+            _1password::run_rpm dnf5 -y --color=never reinstall "${packages[1]}" || {
+                for package in "${packages[@]}"; do
+                    primer::item_update "$package" "failed" "MCP install failed"
+                done
+                primer::status_msg "MCP install failed"
+                return 1
+            }
+        fi
         if _1password::installed; then
             for package in "${packages[@]}"; do
                 primer::item_update "$package" "done" "installed"
@@ -213,6 +232,10 @@ mod_status() {
     done
     _1password::command_available "$(_1password::app_command)" || issues=$(( issues + 1 ))
     _1password::command_available "$(_1password::cli_command)" || issues=$(( issues + 1 ))
+    local mcp_command
+    mcp_command="$(_1password::mcp_command)"
+    [[ -z "$mcp_command" ]] || _1password::command_available "$mcp_command" \
+        || issues=$(( issues + 1 ))
 
     if (( issues == 0 )); then
         primer::status_msg "installed"

@@ -334,6 +334,47 @@ EOF
     assert_success
 }
 
+@test "1password: repairs an installed desktop package without the MCP command" {
+    cat >> "$TEST_CONF" <<'EOF'
+mcp_command = test-1password-mcp
+EOF
+    printf '%s\n' 1password 1password-cli > "$MOCK_INSTALLED"
+    for command in 1password op; do
+        printf '#!/bin/sh\nexit 0\n' > "$MOCK_DIR/$command"
+        chmod +x "$MOCK_DIR/$command"
+    done
+    cat > "$MOCK_DIR/install" <<'EOF'
+#!/bin/sh
+src=""; dest=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -m) shift ;;
+        *) if [ -z "$src" ]; then src="$1"; else dest="$1"; fi ;;
+    esac
+    shift
+done
+[ -n "$src" ] && [ -n "$dest" ] && cp "$src" "$dest"
+EOF
+    cat > "$MOCK_DIR/dnf5" <<'EOF'
+#!/bin/sh
+echo "dnf5 $*" >> "$MOCK_LOG"
+case "$*" in
+    *" reinstall 1password")
+        printf '#!/bin/sh\nexit 0\n' > "$MOCK_DIR/test-1password-mcp"
+        chmod +x "$MOCK_DIR/test-1password-mcp"
+        ;;
+esac
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/install" "$MOCK_DIR/dnf5"
+
+    run_1password_module mod_update
+
+    assert_success
+    grep -F "dnf5 -y --color=never install 1password 1password-cli" "$MOCK_LOG"
+    grep -F "dnf5 -y --color=never reinstall 1password" "$MOCK_LOG"
+}
+
 @test "1password: mod_status fails when packages are missing" {
     run_1password_module "mod_status"
     assert_failure

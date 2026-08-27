@@ -1,0 +1,58 @@
+#!/bin/bash
+set -euo pipefail
+
+config_dir="${CADDY_CONFIG_DIR:-/etc/caddy}"
+runtime_dir="${CADDY_RUNTIME_DIR:-/run/caddy}"
+tailscale_bin="${TAILSCALE_BIN:-tailscale}"
+mode="${1:-install}"
+[[ "$mode" == install || "$mode" == status ]] || {
+    echo "usage: primer-caddy-tailnet [status]" >&2
+    exit 2
+}
+
+status="$($tailscale_bin status --json)"
+hostname="$(jq -r '.Self.DNSName // empty' <<<"$status")"
+hostname="${hostname%.}"
+mapfile -t addresses < <(jq -r '.Self.TailscaleIPs[]? // empty' <<<"$status")
+
+if [[ -z "$hostname" || ${#addresses[@]} -eq 0 ]]; then
+    echo "Tailscale has no hostname or addresses" >&2
+    exit 1
+fi
+if [[ ! "$hostname" =~ ^[A-Za-z0-9.-]+$ ]]; then
+    echo "Tailscale returned an invalid hostname" >&2
+    exit 1
+fi
+for address in "${addresses[@]}"; do
+    [[ "$address" =~ ^[0-9A-Fa-f:.]+$ ]] || {
+        echo "Tailscale returned an invalid address" >&2
+        exit 1
+    }
+done
+
+if [[ "$mode" == install ]]; then
+    install -d -m 0755 "$config_dir" "$runtime_dir"
+    snippet="$(mktemp "$config_dir/.tailnet.caddy.XXXXXX")"
+    env_file="$(mktemp "$runtime_dir/.tailnet.env.XXXXXX")"
+else
+    snippet="$(mktemp)"
+    env_file="$(mktemp)"
+fi
+trap 'rm -f "$snippet" "$env_file"' EXIT
+
+{
+    echo '(tailnet-bind) {'
+    printf '\tbind'
+    printf ' %s' "${addresses[@]}"
+    printf '\n}\n\n'
+    printf '(tailnet) {\n\timport tailnet-bind\n\ttls {\n\t\tget_certificate tailscale\n\t}\n}\n'
+} >"$snippet"
+printf 'TAILSCALE_HOSTNAME=%s\n' "$hostname" >"$env_file"
+chmod 0644 "$snippet" "$env_file"
+if [[ "$mode" == status ]]; then
+    cmp -s "$snippet" "$config_dir/tailnet.caddy" \
+        && cmp -s "$env_file" "$runtime_dir/tailnet.env"
+    exit $?
+fi
+mv -f "$snippet" "$config_dir/tailnet.caddy"
+mv -f "$env_file" "$runtime_dir/tailnet.env"

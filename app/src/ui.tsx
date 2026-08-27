@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import type { Engine, EngineItem, EngineNode } from "./engine";
 import { ensureVisible, isScrolledToEnd, listWindow } from "./list-window";
-import { ensureRowRangeVisible } from "./text-layout";
+import { ensureRowRangeVisible, wrapText } from "./text-layout";
 import { summaryLines } from "./ui-layout";
 
 // Moss theme, copied from corsa (src/lib/theme/themes.ts): deep greens with
@@ -83,7 +83,8 @@ const elapsed = (n: EngineNode) =>
   n.start == null ? "" : `${(((n.end ?? Date.now()) - n.start) / 1000).toFixed(1)}s`;
 
 function followIndex(nodes: EngineNode[]): number {
-  const needing = nodes.findIndex((n) => n.state === "needs-user" || n.state === "interacting");
+  const needing = nodes.findIndex((n) => n.state === "needs-user" || n.state === "interacting"
+    || (n.kind === "interactive" && n.state === "checking" && n.detail === "verifying setup"));
   if (needing >= 0) return needing;
   let best = -1, bestStart = -1, bestEnd = -1;
   nodes.forEach((n, i) => {
@@ -131,8 +132,9 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
 
   const nodes = engine.nodes;
   const waiting = nodes.filter((n) => n.state === "needs-user");
-  const inTerminal = nodes.find((n) => n.state === "interacting");
-  const attention = waiting.length > 0 || !!inTerminal;
+  const activeInteractive = nodes.find((n) => n.state === "interacting"
+    || (n.kind === "interactive" && n.state === "checking" && n.detail === "verifying setup"));
+  const attention = waiting.length > 0 || !!activeInteractive;
   const focusIdx = follow ? followIndex(nodes) : cursor;
   const focus = nodes[focusIdx] ?? nodes[0]!;
 
@@ -300,11 +302,13 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
         return;
       }
       openLogs(target, "run");
+    } else if (name === "s") {
+      const target = follow ? nodes.find((n) => n.state === "needs-user") ?? focus : focus;
+      if (target.kind === "interactive" && target.state === "needs-user" && !target.defaultOn) {
+        engine.skipInteractive(target);
+      }
     } else if (isSpace) {
       openLogs(focus, "run");
-    } else if (name === "s") {
-      const target = focus.state === "needs-user" ? focus : nodes.find((n) => n.state === "needs-user");
-      if (target) engine.skipInteractive(target);
     } else if (name === "q") {
       if (engine.finished()) onQuit();
     } else if (name === "c" && key.ctrl) {
@@ -444,12 +448,14 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
 
   /* ── run screen ── */
   const c = engine.counts();
-  const interactivePane = focus.kind === "interactive" && (focus.state === "needs-user" || focus.state === "interacting");
+  const interactivePane = focus.kind === "interactive" && (focus.state === "needs-user"
+    || focus.state === "interacting" || (focus.state === "checking" && focus.detail === "verifying setup"));
   const tailCount = Math.max(3, dims.height - (attention ? 7 : 6));
   const paneBodyHeight = Math.max(3, dims.height - (attention ? 5 : 4));
   const showModuleLogs = focus.logs.length > 0 || focus.state === "failed";
   const moduleLogHeight = showModuleLogs ? Math.min(8, Math.max(3, Math.floor(paneBodyHeight / 3))) : 0;
   const instruction = focus.kind === "interactive" ? focus.config["instruction"] : undefined;
+  const instructionLines = instruction ? wrapText(instruction, Math.max(20, dims.width - 39)) : [];
   const selectedItemIndex = focus.items.length
     ? Math.min(itemMode ? (itemCursors[focus.id] ?? activeItemIndex(focus.items)) : activeItemIndex(focus.items), focus.items.length - 1)
     : 0;
@@ -474,7 +480,7 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
         </box>
       ) : (
         <box style={{ height: 1, backgroundColor: C.surface2, paddingLeft: 1 }}>
-          <text fg={C.dim}>{`${spin()} ${inTerminal!.label} — signing in`}</text>
+          <text fg={C.dim}>{`${spin()} ${activeInteractive!.label} — ${activeInteractive!.detail}`}</text>
         </box>
       ))}
 
@@ -514,14 +520,15 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
           >
             {focus.state === "needs-user" ? (
               <>
-                {instruction && <text fg={C.dim}>{instruction}</text>}
-                {instruction && <text fg={C.dim}> </text>}
-                <text fg={C.text}>⏎ start · s skip</text>
-                {!focus.defaultOn && <text fg={C.dim}>config default: skip</text>}
+                {instructionLines.map((line, index) => <text key={index} fg={C.dim}>{line}</text>)}
+                {instructionLines.length > 0 && <text fg={C.dim}> </text>}
+                {/not verified/i.test(focus.detail) && <text fg={C.yellow}>{focus.detail}</text>}
+                <text fg={C.text}>{focus.config["command"] ? "⏎ run setup and verify" : "⏎ verify setup"}</text>
+                {!focus.defaultOn && <text fg={C.dim}>s skip this optional setup</text>}
               </>
             ) : (
               <>
-                <text fg={C.yellow}>{`${spin()} signing in…`}</text>
+                <text fg={C.yellow}>{`${spin()} ${focus.detail || "working…"}`}</text>
                 {focus.logs.slice(-tailCount).map((line, i) => (
                   <text key={i} fg={/error|failed/i.test(line) ? C.red : C.text}>{line}</text>
                 ))}
@@ -567,7 +574,7 @@ export function App({ engine, dryRun, onQuit }: AppProps) {
             : itemMode
               ? "items (›) · ↑↓ move · ⏎ toggle output · space full item logs · ←/esc modules"
             : follow
-              ? `following (▸) · ↑↓ take control · →/tab items${attention ? " · ⏎ answer input · s skip" : ""} · space logs`
+              ? `following (▸) · ↑↓ take control · →/tab items${attention ? " · ⏎ answer input" : ""} · space logs`
               : "manual (›) · ↑↓ module · →/tab items · space logs · esc follow"}
         </text>
       </box>

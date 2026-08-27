@@ -1,0 +1,8 @@
+{
+	admin unix//run/caddy/admin.sock
+}
+
+import /etc/caddy/tailnet.caddy
+
+# Primer applications own the files in this directory.
+import /etc/caddy/apps.d/*.caddy

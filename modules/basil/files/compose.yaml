@@ -1,0 +1,22 @@
+services:
+  ntfy:
+    image: binwiederhier/ntfy:latest
+    container_name: ntfy
+    command: serve
+    volumes:
+      - ${BASIL_REPO}/deploy/infra/ntfy/etc:/etc/ntfy:Z
+      - ${BASIL_REPO}/deploy/infra/ntfy/cache:/var/cache/ntfy:Z
+      - ${BASIL_REPO}/deploy/infra/ntfy/lib:/var/lib/ntfy:Z
+    ports:
+      - 127.0.0.1:18090:80
+    restart: unless-stopped
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    container_name: uptime-kuma
+    volumes:
+      - ${BASIL_REPO}/deploy/infra/uptime-kuma/data:/app/data:Z
+    ports:
+      - 127.0.0.1:18091:3001
+    restart: unless-stopped
+    extra_hosts:
+      - host.docker.internal:host-gateway

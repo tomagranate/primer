@@ -1,0 +1,29 @@
+[Unit]
+Description=Primer Caddy gateway
+Documentation=https://caddyserver.com/docs/
+Wants=network-online.target
+After=network-online.target tailscaled.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=notify
+User=caddy
+Group=caddy
+EnvironmentFile=-/etc/caddy/env.d/*.env
+ExecStartPre=+/usr/local/libexec/primer-caddy-tailnet
+ExecStart=/usr/local/bin/caddy run --config /etc/caddy/Caddyfile
+ExecReload=/usr/local/bin/caddy reload --config /etc/caddy/Caddyfile --address unix//run/caddy/admin.sock --force
+RuntimeDirectory=caddy
+RuntimeDirectoryMode=0755
+UMask=0077
+TimeoutStopSec=5s
+LimitNOFILE=1048576
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/etc/caddy
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,48 @@
+#!/bin/sh
+# Render shared Caddy fragments for routes that Primer can migrate atomically.
+set -eu
+
+valid_host() {
+    printf '%s\n' "$1" | grep -Eq '^[A-Za-z0-9.-]+$'
+}
+
+case "${1:-}" in
+    t3-code)
+        [ "$#" -eq 3 ] || exit 2
+        valid_host "$2"
+        printf '%s\n' "$3" | grep -Eq '^[1-9][0-9]{0,4}$'
+        cat <<EOF
+https://$2:443 {
+    import tailnet-bind
+    tls {
+        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+    }
+    log {
+        output file /var/lib/caddy/t3-access.log
+    }
+    reverse_proxy http://127.0.0.1:$3
+}
+EOF
+        ;;
+    plans-media)
+        [ "$#" -eq 3 ] || exit 2
+        valid_host "$2"
+        valid_host "$3"
+        cat <<EOF
+https://$2:443 {
+    import tailnet-bind
+    tls {
+        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+    }
+    reverse_proxy https://$3 {
+        header_up Host $3
+        header_up Authorization "Bearer {env.GATE_SECRET}"
+    }
+}
+EOF
+        ;;
+    *)
+        echo "usage: primer-caddy-fragment {t3-code HOST PORT|plans-media HOST WORKER}" >&2
+        exit 2
+        ;;
+esac

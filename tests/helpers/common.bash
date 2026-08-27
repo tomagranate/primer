@@ -11,6 +11,10 @@ export PRIMER_DIR
 PRIMER_DIR="$(cd "${BATS_TEST_DIRNAME}" && git rev-parse --show-toplevel)"
 export PRIMER_APP_SOURCE=1
 export PRIMER_MACHINE_CONF="${BATS_TEST_TMPDIR}/machine.conf"
+export XDG_STATE_HOME="${BATS_TEST_TMPDIR}/state"
+# Never load the developer's real ~/.zshenv in a test process. It can replace
+# mock PATH entries and turn a fixture command into a live package operation.
+export ZDOTDIR="${BATS_TEST_TMPDIR}"
 
 # ── Load bats-support and bats-assert ────────────────────────────────────────
 
