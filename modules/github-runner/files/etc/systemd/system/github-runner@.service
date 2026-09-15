@@ -14,7 +14,6 @@ ExecStart=/var/lib/github-runner/%i/run.sh
 Restart=always
 RestartSec=10
 TimeoutStopSec=30
-KillMode=process
 CPUWeight=50
 MemoryMax=8G
 Slice=gha-runner.slice
