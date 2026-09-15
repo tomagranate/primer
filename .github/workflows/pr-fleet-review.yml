@@ -1,0 +1,33 @@
+name: Fleet review
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+  workflow_dispatch:
+    inputs:
+      pr-number:
+        description: Pull request number to review
+        required: true
+      model:
+        description: Model pool override
+        required: false
+        default: opencode-go/deepseek-v4.1-flash,opencode-go/glm-5.3-flash
+
+concurrency:
+  group: fleet-review-${{ github.event.pull_request.number || inputs.pr-number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  checks: read
+
+jobs:
+  review:
+    uses: ./.github/workflows/fleet-review.yml
+    secrets:
+      OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+    with:
+      model: ${{ inputs.model || 'opencode-go/deepseek-v4.1-flash,opencode-go/glm-5.3-flash' }}
+      pr-number: ${{ inputs.pr-number || '' }}
