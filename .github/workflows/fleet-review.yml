@@ -4,10 +4,10 @@ on:
   workflow_call:
     inputs:
       model:
-        description: OpenCode Go model or comma-separated pool
+        description: OpenCode Go pool. deepseek-v4-flash is routed to V4.1 Flash.
         type: string
         required: false
-        default: opencode-go/deepseek-v4.1-flash,opencode-go/glm-5.3-flash
+        default: opencode-go/deepseek-v4.1-flash,opencode-go/deepseek-v4-flash,opencode-go/glm-5.3-flash
       pr-number:
         description: Pull request number for workflow_dispatch
         type: string
