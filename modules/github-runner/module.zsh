@@ -180,6 +180,10 @@ _github_runner::selinux_label() {
     if ! semanage fcontext -l | grep -F "$home(/.*)?" >/dev/null 2>&1; then
         _github_runner::run_as_root semanage fcontext -a -t bin_t "${home}(/.*)?" || return 1
     fi
+    local work_pat="${home}/[^/]+/_work(/.*)?"
+    if ! semanage fcontext -l | grep -F "${home}/[^/]+/_work" >/dev/null 2>&1; then
+        _github_runner::run_as_root semanage fcontext -a -t container_file_t "$work_pat" || return 1
+    fi
     _github_runner::run_as_root restorecon -RF "$home"
 }
 
