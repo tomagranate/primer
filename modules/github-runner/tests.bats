@@ -10,7 +10,8 @@ setup() {
     export MOD_ITEMS_FILE="$(mktemp)"
     export GITHUB_RUNNER_SYSTEMD_DIR="$TEST_HOME/etc/systemd/system"
     export GITHUB_RUNNER_HOME="$TEST_HOME/var/lib/github-runner"
-    mkdir -p "$MOCK_DIR" "$GITHUB_RUNNER_SYSTEMD_DIR" "$GITHUB_RUNNER_HOME"
+    export GITHUB_RUNNER_LIBEXEC_DIR="$TEST_HOME/usr/local/libexec"
+    mkdir -p "$MOCK_DIR" "$GITHUB_RUNNER_SYSTEMD_DIR" "$GITHUB_RUNNER_HOME" "$GITHUB_RUNNER_LIBEXEC_DIR"
     : > "$MOCK_LOG"
 
     cat > "$TEST_CONF" <<EOF
@@ -135,6 +136,7 @@ run_github_runner_module() {
         export MOCK_LOG='${MOCK_LOG}'
         export GITHUB_RUNNER_SYSTEMD_DIR='${GITHUB_RUNNER_SYSTEMD_DIR}'
         export GITHUB_RUNNER_HOME='${GITHUB_RUNNER_HOME}'
+        export GITHUB_RUNNER_LIBEXEC_DIR='${GITHUB_RUNNER_LIBEXEC_DIR}'
         source \"\$PRIMER_DIR/lib/module.zsh\"
         source \"\$PRIMER_DIR/tests/helpers/module-config.zsh\"
         test::load_module_config '${TEST_CONF}'
@@ -171,6 +173,9 @@ EOF
     assert_success
     [ -f "$GITHUB_RUNNER_SYSTEMD_DIR/gha-runner.slice" ]
     [ -f "$GITHUB_RUNNER_SYSTEMD_DIR/github-runner@.service" ]
+    [ -x "$GITHUB_RUNNER_LIBEXEC_DIR/primer-github-runner-cleanup" ]
+    grep -F "ExecStopPost=-+/usr/local/libexec/primer-github-runner-cleanup %i" \
+        "$GITHUB_RUNNER_SYSTEMD_DIR/github-runner@.service"
     grep -F "useradd --system" "$MOCK_LOG"
     grep -F "tomagranate--relaunch" "$MOCK_LOG"
     grep -F "tomagranate--primer" "$MOCK_LOG"
@@ -197,6 +202,29 @@ EOF
         echo "config.sh should not run for an existing registration" >&2
         return 1
     fi
+}
+
+@test "github-runner: cleanup removes leftover jbot files for one instance" {
+    instance=tomagranate--relaunch
+    work="$GITHUB_RUNNER_HOME/$instance/_work/relaunch/relaunch"
+    mkdir -p "$work/.jbot-review" "$GITHUB_RUNNER_HOME/$instance/_work/_temp/jbot-shard-cache"
+    printf leftover > "$work/.jbot-review/telemetry.jsonl"
+    printf leftover > "$GITHUB_RUNNER_HOME/$instance/_work/_temp/jbot-shard-cache/x"
+
+    run env GITHUB_RUNNER_HOME="$GITHUB_RUNNER_HOME" PATH="$MOCK_DIR:$PATH" \
+        "$PRIMER_DIR/modules/github-runner/files/usr/local/libexec/primer-github-runner-cleanup" \
+        "$instance"
+    assert_success
+    [ ! -e "$work/.jbot-review" ]
+    [ ! -e "$GITHUB_RUNNER_HOME/$instance/_work/_temp/jbot-shard-cache" ]
+    grep -F "docker ps -aq" "$MOCK_LOG"
+}
+
+@test "github-runner: cleanup rejects a path-shaped instance" {
+    run env GITHUB_RUNNER_HOME="$GITHUB_RUNNER_HOME" \
+        "$PRIMER_DIR/modules/github-runner/files/usr/local/libexec/primer-github-runner-cleanup" \
+        "../etc"
+    assert_failure
 }
 
 @test "github-runner: mod_status fails when units are missing" {

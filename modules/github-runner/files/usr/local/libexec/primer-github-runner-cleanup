@@ -1,0 +1,33 @@
+#!/bin/sh
+# Drop leftover jbot containers and root-owned review files for one runner.
+set -eu
+
+instance="${1:-}"
+home="${GITHUB_RUNNER_HOME:-/var/lib/github-runner}"
+user="${GITHUB_RUNNER_USER:-gha-runner}"
+image="${GITHUB_RUNNER_JBOT_IMAGE:-ghcr.io/pgup-ai/jbot-review:latest-slim}"
+
+case "$instance" in
+    ''|*/*|*..*)
+        echo "usage: primer-github-runner-cleanup <instance>" >&2
+        exit 2
+        ;;
+esac
+
+work="$home/$instance/_work"
+
+if command -v docker >/dev/null 2>&1 && [ -d "$work" ]; then
+    docker ps -aq --filter "ancestor=$image" | while IFS= read -r cid; do
+        [ -n "$cid" ] || continue
+        docker inspect -f '{{range .Mounts}}{{.Source}}{{"\n"}}{{end}}' "$cid" 2>/dev/null \
+            | grep -F "$work" >/dev/null 2>&1 || continue
+        docker rm -f "$cid" >/dev/null 2>&1 || true
+    done
+fi
+
+if [ -d "$work" ]; then
+    find "$work" -depth \( -name '.jbot-review' -o -name 'jbot-shard-cache' \) \
+        -exec rm -rf {} + 2>/dev/null || true
+    chown -R "$user:$user" "$work" 2>/dev/null || true
+    chmod -R a+rwX "$work" 2>/dev/null || true
+fi

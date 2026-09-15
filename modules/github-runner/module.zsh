@@ -117,6 +117,14 @@ _github_runner::unit_dest() {
     print -r -- "$(_github_runner::systemd_dir)/$1"
 }
 
+_github_runner::libexec_dir() {
+    print -r -- "${GITHUB_RUNNER_LIBEXEC_DIR:-/usr/local/libexec}"
+}
+
+_github_runner::cleanup_name() {
+    print -r -- primer-github-runner-cleanup
+}
+
 _github_runner::install_units() {
     local name dest src
     for name in gha-runner.slice github-runner@.service; do
@@ -124,6 +132,9 @@ _github_runner::install_units() {
         dest="$(_github_runner::unit_dest "$name")"
         _github_runner::run_as_root install -D -m 0644 "$src" "$dest" || return 1
     done
+    src="$MOD_DIR/files/usr/local/libexec/$(_github_runner::cleanup_name)"
+    dest="$(_github_runner::libexec_dir)/$(_github_runner::cleanup_name)"
+    _github_runner::run_as_root install -D -m 0755 "$src" "$dest" || return 1
 }
 
 _github_runner::units_match() {
@@ -133,6 +144,9 @@ _github_runner::units_match() {
         dest="$(_github_runner::unit_dest "$name")"
         [[ -f "$dest" ]] && cmp -s "$src" "$dest" || return 1
     done
+    src="$MOD_DIR/files/usr/local/libexec/$(_github_runner::cleanup_name)"
+    dest="$(_github_runner::libexec_dir)/$(_github_runner::cleanup_name)"
+    [[ -f "$dest" ]] && cmp -s "$src" "$dest" || return 1
 }
 
 _github_runner::ensure_user() {
