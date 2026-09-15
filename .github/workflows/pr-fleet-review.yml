@@ -25,9 +25,16 @@ permissions:
 
 jobs:
   review:
-    uses: ./.github/workflows/fleet-review.yml
-    secrets:
-      OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
-    with:
-      model: ${{ inputs.model || 'opencode-go/deepseek-v4.1-flash,opencode-go/deepseek-v4-flash,opencode-go/glm-5.3-flash' }}
-      pr-number: ${{ inputs.pr-number || '' }}
+    # runs-on and this skip cannot live in a composite action.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.draft == false &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, linux, fleet]
+    timeout-minutes: 30
+    steps:
+      - uses: tomagranate/fleet-review@v1
+        with:
+          opencode-api-key: ${{ secrets.OPENCODE_API_KEY }}
+          model: ${{ inputs.model || 'opencode-go/deepseek-v4.1-flash,opencode-go/deepseek-v4-flash,opencode-go/glm-5.3-flash' }}
+          pr-number: ${{ inputs.pr-number || '' }}
