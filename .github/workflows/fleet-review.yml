@@ -1,0 +1,51 @@
+name: Fleet review
+
+on:
+  workflow_call:
+    inputs:
+      model:
+        description: OpenCode Go pool. deepseek-v4-flash is routed to V4.1 Flash.
+        type: string
+        required: false
+        default: opencode-go/deepseek-v4.1-flash,opencode-go/deepseek-v4-flash,opencode-go/glm-5.3-flash
+      pr-number:
+        description: Pull request number for workflow_dispatch
+        type: string
+        required: false
+        default: ""
+    secrets:
+      OPENCODE_API_KEY:
+        required: true
+
+jobs:
+  review:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.draft == false &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: [self-hosted, linux, fleet]
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      checks: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || format('refs/pull/{0}/head', inputs.pr-number) }}
+
+      - uses: pgup-ai/jbot-review-action/slim@5cb5a054087cfe171579ec208f8b3824671246a7 # v0
+        with:
+          model: ${{ inputs.model }}
+          opencode-api-key: ${{ secrets.OPENCODE_API_KEY }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          pr-number: ${{ github.event.pull_request.number || inputs.pr-number }}
+          review-passes: "2"
+          verify-findings: "true"
+          skip-doc-only: "true"
+          skip-unchanged: "true"
+          auto-approve: "false"
+          time-budget-minutes: "20"

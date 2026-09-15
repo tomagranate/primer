@@ -1,0 +1,9 @@
+[Unit]
+Description=GitHub Actions fleet runners
+Documentation=https://docs.github.com/en/actions/hosting-your-own-runners
+
+[Slice]
+CPUAccounting=true
+MemoryAccounting=true
+CPUQuota=200%
+MemoryMax=16G
