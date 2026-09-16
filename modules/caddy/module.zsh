@@ -839,6 +839,9 @@ _caddy::snapshot_migration_routes() {
     if _caddy::plans_migration_needed; then
         routes+=("$(mod_config migrate_plans_route | head -1)")
     fi
+    if _caddy::desired_routes | grep -Fxq agents-preview; then
+        routes+=("$(mod_config migrate_preview_route | head -1)")
+    fi
     for route in "${routes[@]}"; do
         print -r -- "$route" | grep -Eq '^[a-z0-9][a-z0-9-]*$' \
             || { rm -r "$backup"; return 1; }
@@ -976,6 +979,14 @@ _caddy::check_listener_migration() {
 
 _caddy::stage_route() {
     local name="$1" source="$2"
+    local target manifest
+    target="$(_caddy::root_path /etc/caddy/apps.d/$name.caddy)"
+    manifest="$(_caddy::root_path /etc/caddy/primer-routes)"
+    if cmp -s "$source" "$target" \
+        && [[ -f "$manifest" ]] \
+        && grep -Fxq "$name" "$manifest"; then
+        return 0
+    fi
     _caddy::mark_restart gateway || return 1
     CADDY_CONFIG_DIR="$(_caddy::root_path /etc/caddy)" \
     CADDY_APPS_DIR="$(_caddy::root_path /etc/caddy/apps.d)" \

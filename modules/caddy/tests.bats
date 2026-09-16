@@ -104,8 +104,9 @@ EOF
 #!/bin/sh
 printf '%s\n' '{"Self":{"DNSName":"host.tailnet.ts.net.","TailscaleIPs":["100.64.0.7","fd7a:115c:a1e0::7"]}}'
 EOF
-    cat > "$MOCK_DIR/getent" <<'EOF'
+cat > "$MOCK_DIR/getent" <<'EOF'
 #!/bin/sh
+printf 'getent %s\n' "$*" >> "$MOCK_LOG"
 case "$1" in
     ahostsv4)
         printf '%s STREAM %s\n' 100.64.0.7 "$2"
@@ -561,6 +562,16 @@ EOF
 
     assert_success
     assert_output --partial "*.preview.tomagranate.com"
+}
+
+@test "caddy: resolves a wildcard through a concrete hostname" {
+    sed -i '/^routes =/i\    *.preview.tomagranate.com' "$TEST_CONF"
+
+    run_caddy_function _caddy::dns_resolves
+
+    assert_success
+    grep -F 'getent ahostsv4 primer-check.preview.tomagranate.com' "$MOCK_LOG"
+    grep -F 'getent ahostsv6 primer-check.preview.tomagranate.com' "$MOCK_LOG"
 }
 
 @test "caddy: dry-run plans the custom binary, service, and routes" {
@@ -1065,6 +1076,40 @@ EOF
     [ "$(stat -c %a "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 600 ]
     grep -Fx 'GATE_SECRET=gate-private' "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
     [ "$(grep -c 'systemctl reload caddy.service' "$MOCK_LOG")" -eq 0 ]
+}
+
+@test "caddy: restores a staged Preview route after migration failure" {
+    cat >> "$TEST_CONF" <<'EOF'
+    agents-preview
+migrate_preview_route = agents-preview
+migrate_preview_host = preview.tomagranate.com
+migrate_preview_port = 8770
+EOF
+
+    run_caddy_function '_caddy::snapshot_migration_routes && _caddy::stage_migration_routes && _caddy::restore_migration_routes'
+
+    assert_success
+    [ ! -e "$TEST_ROOT/etc/caddy/apps.d/agents-preview.caddy" ]
+    run grep -Fx 'agents-preview' "$CADDY_ROUTE_MANIFEST"
+    assert_failure
+}
+
+@test "caddy: unchanged staged Preview route does not request a restart" {
+    cat >> "$TEST_CONF" <<'EOF'
+    agents-preview
+migrate_preview_route = agents-preview
+migrate_preview_host = preview.tomagranate.com
+migrate_preview_port = 8770
+EOF
+    "$PRIMER_DIR/modules/caddy/files/usr/local/libexec/primer-caddy-fragment" \
+        agents-preview preview.tomagranate.com 8770 \
+        > "$TEST_ROOT/etc/caddy/apps.d/agents-preview.caddy"
+    printf 'agents-preview\nt3-code\n' > "$CADDY_ROUTE_MANIFEST"
+
+    run_caddy_function '_caddy::clear_restart gateway && _caddy::stage_migration_routes'
+
+    assert_success
+    [ ! -e "$TEST_ROOT/var/lib/primer/caddy/gateway-restart-required" ]
 }
 
 @test "caddy: preserves legacy Plans secret quoting during migration" {
