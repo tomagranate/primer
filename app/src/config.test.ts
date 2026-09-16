@@ -223,13 +223,13 @@ github_command = gh auth login
     const plans = await loadNodes(primerDir, "fedora-kde", ["plans-media"]);
     const basil = await loadNodes(primerDir, "fedora-kde", ["basil"]);
     expect(base.some((node) => node.id === "plans-media" || node.id === "basil")).toBe(false);
-    expect(plans.find((node) => node.id === "plans-media")?.deps).toEqual(["caddy"]);
+    expect(plans.find((node) => node.id === "plans-media")?.deps).toEqual(["caddy", "agents"]);
     expect(plans.find((node) => node.id === "caddy")?.config["caddy.routes"])
-      .toBe("\nt3-code\nplans-media");
+      .toBe("\nt3-code\nplans-media\nagents-preview");
     expect(plans.find((node) => node.id === "caddy")?.config["caddy.cloudflare_token_required"])
       .toBe("true");
     expect(plans.find((node) => node.id === "caddy")?.config["caddy.dns_names"])
-      .toBe("\nt3.{machine}.tomagranate.com\nplans.tomagranate.com");
+      .toBe("\nt3.{machine}.tomagranate.com\nplans.tomagranate.com\npreview.tomagranate.com\n*.preview.tomagranate.com");
     expect(plans.find((node) => node.id === "caddy")?.config["caddy.migrate_plans_route"])
       .toBe("plans-media");
     expect(basil.find((node) => node.id === "basil")?.deps)
