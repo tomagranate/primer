@@ -913,7 +913,7 @@ _caddy::plans_service_matches() {
         && [[ "$exec_reload" == *'argv[]=/usr/local/bin/caddy reload --config /etc/caddy/plans.Caddyfile --force ;'* ]] \
         && [[ "$environment" == '/etc/agents-infra/plans.env (ignore_errors=no)' ]] \
         && [[ "$user" == caddy && "$group" == caddy ]] \
-        && [[ -z "$drop_in_paths" ]] || return 1
+        && [[ "$drop_in_paths" != *'/plans.service.d/'* ]] || return 1
     for command in ExecCondition ExecStartPre ExecStartPost ExecStop ExecStopPost; do
         [[ -z "$(systemctl show plans.service --property="$command" --value 2>/dev/null)" ]] || return 1
     done
