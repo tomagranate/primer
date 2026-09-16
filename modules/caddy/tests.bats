@@ -1083,6 +1083,45 @@ EOF
     [ "$(grep -c 'systemctl reload caddy.service' "$MOCK_LOG")" -eq 0 ]
 }
 
+@test "caddy: preserves a known legacy local import during Plans migration" {
+    cat >> "$TEST_CONF" <<EOF
+    plans-media
+migrate_plans_config_digests = $(printf 'known legacy config\nimport /etc/caddy/relaunch-admin.Caddyfile\n' | sha256sum | cut -d ' ' -f1)
+migrate_plans_local_imports = /etc/caddy/relaunch-admin.Caddyfile
+migrate_plans_route = plans-media
+migrate_plans_host = plans.tomagranate.com
+migrate_plans_worker_host = agents-infra.sunburst-d5c.workers.dev
+EOF
+    printf 'known legacy config\nimport /etc/caddy/relaunch-admin.Caddyfile\n' \
+        > "$CADDY_CONFIG_DIR/plans.Caddyfile"
+    printf 'GATE_SECRET=gate-private\n' > "$TEST_ROOT/legacy.env"
+
+    run_caddy_function '_caddy::snapshot_migration_routes && _caddy::stage_migration_routes'
+
+    assert_success
+    grep -Fx 'import /etc/caddy/relaunch-admin.Caddyfile' \
+        "$TEST_ROOT/etc/caddy/local.d/migrated-plans-imports.caddy"
+}
+
+@test "caddy: rollback removes a newly migrated local import" {
+    cat >> "$TEST_CONF" <<EOF
+    plans-media
+migrate_plans_config_digests = $(printf 'known legacy config\nimport /etc/caddy/relaunch-admin.Caddyfile\n' | sha256sum | cut -d ' ' -f1)
+migrate_plans_local_imports = /etc/caddy/relaunch-admin.Caddyfile
+migrate_plans_route = plans-media
+migrate_plans_host = plans.tomagranate.com
+migrate_plans_worker_host = agents-infra.sunburst-d5c.workers.dev
+EOF
+    printf 'known legacy config\nimport /etc/caddy/relaunch-admin.Caddyfile\n' \
+        > "$CADDY_CONFIG_DIR/plans.Caddyfile"
+    printf 'GATE_SECRET=gate-private\n' > "$TEST_ROOT/legacy.env"
+
+    run_caddy_function '_caddy::snapshot_migration_routes && _caddy::stage_migration_routes && _caddy::restore_migration_routes'
+
+    assert_success
+    [ ! -e "$TEST_ROOT/etc/caddy/local.d/migrated-plans-imports.caddy" ]
+}
+
 @test "caddy: preserves legacy Plans secret quoting during migration" {
     cat >> "$TEST_CONF" <<'EOF'
     plans-media
