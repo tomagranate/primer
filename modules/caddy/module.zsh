@@ -838,12 +838,21 @@ _caddy::snapshot_migration_routes() {
     fi
     if _caddy::plans_migration_needed; then
         routes+=("$(mod_config migrate_plans_route | head -1)")
+        source="$(_caddy::root_path /etc/caddy/local.d/migrated-plans-imports.caddy)"
+        if [[ -f "$source" ]]; then
+            cp -p "$source" "$backup/migrated-plans-imports.caddy" \
+                || { rm -r "$backup"; return 1; }
+        fi
+        touch "$backup/plans-local-imports"
     fi
     for route in "${routes[@]}"; do
         print -r -- "$route" | grep -Eq '^[a-z0-9][a-z0-9-]*$' \
             || { rm -r "$backup"; return 1; }
         source="$(_caddy::root_path /etc/caddy/apps.d/$route.caddy)"
-        [[ -f "$source" ]] && cp -p "$source" "$backup/$route.caddy"
+        if [[ -f "$source" ]]; then
+            cp -p "$source" "$backup/$route.caddy" \
+                || { rm -r "$backup"; return 1; }
+        fi
     done
     temp="$(_caddy::root_path /etc/caddy/primer-routes)"
     [[ -f "$temp" ]] && cp -p "$temp" "$backup/primer-routes"
@@ -864,6 +873,15 @@ _caddy::restore_migration_routes() {
             _caddy::root rm -f "$target" || return 1
         fi
     done < "$_CADDY_MIGRATION_BACKUP/routes"
+    if [[ -e "$_CADDY_MIGRATION_BACKUP/plans-local-imports" ]]; then
+        target="$(_caddy::root_path /etc/caddy/local.d/migrated-plans-imports.caddy)"
+        if [[ -f "$_CADDY_MIGRATION_BACKUP/migrated-plans-imports.caddy" ]]; then
+            _caddy::root install -m 0644 \
+                "$_CADDY_MIGRATION_BACKUP/migrated-plans-imports.caddy" "$target" || return 1
+        else
+            _caddy::root rm -f "$target" || return 1
+        fi
+    fi
     if [[ -f "$_CADDY_MIGRATION_BACKUP/primer-routes" ]]; then
         _caddy::root install -m 0644 "$_CADDY_MIGRATION_BACKUP/primer-routes" "$manifest"
     else
@@ -888,14 +906,16 @@ _caddy::plans_service_managed() {
 }
 
 _caddy::plans_service_matches() {
-    local config expected actual unit expected_unit actual_unit fragment
+    local config expected actual unit expected_unit actual_unit fragment matched=false
     local exec_start exec_reload environment user group drop_in_paths command
     config="$(_caddy::root_path /etc/caddy/plans.Caddyfile)"
-    expected="$(mod_config migrate_plans_config_digest | head -1)"
-    print -r -- "$expected" | grep -Eq '^[0-9a-f]{64}$' || return 1
     [[ -f "$config" ]] || return 1
     actual="$(sha256sum "$config" 2>/dev/null | awk '{print $1}')" || return 1
-    [[ "$actual" == "$expected" ]] || return 1
+    while IFS= read -r expected; do
+        print -r -- "$expected" | grep -Eq '^[0-9a-f]{64}$' || return 1
+        [[ "$actual" == "$expected" ]] && matched=true
+    done < <(mod_config migrate_plans_config_digest; mod_config migrate_plans_config_digests)
+    $matched || return 1
     unit="$(_caddy::root_path /etc/systemd/system/plans.service)"
     expected_unit="$(mod_config migrate_plans_unit_digest | head -1)"
     print -r -- "$expected_unit" | grep -Eq '^[0-9a-f]{64}$' || return 1
@@ -917,6 +937,43 @@ _caddy::plans_service_matches() {
     for command in ExecCondition ExecStartPre ExecStartPost ExecStop ExecStopPost; do
         [[ -z "$(systemctl show plans.service --property="$command" --value 2>/dev/null)" ]] || return 1
     done
+}
+
+_caddy::stage_plans_local_imports() {
+    local legacy target import temp expected actual contents="" required=false
+    legacy="$(_caddy::root_path /etc/caddy/plans.Caddyfile)"
+    target="$(_caddy::root_path /etc/caddy/local.d/migrated-plans-imports.caddy)"
+    actual="$(sha256sum "$legacy" 2>/dev/null | awk '{print $1}')" || return 1
+    # Additional fingerprints describe newer gateways whose configured imports
+    # must survive migration. The original Plans-only fingerprint has none.
+    while IFS= read -r expected; do
+        [[ "$actual" == "$expected" ]] && required=true
+    done < <(mod_config migrate_plans_config_digests)
+    while IFS= read -r import; do
+        print -r -- "$import" | grep -Eq '^/[A-Za-z0-9._/-]+$' || return 1
+        if ! grep -Fxq "import $import" "$legacy"; then
+            $required && return 1
+            continue
+        fi
+        contents+="import $import"$'\n'
+    done < <(mod_config migrate_plans_local_imports)
+    [[ -n "$contents" ]] || return 0
+    temp="$(mktemp)" || return 1
+    print -rn -- "$contents" >"$temp"
+    if [[ -f "$target" ]] && ! cmp -s "$temp" "$target"; then
+        print "Refusing to replace $target; preserve its local routes manually." >&2
+        rm -f "$temp"
+        return 1
+    fi
+    _caddy::mark_restart gateway || { rm -f "$temp"; return 1; }
+    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
+        install -D -m 0644 "$temp" "$target"
+    else
+        _caddy::root install -D -o root -g root -m 0644 "$temp" "$target"
+    fi
+    local rc=$?
+    rm -f "$temp"
+    return "$rc"
 }
 
 _caddy::plans_migration_needed() {
@@ -1050,6 +1107,7 @@ _caddy::stage_migration_routes() {
         worker="$(mod_config migrate_plans_worker_host | head -1)"
         [[ "$route" == plans-media ]] || return 1
         _caddy::stage_plans_credentials || return 1
+        _caddy::stage_plans_local_imports || return 1
         temp="$(mktemp)" || return 1
         "$(_caddy::fragment_helper)" plans-media "$host" "$worker" >"$temp" \
             || { rm -f "$temp"; return 1; }
