@@ -66,6 +66,17 @@ run_module() {
     refute_output --partial "GATE_SECRET="
 }
 
+@test "plans-media: prefers the managed Agents binary over PATH" {
+    mkdir -p "$TEST_ROOT/.local/bin"
+    install -m 0755 /dev/null "$TEST_ROOT/.local/bin/agents"
+
+    run env HOME="$TEST_ROOT" AGENTS_BIN= zsh -c \
+        "source '$PRIMER_DIR/modules/plans-media/module.zsh'; _plans_media::agents_bin"
+
+    assert_success
+    assert_output "$TEST_ROOT/.local/bin/agents"
+}
+
 @test "plans-media: migrates the existing secret file without printing it" {
     printf 'GATE_SECRET=private\nCLOUDFLARE_API_TOKEN=private\n' > "$TEST_ROOT/legacy.env"
     run_module mod_update

@@ -33,6 +33,16 @@ teardown() {
     assert_output --partial "agents archive init"
 }
 
+@test "agents: prefers the managed CLI over PATH" {
+    mkdir -p "$HOME/.local/bin"
+    install -m 0755 /dev/null "$HOME/.local/bin/agents"
+
+    zsh_run_module agents "_agents::bin"
+
+    assert_success
+    assert_output "$HOME/.local/bin/agents"
+}
+
 @test "agents: mod_status fails without git home" {
     zsh_run_module agents "mod_status"
     assert_failure
