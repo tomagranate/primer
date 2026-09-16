@@ -554,6 +554,15 @@ EOF
     assert_failure
 }
 
+@test "caddy: accepts wildcard private DNS names" {
+    sed -i '/^routes =/i\    *.preview.tomagranate.com' "$TEST_CONF"
+
+    run_caddy_function _caddy::desired_dns_names
+
+    assert_success
+    assert_output --partial "*.preview.tomagranate.com"
+}
+
 @test "caddy: dry-run plans the custom binary, service, and routes" {
     run zsh -c "
         export PRIMER_DIR='$PRIMER_DIR' DRY_RUN=true MOD_DIR='$PRIMER_DIR/modules/caddy'
@@ -585,6 +594,7 @@ EOF
     done
     mkdir -p \
         "$TEST_ROOT/etc/caddy/apps.d" \
+        "$TEST_ROOT/etc/caddy/local.d" \
         "$TEST_ROOT/usr/local/bin" \
         "$TEST_ROOT/var/lib/primer/caddy"
     cat > "$TEST_ROOT/usr/local/bin/caddy" <<'EOF'
@@ -663,6 +673,11 @@ EOF
     run_caddy_function mod_status
     assert_failure
     chmod 0755 "$TEST_ROOT/etc/caddy/apps.d"
+
+    chmod 0775 "$TEST_ROOT/etc/caddy/local.d"
+    run_caddy_function mod_status
+    assert_failure
+    chmod 0755 "$TEST_ROOT/etc/caddy/local.d"
 
     chmod 0775 "$TEST_ROOT/usr/local/libexec/primer-caddy-tailnet"
     run_caddy_function mod_status
@@ -845,6 +860,18 @@ EOF
     [ "$(grep -c 'systemctl reload caddy.service' "$MOCK_LOG")" -eq 2 ]
 }
 
+@test "caddy: route reconciliation preserves local fragments" {
+    mkdir -p "$TEST_ROOT/etc/caddy/local.d"
+    printf 'local route\n' > "$TEST_ROOT/etc/caddy/local.d/relaunch.caddy"
+    printf 'stale\n' > "$CADDY_APPS_DIR/stale.caddy"
+    printf 'stale\n' > "$CADDY_ROUTE_MANIFEST"
+
+    route_helper reconcile
+
+    assert_success
+    [ "$(cat "$TEST_ROOT/etc/caddy/local.d/relaunch.caddy")" = 'local route' ]
+}
+
 @test "caddy: refuses Plans migration when the addon is not selected" {
     cat > "$MOCK_DIR/tailscale" <<'EOF'
 #!/bin/sh
@@ -1006,12 +1033,16 @@ EOF
     grep -F "systemctl start plans.service" "$MOCK_LOG"
 }
 
-@test "caddy: stages matching T3 and Plans routes before migration" {
+@test "caddy: stages matching T3, Plans, and Preview routes before migration" {
     cat >> "$TEST_CONF" <<'EOF'
     plans-media
+    agents-preview
 migrate_plans_route = plans-media
 migrate_plans_host = plans.tomagranate.com
 migrate_plans_worker_host = agents-infra.sunburst-d5c.workers.dev
+migrate_preview_route = agents-preview
+migrate_preview_host = preview.tomagranate.com
+migrate_preview_port = 8770
 EOF
     printf 'GATE_SECRET=gate-private\n' > "$TEST_ROOT/legacy.env"
     cat > "$MOCK_DIR/tailscale" <<'EOF'
@@ -1029,6 +1060,8 @@ EOF
     grep -F "reverse_proxy http://127.0.0.1:3773" "$TEST_ROOT/etc/caddy/apps.d/t3-code.caddy"
     grep -F "reverse_proxy https://agents-infra.sunburst-d5c.workers.dev" \
         "$TEST_ROOT/etc/caddy/apps.d/plans-media.caddy"
+    grep -F "reverse_proxy http://127.0.0.1:8770" \
+        "$TEST_ROOT/etc/caddy/apps.d/agents-preview.caddy"
     [ "$(stat -c %a "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 600 ]
     grep -Fx 'GATE_SECRET=gate-private' "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
     [ "$(grep -c 'systemctl reload caddy.service' "$MOCK_LOG")" -eq 0 ]

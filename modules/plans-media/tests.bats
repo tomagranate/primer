@@ -11,16 +11,19 @@ setup() {
     export PLANS_MEDIA_TEST_ROOT=1
     export CADDY_ROUTE_HELPER="$MOCK_DIR/primer-caddy-route"
     export SYSTEMCTL_BIN="$MOCK_DIR/systemctl"
+    export AGENTS_BIN="$MOCK_DIR/agents"
     cat > "$TEST_CONF" <<EOF
 [plans-media]
 host = plans.tomagranate.com
 worker_host = agents-infra.sunburst-d5c.workers.dev
+preview_host = preview.tomagranate.com
+preview_port = 8770
 legacy_secrets_file = $TEST_ROOT/legacy.env
 EOF
     cat > "$CADDY_ROUTE_HELPER" <<'EOF'
 #!/bin/sh
 printf 'route %s\n' "$*" >> "$MOCK_LOG"
-if [ "$1" = install ]; then cp "$3" "$TEST_ROOT/installed.caddy"; fi
+if [ "$1" = install ]; then cp "$3" "$TEST_ROOT/$2.caddy"; fi
 EOF
     chmod +x "$CADDY_ROUTE_HELPER"
     cat > "$SYSTEMCTL_BIN" <<'EOF'
@@ -28,6 +31,11 @@ EOF
 printf 'systemctl %s\n' "$*" >> "$MOCK_LOG"
 EOF
     chmod +x "$SYSTEMCTL_BIN"
+    cat > "$AGENTS_BIN" <<'EOF'
+#!/bin/sh
+printf 'agents %s\n' "$*" >> "$MOCK_LOG"
+EOF
+    chmod +x "$AGENTS_BIN"
 }
 
 teardown() { rm -rf "$TEST_ROOT" "$MOCK_DIR"; rm -f "$TEST_CONF" "$MOCK_LOG"; }
@@ -37,7 +45,7 @@ run_module() {
         export PRIMER_DIR='$PRIMER_DIR' DRY_RUN='${DRY_RUN:-false}' MOD_DIR='$PRIMER_DIR/modules/plans-media'
         export MOD_NAME=plans-media MOD_STATUS_FILE='$(mktemp)' MOD_ITEMS_FILE='$(mktemp)'
         export PLANS_MEDIA_ROOT_DIR='$PLANS_MEDIA_ROOT_DIR' PLANS_MEDIA_TEST_ROOT=1
-        export CADDY_ROUTE_HELPER='$CADDY_ROUTE_HELPER' SYSTEMCTL_BIN='$SYSTEMCTL_BIN'
+        export CADDY_ROUTE_HELPER='$CADDY_ROUTE_HELPER' SYSTEMCTL_BIN='$SYSTEMCTL_BIN' AGENTS_BIN='$AGENTS_BIN'
         export PLANS_MEDIA_EXPECTED_OWNER='${PLANS_MEDIA_EXPECTED_OWNER:-}'
         export MOCK_LOG='$MOCK_LOG' TEST_ROOT='$TEST_ROOT'
         source '$PRIMER_DIR/lib/module.zsh'
@@ -63,8 +71,11 @@ run_module() {
     [ "$(stat -c %a "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 600 ]
     [ "$(cat "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 'GATE_SECRET=private' ]
     refute_output --partial "private"
-    grep -F 'import tailnet-bind' "$TEST_ROOT/installed.caddy"
-    grep -F 'header_up Authorization "Bearer {env.GATE_SECRET}"' "$TEST_ROOT/installed.caddy"
+    grep -F 'import tailnet-bind' "$TEST_ROOT/plans-media.caddy"
+    grep -F 'header_up Authorization "Bearer {env.GATE_SECRET}"' "$TEST_ROOT/plans-media.caddy"
+    grep -F 'https://preview.tomagranate.com:443, https://*.preview.tomagranate.com:443' "$TEST_ROOT/agents-preview.caddy"
+    grep -F 'keepalive off' "$TEST_ROOT/agents-preview.caddy"
+    grep -Fx 'agents preview install' "$MOCK_LOG"
     grep -Fx 'systemctl restart caddy.service' "$MOCK_LOG"
 }
 
@@ -72,7 +83,7 @@ run_module() {
     run_module mod_update
     assert_failure
     assert_output --partial "Set plans-media.gate_secret_ref"
-    [ ! -e "$TEST_ROOT/installed.caddy" ]
+    [ ! -e "$TEST_ROOT/plans-media.caddy" ]
 }
 
 @test "plans-media: refreshes an installed secret from the legacy source" {

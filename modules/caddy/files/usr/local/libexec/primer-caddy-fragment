@@ -41,8 +41,26 @@ https://$2:443 {
 }
 EOF
         ;;
+    agents-preview)
+        [ "$#" -eq 3 ] || exit 2
+        valid_host "$2"
+        printf '%s\n' "$3" | grep -Eq '^[1-9][0-9]{0,4}$'
+        cat <<EOF
+https://$2:443, https://*.$2:443 {
+    import tailnet-bind
+    tls {
+        dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+    }
+    reverse_proxy http://127.0.0.1:$3 {
+        transport http {
+            keepalive off
+        }
+    }
+}
+EOF
+        ;;
     *)
-        echo "usage: primer-caddy-fragment {t3-code HOST PORT|plans-media HOST WORKER}" >&2
+        echo "usage: primer-caddy-fragment {t3-code HOST PORT|plans-media HOST WORKER|agents-preview HOST PORT}" >&2
         exit 2
         ;;
 esac
