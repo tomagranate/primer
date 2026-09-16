@@ -84,7 +84,7 @@ export function AddonPicker({ profile, addons, initial, onConfirm, onCancel }: A
   return (
     <box style={{ width: "100%", height: "100%", flexDirection: "column", backgroundColor: C.surface0 }}>
       <box style={{ height: 1, backgroundColor: C.surface1, paddingLeft: 1 }}>
-        <text fg={C.bold}>{`Primer addons · ${profile}`}</text>
+        <text fg={C.bold}>{`Optional machine roles · ${profile}`}</text>
       </box>
       <box style={{ flexGrow: 1, flexDirection: "column", paddingTop: topPadding }}>
         {visible.map(({ addon, addonIndex, line, lineIndex }) => {

@@ -6,8 +6,8 @@ export function profileSummary(selection: Selection, available: AddonDef[]): str
   const lines = [
     `Profile: ${selection.profile}`,
     `Source: ${selection.source}`,
-    `Addons: ${selection.addons.join(", ") || "none"}`,
-    "Available addons:",
+    `Optional roles: ${selection.addons.join(", ") || "none"}`,
+    "Available roles:",
   ];
   if (applicable.length === 0) lines.push("  none");
   for (const addon of applicable) {
@@ -40,7 +40,8 @@ export function profileSetResult(
   } else {
     lines.push("Modules that leave Primer management:");
     for (const id of dropped) lines.push(`  ${id}`);
-    lines.push("Primer does not uninstall these modules. Remove them manually if needed.");
+    lines.push("Run 'primer update' to remove managed routes and stop managing these modules.");
+    lines.push("Primer keeps installed packages and application data.");
   }
   return lines.join("\n");
 }

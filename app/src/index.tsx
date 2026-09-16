@@ -34,16 +34,16 @@ Usage:
 Commands:
   update      Install/update everything (idempotent)
   status      Check what's installed and healthy
-  profile     Show the selected profile and addons
+  profile     Show the selected profile and optional machine roles
   profile set [profile] [addon ...]
-              Persist a profile and its addons
+              Persist a profile and its optional machine roles
 
 Flags:
   --dry-run         Preview changes without applying them (update only)
   --skip <module>   Skip a module by name; repeatable (update only)
   --only <module>   Run only this module; repeatable (update only)
   --profile <name>  Force profile: mac, linux-vps, fedora-kde
-  --addon <name>    Force an addon for this run; repeatable
+  --addon <name>    Force an optional machine role for this run; repeatable
   --log             Plain line output instead of the TUI
   --help            Show this help message`);
 }

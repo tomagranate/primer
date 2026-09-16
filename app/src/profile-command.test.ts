@@ -29,6 +29,6 @@ describe("profile command output", () => {
     const interactive: NodeDef = { ...node("interactive:login"), kind: "interactive" };
     const dropped = droppedModuleIds([node("base"), node("gaming"), interactive], [node("base")]);
     expect(dropped).toEqual(["gaming"]);
-    expect(profileSetResult("fedora-kde", [], dropped)).toContain("Primer does not uninstall");
+    expect(profileSetResult("fedora-kde", [], dropped)).toContain("Run 'primer update'");
   });
 });
