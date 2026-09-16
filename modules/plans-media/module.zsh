@@ -22,7 +22,13 @@ _plans_media::fragment_helper() {
 }
 
 _plans_media::agents_bin() {
-    print -r -- "${AGENTS_BIN:-agents}"
+    if [[ -n "${AGENTS_BIN:-}" ]]; then
+        print -r -- "$AGENTS_BIN"
+    elif [[ -x "$HOME/.local/bin/agents" ]]; then
+        print -r -- "$HOME/.local/bin/agents"
+    else
+        print -r -- agents
+    fi
 }
 
 _plans_media::systemctl_bin() {

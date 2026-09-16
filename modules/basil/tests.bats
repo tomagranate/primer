@@ -74,7 +74,24 @@ repo_path = $TEST_HOME/code/basil
 cloudflared_version = 2026.8.2
 ntfy_gateway_port = 8090
 kuma_gateway_port = 8443
+legacy_kuma_target = http://127.0.0.1:8090
 EOF
+    cat > "$MOCK_DIR/tailscale" <<'EOF'
+#!/bin/sh
+printf 'tailscale %s\n' "$*" >> "$MOCK_LOG"
+case "$*" in
+    "serve status --json")
+        if [ -e "$TEST_HOME/legacy-kuma" ]; then
+            printf '%s\n' '{"TCP":{"8443":{"HTTPS":true}},"Web":{"host:8443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:8090"}}}}}'
+        elif [ -e "$TEST_HOME/unrelated-kuma" ]; then
+            printf '%s\n' '{"TCP":{"8443":{"HTTPS":true}},"Web":{"host:8443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:9999"}}}}}'
+        else
+            printf '%s\n' '{}'
+        fi
+        ;;
+esac
+EOF
+    chmod +x "$MOCK_DIR/tailscale"
 }
 
 teardown() {
@@ -113,6 +130,41 @@ run_module() {
     assert_output --partial "http://127.0.0.1:8090"
     assert_output --partial 'https://tombook-linux.example.ts.net:8443'
     assert_output --partial "reverse_proxy http://127.0.0.1:18091"
+}
+
+@test "basil: migrates the exact legacy Kuma listener" {
+    touch "$TEST_HOME/legacy-kuma"
+
+    run_module _basil::migrate_kuma_listener
+
+    assert_success
+    grep -Fx 'tailscale serve --https=8443 off' "$MOCK_LOG"
+}
+
+@test "basil: refuses an unrelated listener on its gateway port" {
+    touch "$TEST_HOME/unrelated-kuma"
+
+    run_module _basil::migrate_kuma_listener
+
+    assert_failure
+    assert_output --partial "does not match Basil's legacy Kuma listener"
+    run grep -F 'tailscale serve --https=8443 off' "$MOCK_LOG"
+    assert_failure
+}
+
+@test "basil: restores the legacy listener after route failure" {
+    touch "$TEST_HOME/legacy-kuma"
+    cat > "$MOCK_DIR/primer-caddy-route" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+    chmod +x "$MOCK_DIR/primer-caddy-route"
+
+    run_module '_basil::migrate_kuma_listener && _basil::install_route || _basil::restore_kuma_listener'
+
+    assert_success
+    grep -Fx 'tailscale serve --https=8443 off' "$MOCK_LOG"
+    grep -Fx 'tailscale serve --bg --https=8443 http://127.0.0.1:8090' "$MOCK_LOG"
 }
 
 @test "basil: missing repository files are explicit" {

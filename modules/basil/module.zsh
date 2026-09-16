@@ -325,6 +325,39 @@ _basil::install_route() {
     return "$rc"
 }
 
+typeset -g _BASIL_MIGRATED_KUMA=false
+
+_basil::migrate_kuma_listener() {
+    local port target serve_status
+    _BASIL_MIGRATED_KUMA=false
+    port="$(mod_config kuma_gateway_port | head -1)"
+    target="$(mod_config legacy_kuma_target | head -1)"
+    [[ "$port" == <1-65535> && "$target" == http://127.0.0.1:<1-65535> ]] || return 1
+    serve_status="$(tailscale serve status --json 2>/dev/null)" || return 1
+    if ! print -r -- "$serve_status" | jq -e --arg port "$port" '.TCP[$port] != null' >/dev/null; then
+        return 0
+    fi
+    print -r -- "$serve_status" | jq -e --arg port "$port" --arg target "$target" \
+        '([.Web | to_entries[]? | select(.key | endswith(":" + $port))] | length == 1) and
+         ([.Web | to_entries[]? | select(.key | endswith(":" + $port)) |
+           .value.Handlers | keys] == [["/"]]) and
+         ([.Web | to_entries[]? | select(.key | endswith(":" + $port)) |
+           .value.Handlers["/"].Proxy] == [$target])' >/dev/null || {
+            print "Tailscale Serve port $port does not match Basil's legacy Kuma listener." >&2
+            return 1
+        }
+    tailscale serve --https="$port" off || return 1
+    _BASIL_MIGRATED_KUMA=true
+}
+
+_basil::restore_kuma_listener() {
+    $_BASIL_MIGRATED_KUMA || return 0
+    local port target
+    port="$(mod_config kuma_gateway_port | head -1)"
+    target="$(mod_config legacy_kuma_target | head -1)"
+    tailscale serve --bg --https="$port" "$target"
+}
+
 _basil::enable_services() {
     command -v hermes >/dev/null 2>&1 || { print "hermes not found" >&2; return 1; }
     _basil::install_cloudflared || { print "cloudflared install failed" >&2; return 1; }
@@ -380,7 +413,13 @@ mod_update() {
     _basil::enable_docker || { primer::item_update containers failed "Docker service failed"; return 1; }
     _basil::install_compose || { primer::item_update containers failed "compose failed"; return 1; }
     primer::item_update containers done
-    _basil::install_route || { primer::item_update route failed "validation failed"; return 1; }
+    _basil::migrate_kuma_listener \
+        || { primer::item_update route failed "listener migration failed"; return 1; }
+    _basil::install_route || {
+        _basil::restore_kuma_listener
+        primer::item_update route failed "validation failed"
+        return 1
+    }
     primer::item_update route done
     primer::status_msg "Basil ready"
 }
