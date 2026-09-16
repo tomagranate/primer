@@ -609,6 +609,8 @@ EOF
     assert_success
     CADDY_CONFIG_DIR="$TEST_ROOT/etc/caddy" \
     CADDY_RUNTIME_DIR="$TEST_ROOT/run/caddy" \
+    CADDY_RUNTIME_OWNER="$(id -un)" \
+    CADDY_RUNTIME_GROUP="$(id -gn)" \
     TAILSCALE_BIN="$MOCK_DIR/tailscale" \
         "$TEST_ROOT/usr/local/libexec/primer-caddy-tailnet"
 
