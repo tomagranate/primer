@@ -65,6 +65,9 @@ fi
 if [ "$*" = "show plans.service --property=DropInPaths --value" ] && [ -e "$TEST_ROOT/plans-drop-in" ]; then
     printf '%s\n' '/etc/systemd/system/plans.service.d/network.conf'
 fi
+if [ "$*" = "show plans.service --property=DropInPaths --value" ] && [ -e "$TEST_ROOT/global-service-drop-in" ]; then
+    printf '%s\n' '/usr/lib/systemd/system/service.d/10-timeout-abort.conf'
+fi
 exit 0
 EOF
     chmod +x "$MOCK_DIR/systemctl"
@@ -958,6 +961,14 @@ EOF
     assert_output --partial "will not replace a customized service"
     run grep -F "systemctl disable --now plans.service" "$MOCK_LOG"
     assert_failure
+}
+
+@test "caddy: accepts Fedora's global service drop-in" {
+    touch "$TEST_ROOT/global-service-drop-in"
+
+    run_caddy_function _caddy::plans_service_matches
+
+    assert_success
 }
 
 @test "caddy: refuses to replace an unrelated Tailscale Serve target" {
