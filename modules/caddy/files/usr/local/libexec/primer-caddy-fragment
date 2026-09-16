@@ -45,6 +45,7 @@ EOF
         [ "$#" -eq 3 ] || exit 2
         valid_host "$2"
         printf '%s\n' "$3" | grep -Eq '^[1-9][0-9]{0,4}$'
+        [ "$3" -le 65535 ]
         cat <<EOF
 https://$2:443, https://*.$2:443 {
     import tailnet-bind

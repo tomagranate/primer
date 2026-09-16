@@ -26,14 +26,16 @@ printf 'route %s\n' "$*" >> "$MOCK_LOG"
 if [ "$1" = install ]; then cp "$3" "$TEST_ROOT/$2.caddy"; fi
 EOF
     chmod +x "$CADDY_ROUTE_HELPER"
-    cat > "$SYSTEMCTL_BIN" <<'EOF'
+cat > "$SYSTEMCTL_BIN" <<'EOF'
 #!/bin/sh
 printf 'systemctl %s\n' "$*" >> "$MOCK_LOG"
+if [ "$1" = --user ] && [ -e "$TEST_ROOT/reject-preview-status" ]; then exit 1; fi
 EOF
     chmod +x "$SYSTEMCTL_BIN"
-    cat > "$AGENTS_BIN" <<'EOF'
+cat > "$AGENTS_BIN" <<'EOF'
 #!/bin/sh
 printf 'agents %s\n' "$*" >> "$MOCK_LOG"
+[ ! -e "$TEST_ROOT/reject-agents" ]
 EOF
     chmod +x "$AGENTS_BIN"
 }
@@ -84,6 +86,28 @@ run_module() {
     assert_failure
     assert_output --partial "Set plans-media.gate_secret_ref"
     [ ! -e "$TEST_ROOT/plans-media.caddy" ]
+}
+
+@test "plans-media: fails when the Preview daemon install fails" {
+    printf 'GATE_SECRET=private\n' > "$TEST_ROOT/legacy.env"
+    touch "$TEST_ROOT/reject-agents"
+
+    run_module mod_update
+
+    assert_failure
+    assert_output --partial "install failed"
+    [ ! -e "$TEST_ROOT/plans-media.caddy" ]
+}
+
+@test "plans-media: rejects an invalid Preview port" {
+    printf 'GATE_SECRET=private\n' > "$TEST_ROOT/legacy.env"
+    sed -i 's/preview_port = 8770/preview_port = 99999/' "$TEST_CONF"
+
+    run_module mod_update
+
+    assert_failure
+    assert_output --partial "validation failed"
+    [ ! -e "$TEST_ROOT/agents-preview.caddy" ]
 }
 
 @test "plans-media: refreshes an installed secret from the legacy source" {
@@ -214,4 +238,20 @@ run_module() {
     export PLANS_MEDIA_EXPECTED_OWNER=__not_the_owner__
     run_module '_plans_media::root() { return 99; }; mod_status'
     assert_failure
+}
+
+@test "plans-media: status fails when the Preview daemon is inactive" {
+    mkdir -p "$TEST_ROOT/etc/caddy/env.d"
+    printf 'GATE_SECRET=private\n' > "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
+    chmod 0600 "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
+    run_module _plans_media::install_secrets
+    assert_success
+    run_module _plans_media::clear_restart
+    assert_success
+    touch "$TEST_ROOT/reject-preview-status"
+
+    run_module mod_status
+
+    assert_failure
+    assert_output --partial "preview daemon"
 }

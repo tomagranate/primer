@@ -199,6 +199,7 @@ _plans_media::preview_route_contents() {
     port="$(mod_config preview_port | head -1)"
     print -r -- "$host" | grep -Eq '^[A-Za-z0-9.-]+$' || return 1
     print -r -- "$port" | grep -Eq '^[1-9][0-9]{0,4}$' || return 1
+    (( port <= 65535 )) || return 1
     "$(_plans_media::fragment_helper)" agents-preview "$host" "$port"
 }
 
@@ -235,7 +236,7 @@ mod_update() {
     fi
     _plans_media::install_secrets || { primer::item_update secrets failed "configuration required"; return 1; }
     primer::item_update secrets done
-    _plans_media::install_preview_daemon \
+    _plans_media::install_preview_daemon && _plans_media::preview_daemon_ready \
         || { primer::item_update preview-daemon failed "install failed"; return 1; }
     primer::item_update preview-daemon done
     _plans_media::install_route plans-media _plans_media::plans_route_contents \
