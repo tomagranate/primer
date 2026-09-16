@@ -354,8 +354,22 @@ _basil::restore_kuma_listener() {
     $_BASIL_MIGRATED_KUMA || return 0
     local port target
     port="$(mod_config kuma_gateway_port | head -1)"
-    target="$(mod_config legacy_kuma_target | head -1)"
+    target="$(mod_config rollback_kuma_target | head -1)"
+    [[ "$target" == http://127.0.0.1:<1-65535> ]] || return 1
     tailscale serve --bg --https="$port" "$target"
+}
+
+_basil::install_route_with_migration() {
+    _basil::migrate_kuma_listener \
+        || { primer::item_update route failed "listener migration failed"; return 1; }
+    _basil::install_route && return 0
+    if ! _basil::restore_kuma_listener; then
+        print "Basil listener migration rollback failed." >&2
+        primer::item_update route failed "validation and listener rollback failed"
+        return 1
+    fi
+    primer::item_update route failed "validation failed"
+    return 1
 }
 
 _basil::enable_services() {
@@ -413,17 +427,7 @@ mod_update() {
     _basil::enable_docker || { primer::item_update containers failed "Docker service failed"; return 1; }
     _basil::install_compose || { primer::item_update containers failed "compose failed"; return 1; }
     primer::item_update containers done
-    _basil::migrate_kuma_listener \
-        || { primer::item_update route failed "listener migration failed"; return 1; }
-    _basil::install_route || {
-        if ! _basil::restore_kuma_listener; then
-            print "Basil listener migration rollback failed." >&2
-            primer::item_update route failed "validation and listener rollback failed"
-            return 1
-        fi
-        primer::item_update route failed "validation failed"
-        return 1
-    }
+    _basil::install_route_with_migration || return 1
     primer::item_update route done
     primer::status_msg "Basil ready"
 }

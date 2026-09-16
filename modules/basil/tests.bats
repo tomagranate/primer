@@ -75,6 +75,7 @@ cloudflared_version = 2026.8.2
 ntfy_gateway_port = 8090
 kuma_gateway_port = 8443
 legacy_kuma_target = http://127.0.0.1:8090
+rollback_kuma_target = http://127.0.0.1:18091
 EOF
     cat > "$MOCK_DIR/tailscale" <<'EOF'
 #!/bin/sh
@@ -88,6 +89,9 @@ case "$*" in
         else
             printf '%s\n' '{}'
         fi
+        ;;
+    "serve --bg --https=8443 http://127.0.0.1:18091")
+        [ ! -e "$TEST_HOME/reject-kuma-restore" ]
         ;;
 esac
 EOF
@@ -152,7 +156,7 @@ run_module() {
     assert_failure
 }
 
-@test "basil: restores the legacy listener after route failure" {
+@test "basil: production route wiring restores access after route failure" {
     touch "$TEST_HOME/legacy-kuma"
     cat > "$MOCK_DIR/primer-caddy-route" <<'EOF'
 #!/bin/sh
@@ -160,11 +164,26 @@ exit 1
 EOF
     chmod +x "$MOCK_DIR/primer-caddy-route"
 
-    run_module '_basil::migrate_kuma_listener && _basil::install_route || _basil::restore_kuma_listener'
+    run_module _basil::install_route_with_migration
 
-    assert_success
+    assert_failure
     grep -Fx 'tailscale serve --https=8443 off' "$MOCK_LOG"
-    grep -Fx 'tailscale serve --bg --https=8443 http://127.0.0.1:8090' "$MOCK_LOG"
+    grep -Fx 'tailscale serve --bg --https=8443 http://127.0.0.1:18091' "$MOCK_LOG"
+}
+
+@test "basil: production route wiring reports rollback failure" {
+    touch "$TEST_HOME/legacy-kuma" "$TEST_HOME/reject-kuma-restore"
+    cat > "$MOCK_DIR/primer-caddy-route" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+    chmod +x "$MOCK_DIR/primer-caddy-route"
+
+    run_module _basil::install_route_with_migration
+
+    assert_failure
+    assert_output --partial 'Basil listener migration rollback failed.'
+    grep -Fx 'tailscale serve --bg --https=8443 http://127.0.0.1:18091' "$MOCK_LOG"
 }
 
 @test "basil: missing repository files are explicit" {
