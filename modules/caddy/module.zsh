@@ -976,14 +976,6 @@ _caddy::check_listener_migration() {
 
 _caddy::stage_route() {
     local name="$1" source="$2"
-    local target manifest
-    target="$(_caddy::root_path /etc/caddy/apps.d/$name.caddy)"
-    manifest="$(_caddy::root_path /etc/caddy/primer-routes)"
-    if cmp -s "$source" "$target" \
-        && [[ -f "$manifest" ]] \
-        && grep -Fxq "$name" "$manifest"; then
-        return 0
-    fi
     _caddy::mark_restart gateway || return 1
     CADDY_CONFIG_DIR="$(_caddy::root_path /etc/caddy)" \
     CADDY_APPS_DIR="$(_caddy::root_path /etc/caddy/apps.d)" \
