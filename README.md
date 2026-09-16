@@ -318,9 +318,11 @@ primer profile set fedora-kde gaming
 ```
 
 Primer lists modules that leave its management after a selection change.
-After you remove a role, run `primer update`. Primer removes managed routes and
-stops managing that role. Shared DNS stays on the old host until another host
-claims it. Primer keeps installed packages and application data.
+After you remove a role, run `primer update` to reconcile the modules that
+remain managed. If Caddy remains selected, it removes routes that the new
+selection no longer owns. Primer does not uninstall dropped modules, packages,
+or application data. Plans DNS stays on the old host until another host claims
+it.
 
 ### Optional machine roles
 

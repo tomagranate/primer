@@ -40,9 +40,11 @@ export function profileSetResult(
   } else {
     lines.push("Modules that leave Primer management:");
     for (const id of dropped) lines.push(`  ${id}`);
-    lines.push("Run 'primer update' to remove managed routes and stop managing these modules.");
-    lines.push("Shared DNS stays on this machine until another host claims it.");
-    lines.push("Primer keeps installed packages and application data.");
+    lines.push("Run 'primer update' to reconcile the modules that remain managed.");
+    lines.push("Primer does not uninstall dropped modules, packages, or application data.");
+    if (dropped.includes("plans-media")) {
+      lines.push("Plans DNS stays on this machine until another host claims it.");
+    }
   }
   return lines.join("\n");
 }

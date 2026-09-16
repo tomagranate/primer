@@ -32,6 +32,9 @@ describe("profile command output", () => {
     expect(dropped).toEqual(["gaming"]);
     const result = profileSetResult("fedora-kde", [], dropped);
     expect(result).toContain("Run 'primer update'");
-    expect(result).toContain("Shared DNS stays on this machine");
+    expect(result).not.toContain("Plans DNS stays on this machine");
+
+    const plansResult = profileSetResult("fedora-kde", [], ["plans-media"]);
+    expect(plansResult).toContain("Plans DNS stays on this machine");
   });
 });

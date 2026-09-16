@@ -15,6 +15,8 @@ const C = {
   selection: "#2a3a35",
 };
 
+export const ADDON_PICKER_TITLE = "Optional machine roles";
+
 export function normalizeAddonSelection(addons: AddonDef[], selected: string[]): string[] {
   const selectedSet = new Set(selected);
   return addons.map((addon) => addon.name).filter((name) => selectedSet.has(name));
@@ -84,7 +86,7 @@ export function AddonPicker({ profile, addons, initial, onConfirm, onCancel }: A
   return (
     <box style={{ width: "100%", height: "100%", flexDirection: "column", backgroundColor: C.surface0 }}>
       <box style={{ height: 1, backgroundColor: C.surface1, paddingLeft: 1 }}>
-        <text fg={C.bold}>{`Optional machine roles · ${profile}`}</text>
+        <text fg={C.bold}>{`${ADDON_PICKER_TITLE} · ${profile}`}</text>
       </box>
       <box style={{ flexGrow: 1, flexDirection: "column", paddingTop: topPadding }}>
         {visible.map(({ addon, addonIndex, line, lineIndex }) => {
