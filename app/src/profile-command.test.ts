@@ -21,6 +21,7 @@ describe("profile command output", () => {
       ],
     );
     expect(text).toContain("Source: machine.conf");
+    expect(text).toContain("Available roles:");
     expect(text).toContain("gaming (active)");
     expect(text).not.toContain("server —");
   });
