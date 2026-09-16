@@ -21,6 +21,7 @@ describe("profile command output", () => {
       ],
     );
     expect(text).toContain("Source: machine.conf");
+    expect(text).toContain("Available roles:");
     expect(text).toContain("gaming (active)");
     expect(text).not.toContain("server —");
   });
@@ -29,6 +30,11 @@ describe("profile command output", () => {
     const interactive: NodeDef = { ...node("interactive:login"), kind: "interactive" };
     const dropped = droppedModuleIds([node("base"), node("gaming"), interactive], [node("base")]);
     expect(dropped).toEqual(["gaming"]);
-    expect(profileSetResult("fedora-kde", [], dropped)).toContain("Primer does not uninstall");
+    const result = profileSetResult("fedora-kde", [], dropped);
+    expect(result).toContain("Run 'primer update'");
+    expect(result).not.toContain("Plans DNS stays on this machine");
+
+    const plansResult = profileSetResult("fedora-kde", [], ["plans-media"]);
+    expect(plansResult).toContain("Plans DNS stays on this machine");
   });
 });

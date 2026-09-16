@@ -32,8 +32,8 @@ functions, and aliases pick up any managed config changes.
 
 - `update` - install/update all enabled modules (idempotent)
 - `status` - check install/health status for all enabled modules
-- `profile` - show the resolved profile, source, active addons, and available addons
-- `profile set [profile] [addon ...]` - select and save a profile and its addons
+- `profile` - show the resolved profile, source, and optional machine roles
+- `profile set [profile] [addon ...]` - select and save a profile and its optional roles
 - `help` - show help text (same as `--help`/`-h`)
 
 ### Options
@@ -310,7 +310,7 @@ profile = fedora-kde
 addons = gaming
 ```
 
-Use `primer profile set` to reopen the addon picker for the current profile.
+Use `primer profile set` to reopen the optional machine role picker for the current profile.
 You can also set all names without a prompt:
 
 ```sh
@@ -318,11 +318,16 @@ primer profile set fedora-kde gaming
 ```
 
 Primer lists modules that leave its management after a selection change.
-Primer does not uninstall those modules. Remove them manually if needed.
+After you remove a role, run `primer update` to reconcile the modules that
+remain managed. If Caddy remains selected, it removes routes that the new
+selection no longer owns. Primer does not uninstall dropped modules, packages,
+or application data. Plans DNS stays on the old host until another host claims
+it.
 
-### Addons
+### Optional machine roles
 
-An addon is an additive config overlay in `configs/addons/`. Its `[addon]`
+An optional machine role is an additive config overlay in `configs/addons/`.
+The command-line and config format still call it an addon. Its `[addon]`
 section names the compatible profiles. Primer validates every selected addon.
 
 ```ini

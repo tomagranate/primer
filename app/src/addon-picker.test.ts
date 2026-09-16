@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { moveAddonCursor, normalizeAddonSelection, toggleAddon } from "./addon-picker";
+import { ADDON_PICKER_TITLE, moveAddonCursor, normalizeAddonSelection, toggleAddon } from "./addon-picker";
 
 const addons = [
   { name: "gaming", label: "Gaming", description: "Games.", profiles: ["fedora-kde"] },
@@ -7,6 +7,10 @@ const addons = [
 ];
 
 describe("addon picker selection", () => {
+  test("names selections as optional machine roles", () => {
+    expect(ADDON_PICKER_TITLE).toBe("Optional machine roles");
+  });
+
   test("toggles selections and keeps addon file order", () => {
     expect(toggleAddon(["gaming"], "gaming")).toEqual([]);
     expect(toggleAddon(["gaming"], "work")).toEqual(["gaming", "work"]);
