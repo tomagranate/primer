@@ -84,6 +84,8 @@ case "$*" in
     "serve status --json")
         if [ -e "$TEST_HOME/legacy-kuma" ]; then
             printf '%s\n' '{"TCP":{"8443":{"HTTPS":true}},"Web":{"host:8443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:8090"}}}}}'
+        elif [ -e "$TEST_HOME/rollback-kuma" ]; then
+            printf '%s\n' '{"TCP":{"8443":{"HTTPS":true}},"Web":{"host:8443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:18091"}}}}}'
         elif [ -e "$TEST_HOME/unrelated-kuma" ]; then
             printf '%s\n' '{"TCP":{"8443":{"HTTPS":true}},"Web":{"host:8443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:9999"}}}}}'
         else
@@ -154,6 +156,15 @@ run_module() {
     assert_output --partial "does not match Basil's legacy Kuma listener"
     run grep -F 'tailscale serve --https=8443 off' "$MOCK_LOG"
     assert_failure
+}
+
+@test "basil: remigrates a listener restored by a failed update" {
+    touch "$TEST_HOME/rollback-kuma"
+
+    run_module _basil::migrate_kuma_listener
+
+    assert_success
+    grep -Fx 'tailscale serve --https=8443 off' "$MOCK_LOG"
 }
 
 @test "basil: production route wiring restores access after route failure" {
