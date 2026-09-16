@@ -839,9 +839,6 @@ _caddy::snapshot_migration_routes() {
     if _caddy::plans_migration_needed; then
         routes+=("$(mod_config migrate_plans_route | head -1)")
     fi
-    if _caddy::desired_routes | grep -Fxq agents-preview; then
-        routes+=("$(mod_config migrate_preview_route | head -1)")
-    fi
     for route in "${routes[@]}"; do
         print -r -- "$route" | grep -Eq '^[a-z0-9][a-z0-9-]*$' \
             || { rm -r "$backup"; return 1; }
@@ -1063,17 +1060,6 @@ _caddy::stage_migration_routes() {
         _caddy::stage_plans_credentials || return 1
         temp="$(mktemp)" || return 1
         "$(_caddy::fragment_helper)" plans-media "$host" "$worker" >"$temp" \
-            || { rm -f "$temp"; return 1; }
-        _caddy::stage_route "$route" "$temp" || { rm -f "$temp"; return 1; }
-        rm -f "$temp"
-    fi
-    if _caddy::desired_routes | grep -Fxq agents-preview; then
-        route="$(mod_config migrate_preview_route | head -1)"
-        host="$(mod_config migrate_preview_host | head -1)"
-        port="$(mod_config migrate_preview_port | head -1)"
-        [[ "$route" == agents-preview ]] || return 1
-        temp="$(mktemp)" || return 1
-        "$(_caddy::fragment_helper)" agents-preview "$host" "$port" >"$temp" \
             || { rm -f "$temp"; return 1; }
         _caddy::stage_route "$route" "$temp" || { rm -f "$temp"; return 1; }
         rm -f "$temp"
