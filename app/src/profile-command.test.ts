@@ -29,6 +29,8 @@ describe("profile command output", () => {
     const interactive: NodeDef = { ...node("interactive:login"), kind: "interactive" };
     const dropped = droppedModuleIds([node("base"), node("gaming"), interactive], [node("base")]);
     expect(dropped).toEqual(["gaming"]);
-    expect(profileSetResult("fedora-kde", [], dropped)).toContain("Run 'primer update'");
+    const result = profileSetResult("fedora-kde", [], dropped);
+    expect(result).toContain("Run 'primer update'");
+    expect(result).toContain("Shared DNS stays on this machine");
   });
 });
