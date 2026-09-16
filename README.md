@@ -96,7 +96,7 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | **npm-global** | mise | Installs configured global npm CLIs |
 | **caddy** | mise + Tailscale login | Linux base: builds the Cloudflare-enabled gateway, binds tailnet routes, validates config, and reconciles app routes |
 | **t3-code** | npm-global + caddy | Runs T3 Code at boot at `t3.<machine>.tomagranate.com` |
-| **plans-media** | caddy | Addon: proxies the private Agents Worker and supplies its gate credential |
+| **plans-media** | caddy + agents | Addon: hosts Agents Plans, Media, and development previews |
 | **basil** | caddy + agents + shell-installers | Addon: installs Hermes and cloudflared, then manages Basil services and routes |
 | **managed-settings** | shell-installers/homebrew-apps | Applies configured JSON/TOML user settings, including AI CLI permission defaults |
 | **login-shell** | zsh | Changes the user's login shell to zsh when possible |
@@ -344,7 +344,7 @@ launchers +=
 Primer ships three addons:
 
 - `gaming` adds the Fedora gaming module and Steam taskbar pin.
-- `plans-media` adds the private Plans and Media gateway on Fedora KDE.
+- `plans-media` hosts Agents Plans, Media, and development previews on Fedora KDE.
 - `basil` adds Basil services and routes on Fedora KDE.
 
 The Caddy module replaces any Cloudflare token in
@@ -357,6 +357,9 @@ The Plans addon also reuses its gate secret from the legacy file. Set
 `plans-media.gate_secret_ref` when the file does not exist. Primer never stores
 secret values in Git.
 
+The same addon installs the `agents preview serve` user service. It routes the
+Preview index and wildcard hosts to the daemon on `127.0.0.1:8770`.
+
 The Agents project still owns Worker, R2, and D1 deployment.
 
 The Basil addon expects `~/code/basil` and its documented local credential
@@ -367,13 +370,19 @@ file. Cloudflare Tunnel remains only for the public ntfy ingress.
 ### Shared Caddy route contract
 
 Every Linux profile has one Caddy service. It owns port 443, certificates,
-validation, and reloads. Applications own one raw fragment named
-`/etc/caddy/apps.d/<app>.caddy`.
+validation, and reloads. Primer applications own one raw fragment named
+`/etc/caddy/apps.d/<app>.caddy`. Local applications use
+`/etc/caddy/local.d/<app>.caddy`.
 
 Primer writes each fragment with an atomic move. It validates the complete
 config before reload. A failed check restores the prior fragment. The Caddy
 module records Primer-owned names in `/etc/caddy/primer-routes`. A later update
 removes owned routes that are no longer in the active profile and addons.
+Primer validates local routes with the complete configuration. It never edits
+or removes them.
+
+Add or change a local fragment, then run `primer update --only caddy` to
+validate and load it.
 
 Tailscale-host routes import `tailnet`. Custom private routes import
 `tailnet-bind` and select their own certificate source. Primer generates both
@@ -382,7 +391,9 @@ bind those routes to non-Tailscale interfaces.
 
 T3 uses Cloudflare DNS-01 for `t3.<machine>.tomagranate.com`. Primer creates or
 updates its DNS-only A and AAAA records. It points them to the machine's current
-Tailscale addresses. The Plans addon does the same for `plans.tomagranate.com`.
+Tailscale addresses. The Plans addon does the same for
+`plans.tomagranate.com`, `preview.tomagranate.com`, and
+`*.preview.tomagranate.com`.
 Primer refuses to overwrite duplicate records. It never enables the Cloudflare
 proxy because Cloudflare cannot reach tailnet addresses. DNS can resolve
 publicly, but Caddy accepts traffic only through the machine's Tailscale

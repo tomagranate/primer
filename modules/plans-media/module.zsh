@@ -1,5 +1,5 @@
 #!/bin/zsh
-# modules/plans-media -- Plans and Media gateway route for Agents infrastructure
+# modules/plans-media -- Plans, Media, and Preview hosting for Agents infrastructure
 
 _plans_media::root_path() {
     print -r -- "${PLANS_MEDIA_ROOT_DIR:-}$1"
@@ -19,6 +19,18 @@ _plans_media::route_helper() {
 
 _plans_media::fragment_helper() {
     print -r -- "${CADDY_FRAGMENT_HELPER:-$PRIMER_DIR/modules/caddy/files/usr/local/libexec/primer-caddy-fragment}"
+}
+
+_plans_media::agents_bin() {
+    print -r -- "${AGENTS_BIN:-agents}"
+}
+
+_plans_media::systemctl_bin() {
+    if [[ -n "${PLANS_MEDIA_TEST_ROOT:-}" ]]; then
+        print -r -- "${SYSTEMCTL_BIN:-systemctl}"
+    else
+        print -r -- systemctl
+    fi
 }
 
 _plans_media::restart_gateway() {
@@ -172,7 +184,7 @@ _plans_media::secrets_ready() {
         && [[ ! -e "$(_plans_media::restart_marker)" ]]
 }
 
-_plans_media::route_contents() {
+_plans_media::plans_route_contents() {
     local host worker
     host="$(mod_config host | head -1)"
     worker="$(mod_config worker_host | head -1)"
@@ -181,46 +193,79 @@ _plans_media::route_contents() {
     "$(_plans_media::fragment_helper)" plans-media "$host" "$worker"
 }
 
+_plans_media::preview_route_contents() {
+    local host port
+    host="$(mod_config preview_host | head -1)"
+    port="$(mod_config preview_port | head -1)"
+    print -r -- "$host" | grep -Eq '^[A-Za-z0-9.-]+$' || return 1
+    print -r -- "$port" | grep -Eq '^[1-9][0-9]{0,4}$' || return 1
+    (( port <= 65535 )) || return 1
+    "$(_plans_media::fragment_helper)" agents-preview "$host" "$port"
+}
+
 _plans_media::install_route() {
-    local temp
+    local name="$1" renderer="$2" temp
     temp="$(mktemp)" || return 1
-    _plans_media::route_contents >"$temp" || { rm -f "$temp"; return 1; }
-    _plans_media::root "$(_plans_media::route_helper)" install plans-media "$temp"
+    "$renderer" >"$temp" || { rm -f "$temp"; return 1; }
+    _plans_media::root "$(_plans_media::route_helper)" install "$name" "$temp"
     local rc=$?
     rm -f "$temp"
     return "$rc"
 }
 
+_plans_media::install_preview_daemon() {
+    "$(_plans_media::agents_bin)" preview install
+}
+
+_plans_media::preview_daemon_ready() {
+    "$(_plans_media::systemctl_bin)" --user is-enabled --quiet agents-preview.service \
+        && "$(_plans_media::systemctl_bin)" --user is-active --quiet agents-preview.service
+}
+
 mod_update() {
-    primer::items_init secrets route
+    primer::items_init secrets preview-daemon routes
     if [[ "$DRY_RUN" == true ]]; then
         print "[dry-run] install root-owned mode 0600 Plans secret environment"
         print "[dry-run] install Caddy route plans-media -> $(mod_config worker_host | head -1)"
+        print "[dry-run] install Agents Preview daemon and Caddy route -> $(mod_config preview_host | head -1)"
         primer::item_update secrets done
-        primer::item_update route done
+        primer::item_update preview-daemon done
+        primer::item_update routes done
         primer::status_msg "route planned"
         return 0
     fi
     _plans_media::install_secrets || { primer::item_update secrets failed "configuration required"; return 1; }
     primer::item_update secrets done
-    _plans_media::install_route || { primer::item_update route failed "validation failed"; return 1; }
+    _plans_media::install_preview_daemon && _plans_media::preview_daemon_ready \
+        || { primer::item_update preview-daemon failed "install failed"; return 1; }
+    primer::item_update preview-daemon done
+    _plans_media::install_route plans-media _plans_media::plans_route_contents \
+        && _plans_media::install_route agents-preview _plans_media::preview_route_contents \
+        || { primer::item_update routes failed "validation failed"; return 1; }
     _plans_media::restart_gateway \
         && _plans_media::clear_restart \
-        || { primer::item_update route failed "restart failed"; return 1; }
-    primer::item_update route done
-    primer::status_msg "Plans and Media ready"
+        || { primer::item_update routes failed "restart failed"; return 1; }
+    primer::item_update routes done
+    primer::status_msg "Plans, Media, and Previews ready"
 }
 
 mod_status() {
-    local route
-    route="$(mktemp)" || return 1
-    _plans_media::route_contents >"$route" || { rm -f "$route"; return 1; }
-    _plans_media::secrets_ready \
-        && "$(_plans_media::route_helper)" status plans-media "$route" || {
-            rm -f "$route"
-            primer::status_msg "route or secrets not ready"
+    local plans_route preview_route
+    plans_route="$(mktemp)" || return 1
+    preview_route="$(mktemp)" || { rm -f "$plans_route"; return 1; }
+    _plans_media::plans_route_contents >"$plans_route" \
+        && _plans_media::preview_route_contents >"$preview_route" || {
+            rm -f "$plans_route" "$preview_route"
             return 1
         }
-    rm -f "$route"
-    primer::status_msg "Plans and Media ready"
+    _plans_media::secrets_ready \
+        && _plans_media::preview_daemon_ready \
+        && "$(_plans_media::route_helper)" status plans-media "$plans_route" \
+        && "$(_plans_media::route_helper)" status agents-preview "$preview_route" || {
+            rm -f "$plans_route" "$preview_route"
+            primer::status_msg "routes, preview daemon, or secrets not ready"
+            return 1
+        }
+    rm -f "$plans_route" "$preview_route"
+    primer::status_msg "Plans, Media, and Previews ready"
 }

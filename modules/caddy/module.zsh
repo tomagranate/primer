@@ -523,6 +523,7 @@ _caddy::deploy() {
     _caddy::root install -d -m 0755 \
         "$(_caddy::root_path /etc/caddy)" \
         "$(_caddy::root_path /etc/caddy/apps.d)" \
+        "$(_caddy::root_path /etc/caddy/local.d)" \
         "$(_caddy::root_path /etc/caddy/env.d)" \
         "$(_caddy::root_path /var/lib/caddy)" \
         "$(_caddy::root_path /var/lib/primer)" \
@@ -530,6 +531,7 @@ _caddy::deploy() {
     _caddy::root chown "$owner:$group" \
         "$(_caddy::root_path /etc/caddy)" \
         "$(_caddy::root_path /etc/caddy/apps.d)" \
+        "$(_caddy::root_path /etc/caddy/local.d)" \
         "$(_caddy::root_path /etc/caddy/env.d)" \
         "$(_caddy::root_path /var/lib/primer)" \
         "$(_caddy::root_path /var/lib/primer/caddy)" || return 1
@@ -553,7 +555,7 @@ _caddy::definitions_ready() {
         group="$(id -gn)"
     fi
     for managed_path in \
-        /etc/caddy /etc/caddy/apps.d /etc/caddy/env.d \
+        /etc/caddy /etc/caddy/apps.d /etc/caddy/local.d /etc/caddy/env.d \
         /var/lib/primer /var/lib/primer/caddy; do
         [[ "$(stat -c %a "$(_caddy::root_path "$managed_path")" 2>/dev/null)" == 755 ]] \
             && [[ "$(stat -c %U "$(_caddy::root_path "$managed_path")" 2>/dev/null)" == "$owner" ]] \
@@ -663,7 +665,7 @@ _caddy::desired_dns_names() {
         [[ -n "$name" ]] || continue
         name="${(L)name}"
         name="${name//\{machine\}/$machine}"
-        print -r -- "$name" | grep -Eq '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$' || return 1
+        print -r -- "$name" | grep -Eq '^(\*\.)?[a-z0-9]([a-z0-9.-]*[a-z0-9])?$' || return 1
         [[ "$name" == "$zone" || "$name" == *".$zone" ]] || {
             print "Cloudflare DNS name is outside $zone: $name" >&2
             return 1
@@ -786,18 +788,19 @@ _caddy::dns_ready() {
 }
 
 _caddy::dns_resolves() {
-    local name entry type address results resolved
+    local name lookup entry type address results resolved
     local -a addresses names
     addresses=("${(@f)$(_caddy::tailscale_addresses)}") || return 1
     names=("${(@f)$(_caddy::desired_dns_names)}") || return 1
     for name in "${names[@]}"; do
+        lookup="${name/#\*./primer-check.}"
         for entry in "${addresses[@]}"; do
             type="${entry%% *}"
             address="${entry#* }"
             if [[ "$type" == A ]]; then
-                results="$(getent ahostsv4 "$name" 2>/dev/null)" || return 1
+                results="$(getent ahostsv4 "$lookup" 2>/dev/null)" || return 1
             else
-                results="$(getent ahostsv6 "$name" 2>/dev/null)" || return 1
+                results="$(getent ahostsv6 "$lookup" 2>/dev/null)" || return 1
             fi
             resolved="$(print -r -- "$results" | awk 'NF {print $1}' | sort -u)"
             [[ "$resolved" == "$address" ]] || return 1

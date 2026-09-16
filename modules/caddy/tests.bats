@@ -104,8 +104,9 @@ EOF
 #!/bin/sh
 printf '%s\n' '{"Self":{"DNSName":"host.tailnet.ts.net.","TailscaleIPs":["100.64.0.7","fd7a:115c:a1e0::7"]}}'
 EOF
-    cat > "$MOCK_DIR/getent" <<'EOF'
+cat > "$MOCK_DIR/getent" <<'EOF'
 #!/bin/sh
+printf 'getent %s\n' "$*" >> "$MOCK_LOG"
 case "$1" in
     ahostsv4)
         printf '%s STREAM %s\n' 100.64.0.7 "$2"
@@ -554,6 +555,25 @@ EOF
     assert_failure
 }
 
+@test "caddy: accepts wildcard private DNS names" {
+    sed -i '/^routes =/i\    *.preview.tomagranate.com' "$TEST_CONF"
+
+    run_caddy_function _caddy::desired_dns_names
+
+    assert_success
+    assert_output --partial "*.preview.tomagranate.com"
+}
+
+@test "caddy: resolves a wildcard through a concrete hostname" {
+    sed -i '/^routes =/i\    *.preview.tomagranate.com' "$TEST_CONF"
+
+    run_caddy_function _caddy::dns_resolves
+
+    assert_success
+    grep -F 'getent ahostsv4 primer-check.preview.tomagranate.com' "$MOCK_LOG"
+    grep -F 'getent ahostsv6 primer-check.preview.tomagranate.com' "$MOCK_LOG"
+}
+
 @test "caddy: dry-run plans the custom binary, service, and routes" {
     run zsh -c "
         export PRIMER_DIR='$PRIMER_DIR' DRY_RUN=true MOD_DIR='$PRIMER_DIR/modules/caddy'
@@ -585,6 +605,7 @@ EOF
     done
     mkdir -p \
         "$TEST_ROOT/etc/caddy/apps.d" \
+        "$TEST_ROOT/etc/caddy/local.d" \
         "$TEST_ROOT/usr/local/bin" \
         "$TEST_ROOT/var/lib/primer/caddy"
     cat > "$TEST_ROOT/usr/local/bin/caddy" <<'EOF'
@@ -663,6 +684,11 @@ EOF
     run_caddy_function mod_status
     assert_failure
     chmod 0755 "$TEST_ROOT/etc/caddy/apps.d"
+
+    chmod 0775 "$TEST_ROOT/etc/caddy/local.d"
+    run_caddy_function mod_status
+    assert_failure
+    chmod 0755 "$TEST_ROOT/etc/caddy/local.d"
 
     chmod 0775 "$TEST_ROOT/usr/local/libexec/primer-caddy-tailnet"
     run_caddy_function mod_status
@@ -843,6 +869,18 @@ EOF
     [ "$(cat "$CADDY_APPS_DIR/old.caddy")" = old ]
     [ "$(cat "$CADDY_ROUTE_MANIFEST")" = $'old\nkeep' ]
     [ "$(grep -c 'systemctl reload caddy.service' "$MOCK_LOG")" -eq 2 ]
+}
+
+@test "caddy: route reconciliation preserves local fragments" {
+    mkdir -p "$TEST_ROOT/etc/caddy/local.d"
+    printf 'local route\n' > "$TEST_ROOT/etc/caddy/local.d/relaunch.caddy"
+    printf 'stale\n' > "$CADDY_APPS_DIR/stale.caddy"
+    printf 'stale\n' > "$CADDY_ROUTE_MANIFEST"
+
+    route_helper reconcile
+
+    assert_success
+    [ "$(cat "$TEST_ROOT/etc/caddy/local.d/relaunch.caddy")" = 'local route' ]
 }
 
 @test "caddy: refuses Plans migration when the addon is not selected" {
