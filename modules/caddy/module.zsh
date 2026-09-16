@@ -634,11 +634,16 @@ _caddy::tailnet_fingerprint() {
 }
 
 _caddy::refresh_tailnet() {
-    local before after restart_was_pending=false
+    local before after runtime_owner=caddy runtime_group=caddy restart_was_pending=false
+    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
+        runtime_owner="$(id -un)"
+        runtime_group="$(id -gn)"
+    fi
     _caddy::restart_pending gateway && restart_was_pending=true
     before="$(_caddy::tailnet_fingerprint)"
     _caddy::mark_restart gateway || return 1
-    _caddy::root "$(_caddy::root_path /usr/local/libexec/primer-caddy-tailnet)" || return 1
+    _caddy::root env CADDY_RUNTIME_OWNER="$runtime_owner" CADDY_RUNTIME_GROUP="$runtime_group" \
+        "$(_caddy::root_path /usr/local/libexec/primer-caddy-tailnet)" || return 1
     after="$(_caddy::tailnet_fingerprint)"
     if [[ "$before" == "$after" ]] && ! $restart_was_pending; then
         _caddy::clear_restart gateway

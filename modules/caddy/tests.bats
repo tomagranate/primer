@@ -609,6 +609,8 @@ EOF
     assert_success
     CADDY_CONFIG_DIR="$TEST_ROOT/etc/caddy" \
     CADDY_RUNTIME_DIR="$TEST_ROOT/run/caddy" \
+    CADDY_RUNTIME_OWNER="$(id -un)" \
+    CADDY_RUNTIME_GROUP="$(id -gn)" \
     TAILSCALE_BIN="$MOCK_DIR/tailscale" \
         "$TEST_ROOT/usr/local/libexec/primer-caddy-tailnet"
 
@@ -1201,6 +1203,12 @@ EOF
 }
 
 @test "caddy: tailnet generator binds every Tailscale address" {
+    cat > "$MOCK_DIR/install" <<'EOF'
+#!/bin/sh
+printf 'install %s\n' "$*" >> "$MOCK_LOG"
+exec /usr/bin/install "$@"
+EOF
+    chmod +x "$MOCK_DIR/install"
     cat > "$MOCK_DIR/tailscale" <<'EOF'
 #!/bin/sh
 cat <<'JSON'
@@ -1209,17 +1217,24 @@ JSON
 EOF
     chmod +x "$MOCK_DIR/tailscale"
     run env CADDY_CONFIG_DIR="$CADDY_CONFIG_DIR" CADDY_RUNTIME_DIR="$TEST_ROOT/run" \
+        CADDY_RUNTIME_OWNER="$(id -un)" CADDY_RUNTIME_GROUP="$(id -gn)" \
+        PATH="$MOCK_DIR:$PATH" MOCK_LOG="$MOCK_LOG" \
         TAILSCALE_BIN="$MOCK_DIR/tailscale" \
         "$PRIMER_DIR/modules/caddy/files/usr/local/libexec/primer-caddy-tailnet"
     assert_success
     grep -F "bind 100.64.0.1 fd7a:115c:a1e0::1" "$CADDY_CONFIG_DIR/tailnet.caddy"
     grep -Fx "TAILSCALE_HOSTNAME=host.tailnet.ts.net" "$TEST_ROOT/run/tailnet.env"
+    [ "$(stat -c %U "$TEST_ROOT/run")" = "$(id -un)" ]
+    [ "$(stat -c %G "$TEST_ROOT/run")" = "$(id -gn)" ]
+    grep -F "install -d -o $(id -un) -g $(id -gn) -m 0755 $TEST_ROOT/run" "$MOCK_LOG"
 
     CADDY_CONFIG_DIR="$CADDY_CONFIG_DIR" CADDY_RUNTIME_DIR="$TEST_ROOT/run" \
+        CADDY_RUNTIME_OWNER="$(id -un)" CADDY_RUNTIME_GROUP="$(id -gn)" \
         TAILSCALE_BIN="$MOCK_DIR/tailscale" \
         "$PRIMER_DIR/modules/caddy/files/usr/local/libexec/primer-caddy-tailnet" status
     printf 'TAILSCALE_HOSTNAME=old.tailnet.ts.net\n' > "$TEST_ROOT/run/tailnet.env"
     run env CADDY_CONFIG_DIR="$CADDY_CONFIG_DIR" CADDY_RUNTIME_DIR="$TEST_ROOT/run" \
+        CADDY_RUNTIME_OWNER="$(id -un)" CADDY_RUNTIME_GROUP="$(id -gn)" \
         TAILSCALE_BIN="$MOCK_DIR/tailscale" \
         "$PRIMER_DIR/modules/caddy/files/usr/local/libexec/primer-caddy-tailnet" status
     assert_failure
