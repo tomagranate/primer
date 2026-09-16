@@ -416,7 +416,11 @@ mod_update() {
     _basil::migrate_kuma_listener \
         || { primer::item_update route failed "listener migration failed"; return 1; }
     _basil::install_route || {
-        _basil::restore_kuma_listener
+        if ! _basil::restore_kuma_listener; then
+            print "Basil listener migration rollback failed." >&2
+            primer::item_update route failed "validation and listener rollback failed"
+            return 1
+        fi
         primer::item_update route failed "validation failed"
         return 1
     }
