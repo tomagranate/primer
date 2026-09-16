@@ -336,7 +336,7 @@ _basil::migrate_kuma_listener() {
     [[ "$port" == <1-65535> \
         && "$target" == http://127.0.0.1:<1-65535> \
         && "$rollback_target" == http://127.0.0.1:<1-65535> ]] || return 1
-    serve_status="$(tailscale serve status --json 2>/dev/null)" || return 1
+    serve_status="$(_basil::root "inspect Basil listener" tailscale serve status --json 2>/dev/null)" || return 1
     if ! print -r -- "$serve_status" | jq -e --arg port "$port" '.TCP[$port] != null' >/dev/null; then
         return 0
     fi
