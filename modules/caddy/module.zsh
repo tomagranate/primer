@@ -839,14 +839,20 @@ _caddy::snapshot_migration_routes() {
     if _caddy::plans_migration_needed; then
         routes+=("$(mod_config migrate_plans_route | head -1)")
         source="$(_caddy::root_path /etc/caddy/local.d/migrated-plans-imports.caddy)"
-        [[ -f "$source" ]] && cp -p "$source" "$backup/migrated-plans-imports.caddy"
+        if [[ -f "$source" ]]; then
+            cp -p "$source" "$backup/migrated-plans-imports.caddy" \
+                || { rm -r "$backup"; return 1; }
+        fi
         touch "$backup/plans-local-imports"
     fi
     for route in "${routes[@]}"; do
         print -r -- "$route" | grep -Eq '^[a-z0-9][a-z0-9-]*$' \
             || { rm -r "$backup"; return 1; }
         source="$(_caddy::root_path /etc/caddy/apps.d/$route.caddy)"
-        [[ -f "$source" ]] && cp -p "$source" "$backup/$route.caddy"
+        if [[ -f "$source" ]]; then
+            cp -p "$source" "$backup/$route.caddy" \
+                || { rm -r "$backup"; return 1; }
+        fi
     done
     temp="$(_caddy::root_path /etc/caddy/primer-routes)"
     [[ -f "$temp" ]] && cp -p "$temp" "$backup/primer-routes"
@@ -934,12 +940,21 @@ _caddy::plans_service_matches() {
 }
 
 _caddy::stage_plans_local_imports() {
-    local legacy target import temp contents=""
+    local legacy target import temp expected actual contents="" required=false
     legacy="$(_caddy::root_path /etc/caddy/plans.Caddyfile)"
     target="$(_caddy::root_path /etc/caddy/local.d/migrated-plans-imports.caddy)"
+    actual="$(sha256sum "$legacy" 2>/dev/null | awk '{print $1}')" || return 1
+    # Additional fingerprints describe newer gateways whose configured imports
+    # must survive migration. The original Plans-only fingerprint has none.
+    while IFS= read -r expected; do
+        [[ "$actual" == "$expected" ]] && required=true
+    done < <(mod_config migrate_plans_config_digests)
     while IFS= read -r import; do
         print -r -- "$import" | grep -Eq '^/[A-Za-z0-9._/-]+$' || return 1
-        grep -Fxq "import $import" "$legacy" || continue
+        if ! grep -Fxq "import $import" "$legacy"; then
+            $required && return 1
+            continue
+        fi
         contents+="import $import"$'\n'
     done < <(mod_config migrate_plans_local_imports)
     [[ -n "$contents" ]] || return 0
