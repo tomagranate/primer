@@ -117,6 +117,14 @@ _github_runner::unit_dest() {
     print -r -- "$(_github_runner::systemd_dir)/$1"
 }
 
+_github_runner::libexec_dir() {
+    print -r -- "${GITHUB_RUNNER_LIBEXEC_DIR:-/usr/local/libexec}"
+}
+
+_github_runner::cleanup_name() {
+    print -r -- primer-github-runner-cleanup
+}
+
 _github_runner::install_units() {
     local name dest src
     for name in gha-runner.slice github-runner@.service; do
@@ -124,15 +132,29 @@ _github_runner::install_units() {
         dest="$(_github_runner::unit_dest "$name")"
         _github_runner::run_as_root install -D -m 0644 "$src" "$dest" || return 1
     done
+    src="$MOD_DIR/files/usr/local/libexec/$(_github_runner::cleanup_name)"
+    dest="$(_github_runner::libexec_dir)/$(_github_runner::cleanup_name)"
+    _github_runner::run_as_root install -D -m 0755 "$src" "$dest" || return 1
 }
 
-_github_runner::units_match() {
+# True when the installed unit files match the packaged ones. The cleanup
+# helper is excluded: the unit reads it at hook time, so changing it never
+# needs a restart.
+_github_runner::unit_files_match() {
     local name dest src
     for name in gha-runner.slice github-runner@.service; do
         src="$(_github_runner::unit_source "$name")"
         dest="$(_github_runner::unit_dest "$name")"
         [[ -f "$dest" ]] && cmp -s "$src" "$dest" || return 1
     done
+}
+
+_github_runner::units_match() {
+    _github_runner::unit_files_match || return 1
+    local src dest
+    src="$MOD_DIR/files/usr/local/libexec/$(_github_runner::cleanup_name)"
+    dest="$(_github_runner::libexec_dir)/$(_github_runner::cleanup_name)"
+    [[ -f "$dest" ]] && cmp -s "$src" "$dest" || return 1
 }
 
 _github_runner::ensure_user() {
@@ -295,15 +317,21 @@ _github_runner::register() {
     return "$rc"
 }
 
+# Enable one runner instance. Restart it only when the unit files changed in
+# this run: a running unit keeps the definition it started with, and a restart
+# cancels any job in flight.
 _github_runner::enable_instance() {
-    local repo="$1" instance
+    local repo="$1" unit_changed="${2:-1}" instance
     instance="$(_github_runner::instance "$repo")"
     if [[ "$DRY_RUN" == true ]]; then
-        printf '[dry-run] systemctl enable --now github-runner@%s.service\n' "$instance"
+        printf '[dry-run] systemctl enable github-runner@%s.service\n' "$instance"
+        (( unit_changed )) && printf '[dry-run] systemctl restart github-runner@%s.service\n' "$instance"
         return 0
     fi
     _github_runner::run_as_root systemctl daemon-reload || return 1
-    _github_runner::run_as_root systemctl enable --now "github-runner@${instance}.service"
+    _github_runner::run_as_root systemctl enable "github-runner@${instance}.service" || return 1
+    (( unit_changed )) || return 0
+    _github_runner::run_as_root systemctl restart "github-runner@${instance}.service"
 }
 
 _github_runner::pull_image() {
@@ -352,6 +380,8 @@ mod_update() {
     primer::item_update user done
 
     primer::item_update units running
+    local -i unit_changed=1
+    _github_runner::unit_files_match && unit_changed=0
     if ! _github_runner::install_units; then
         primer::item_update units failed "unit install failed"
         primer::status_msg "units failed"
@@ -393,7 +423,7 @@ mod_update() {
             failed=1
             continue
         fi
-        if ! _github_runner::enable_instance "$repo"; then
+        if ! _github_runner::enable_instance "$repo" "$unit_changed"; then
             primer::item_update "repo:$repo" failed "enable failed"
             failed=1
             continue

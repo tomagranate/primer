@@ -10,8 +10,11 @@ setup() {
     export MOD_ITEMS_FILE="$(mktemp)"
     export GITHUB_RUNNER_SYSTEMD_DIR="$TEST_HOME/etc/systemd/system"
     export GITHUB_RUNNER_HOME="$TEST_HOME/var/lib/github-runner"
-    mkdir -p "$MOCK_DIR" "$GITHUB_RUNNER_SYSTEMD_DIR" "$GITHUB_RUNNER_HOME"
+    export GITHUB_RUNNER_LIBEXEC_DIR="$TEST_HOME/usr/local/libexec"
+    export DOCKER_STATE="$TEST_HOME/containers"
+    mkdir -p "$MOCK_DIR" "$GITHUB_RUNNER_SYSTEMD_DIR" "$GITHUB_RUNNER_HOME" "$GITHUB_RUNNER_LIBEXEC_DIR"
     : > "$MOCK_LOG"
+    : > "$DOCKER_STATE"
 
     cat > "$TEST_CONF" <<EOF
 [github-runner]
@@ -103,6 +106,16 @@ EOF
     cat > "$MOCK_DIR/docker" <<'EOF'
 #!/bin/sh
 echo "docker $*" >> "$MOCK_LOG"
+for last in "$@"; do :; done
+case "$1" in
+    ps)
+        [ -n "${DOCKER_PS_OUT:-}" ] && printf '%s\n' "$DOCKER_PS_OUT"
+        ;;
+    inspect)
+        [ -f "${DOCKER_STATE:-/dev/null}" ] || exit 0
+        awk -v id="$last" '$1 == id { print $2 }' "$DOCKER_STATE"
+        ;;
+esac
 exit 0
 EOF
     cat > "$MOCK_DIR/tee" <<'EOF'
@@ -135,6 +148,7 @@ run_github_runner_module() {
         export MOCK_LOG='${MOCK_LOG}'
         export GITHUB_RUNNER_SYSTEMD_DIR='${GITHUB_RUNNER_SYSTEMD_DIR}'
         export GITHUB_RUNNER_HOME='${GITHUB_RUNNER_HOME}'
+        export GITHUB_RUNNER_LIBEXEC_DIR='${GITHUB_RUNNER_LIBEXEC_DIR}'
         source \"\$PRIMER_DIR/lib/module.zsh\"
         source \"\$PRIMER_DIR/tests/helpers/module-config.zsh\"
         test::load_module_config '${TEST_CONF}'
@@ -149,6 +163,7 @@ run_github_runner_module() {
     assert_success
     assert_output --partial "register runner tombook-linux-relaunch for tomagranate/relaunch"
     assert_output --partial "register runner tombook-linux-primer for tomagranate/primer"
+    assert_output --partial "restart github-runner@tomagranate--relaunch.service"
     refute_output --partial "dummy-token"
     [ ! -f "$GITHUB_RUNNER_SYSTEMD_DIR/github-runner@.service" ]
 }
@@ -171,13 +186,33 @@ EOF
     assert_success
     [ -f "$GITHUB_RUNNER_SYSTEMD_DIR/gha-runner.slice" ]
     [ -f "$GITHUB_RUNNER_SYSTEMD_DIR/github-runner@.service" ]
+    [ -x "$GITHUB_RUNNER_LIBEXEC_DIR/primer-github-runner-cleanup" ]
+    grep -F "ExecStartPre=-+/usr/local/libexec/primer-github-runner-cleanup %i" \
+        "$GITHUB_RUNNER_SYSTEMD_DIR/github-runner@.service"
+    grep -F "ExecStopPost=-+/usr/local/libexec/primer-github-runner-cleanup %i" \
+        "$GITHUB_RUNNER_SYSTEMD_DIR/github-runner@.service"
     grep -F "useradd --system" "$MOCK_LOG"
     grep -F "tomagranate--relaunch" "$MOCK_LOG"
     grep -F "tomagranate--primer" "$MOCK_LOG"
-    grep -F "enable --now github-runner@tomagranate--relaunch.service" "$MOCK_LOG"
+    grep -F "enable github-runner@tomagranate--relaunch.service" "$MOCK_LOG"
+    grep -F "restart github-runner@tomagranate--relaunch.service" "$MOCK_LOG"
+    grep -F "restart github-runner@tomagranate--primer.service" "$MOCK_LOG"
     grep -F "docker pull ghcr.io/pgup-ai/jbot-review:latest-slim" "$MOCK_LOG"
     [ -f "$GITHUB_RUNNER_HOME/tomagranate--relaunch/.runner" ]
     [ -f "$GITHUB_RUNNER_HOME/tomagranate--primer/.runner" ]
+}
+
+@test "github-runner: leaves running runners alone when the units are unchanged" {
+    run_github_runner_module "mod_update"
+    assert_success
+    : > "$MOCK_LOG"
+
+    run_github_runner_module "mod_update"
+    assert_success
+    if grep -F "systemctl restart github-runner@" "$MOCK_LOG"; then
+        echo "an unchanged unit must not restart the runner" >&2
+        return 1
+    fi
 }
 
 @test "github-runner: skips config.sh when a runner is already registered" {
@@ -197,6 +232,71 @@ EOF
         echo "config.sh should not run for an existing registration" >&2
         return 1
     fi
+}
+
+run_cleanup() {
+    local instance="$1"
+    run env GITHUB_RUNNER_HOME="$GITHUB_RUNNER_HOME" PATH="$MOCK_DIR:$PATH" \
+        "$PRIMER_DIR/modules/github-runner/files/usr/local/libexec/primer-github-runner-cleanup" \
+        "$instance"
+}
+
+@test "github-runner: cleanup removes leftover jbot files for one instance" {
+    instance=tomagranate--relaunch
+    work="$GITHUB_RUNNER_HOME/$instance/_work/relaunch/relaunch"
+    mkdir -p "$work/.jbot-review" "$GITHUB_RUNNER_HOME/$instance/_work/_temp/jbot-shard-cache"
+    printf leftover > "$work/.jbot-review/telemetry.jsonl"
+    printf leftover > "$GITHUB_RUNNER_HOME/$instance/_work/_temp/jbot-shard-cache/x"
+
+    run_cleanup "$instance"
+    assert_success
+    [ ! -e "$work/.jbot-review" ]
+    [ ! -e "$GITHUB_RUNNER_HOME/$instance/_work/_temp/jbot-shard-cache" ]
+    grep -F "chown -R gha-runner:gha-runner $GITHUB_RUNNER_HOME/$instance/_work" "$MOCK_LOG"
+}
+
+@test "github-runner: cleanup kills containers that mount this instance's work tree" {
+    instance=tomagranate--relaunch
+    work="$GITHUB_RUNNER_HOME/$instance/_work"
+    other="$GITHUB_RUNNER_HOME/tomagranate--primer/_work"
+    mkdir -p "$work/relaunch/relaunch" "$other/primer/primer"
+    cat > "$DOCKER_STATE" <<EOF
+leftover $work/relaunch/relaunch
+foreign $other/primer/primer
+EOF
+    export DOCKER_PS_OUT="leftover
+foreign"
+
+    run_cleanup "$instance"
+    assert_success
+    grep -F "docker rm -f leftover" "$MOCK_LOG"
+    if grep -F "docker rm -f foreign" "$MOCK_LOG"; then
+        echo "cleanup must not kill another instance's container" >&2
+        return 1
+    fi
+}
+
+@test "github-runner: cleanup rejects a path-shaped instance" {
+    run env GITHUB_RUNNER_HOME="$GITHUB_RUNNER_HOME" \
+        "$PRIMER_DIR/modules/github-runner/files/usr/local/libexec/primer-github-runner-cleanup" \
+        "../etc"
+    assert_failure
+}
+
+@test "github-runner: cleanup accepts a repo name with dots" {
+    run_cleanup "tomagranate--relaunch..name"
+    assert_success
+}
+
+@test "github-runner: mod_status fails when the cleanup helper is missing" {
+    run_github_runner_module "mod_update"
+    assert_success
+    run_github_runner_module "mod_status"
+    assert_success
+
+    rm -f "$GITHUB_RUNNER_LIBEXEC_DIR/primer-github-runner-cleanup"
+    run_github_runner_module "mod_status"
+    assert_failure
 }
 
 @test "github-runner: mod_status fails when units are missing" {
