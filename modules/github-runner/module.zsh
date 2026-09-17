@@ -313,11 +313,16 @@ _github_runner::enable_instance() {
     local repo="$1" instance
     instance="$(_github_runner::instance "$repo")"
     if [[ "$DRY_RUN" == true ]]; then
-        printf '[dry-run] systemctl enable --now github-runner@%s.service\n' "$instance"
+        printf '[dry-run] systemctl enable github-runner@%s.service\n' "$instance"
+        printf '[dry-run] systemctl restart github-runner@%s.service\n' "$instance"
         return 0
     fi
     _github_runner::run_as_root systemctl daemon-reload || return 1
-    _github_runner::run_as_root systemctl enable --now "github-runner@${instance}.service"
+    _github_runner::run_as_root systemctl enable "github-runner@${instance}.service" || return 1
+    # A running unit keeps the definition it started with, so restart it to
+    # load the unit we just installed. That also runs the cleanup hooks on an
+    # already-deployed fleet.
+    _github_runner::run_as_root systemctl restart "github-runner@${instance}.service"
 }
 
 _github_runner::pull_image() {

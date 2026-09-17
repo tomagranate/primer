@@ -163,6 +163,7 @@ run_github_runner_module() {
     assert_success
     assert_output --partial "register runner tombook-linux-relaunch for tomagranate/relaunch"
     assert_output --partial "register runner tombook-linux-primer for tomagranate/primer"
+    assert_output --partial "restart github-runner@tomagranate--relaunch.service"
     refute_output --partial "dummy-token"
     [ ! -f "$GITHUB_RUNNER_SYSTEMD_DIR/github-runner@.service" ]
 }
@@ -193,7 +194,9 @@ EOF
     grep -F "useradd --system" "$MOCK_LOG"
     grep -F "tomagranate--relaunch" "$MOCK_LOG"
     grep -F "tomagranate--primer" "$MOCK_LOG"
-    grep -F "enable --now github-runner@tomagranate--relaunch.service" "$MOCK_LOG"
+    grep -F "enable github-runner@tomagranate--relaunch.service" "$MOCK_LOG"
+    grep -F "restart github-runner@tomagranate--relaunch.service" "$MOCK_LOG"
+    grep -F "restart github-runner@tomagranate--primer.service" "$MOCK_LOG"
     grep -F "docker pull ghcr.io/pgup-ai/jbot-review:latest-slim" "$MOCK_LOG"
     [ -f "$GITHUB_RUNNER_HOME/tomagranate--relaunch/.runner" ]
     [ -f "$GITHUB_RUNNER_HOME/tomagranate--primer/.runner" ]
