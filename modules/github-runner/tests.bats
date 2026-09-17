@@ -202,6 +202,19 @@ EOF
     [ -f "$GITHUB_RUNNER_HOME/tomagranate--primer/.runner" ]
 }
 
+@test "github-runner: leaves running runners alone when the units are unchanged" {
+    run_github_runner_module "mod_update"
+    assert_success
+    : > "$MOCK_LOG"
+
+    run_github_runner_module "mod_update"
+    assert_success
+    if grep -F "systemctl restart github-runner@" "$MOCK_LOG"; then
+        echo "an unchanged unit must not restart the runner" >&2
+        return 1
+    fi
+}
+
 @test "github-runner: skips config.sh when a runner is already registered" {
     mkdir -p "$GITHUB_RUNNER_HOME/tomagranate--relaunch" "$GITHUB_RUNNER_HOME/tomagranate--primer"
     touch "$GITHUB_RUNNER_HOME/.user-exists"
