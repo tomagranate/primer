@@ -6,3 +6,6 @@ import /etc/caddy/tailnet.caddy
 
 # Primer applications own the files in this directory.
 import /etc/caddy/apps.d/*.caddy
+
+# Local applications own the files in this directory.
+import /etc/caddy/local.d/*.caddy

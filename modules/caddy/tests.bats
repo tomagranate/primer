@@ -65,6 +65,9 @@ fi
 if [ "$*" = "show plans.service --property=DropInPaths --value" ] && [ -e "$TEST_ROOT/plans-drop-in" ]; then
     printf '%s\n' '/etc/systemd/system/plans.service.d/network.conf'
 fi
+if [ "$*" = "show plans.service --property=DropInPaths --value" ] && [ -e "$TEST_ROOT/global-service-drop-in" ]; then
+    printf '%s\n' '/usr/lib/systemd/system/service.d/10-timeout-abort.conf'
+fi
 exit 0
 EOF
     chmod +x "$MOCK_DIR/systemctl"
@@ -104,8 +107,9 @@ EOF
 #!/bin/sh
 printf '%s\n' '{"Self":{"DNSName":"host.tailnet.ts.net.","TailscaleIPs":["100.64.0.7","fd7a:115c:a1e0::7"]}}'
 EOF
-    cat > "$MOCK_DIR/getent" <<'EOF'
+cat > "$MOCK_DIR/getent" <<'EOF'
 #!/bin/sh
+printf 'getent %s\n' "$*" >> "$MOCK_LOG"
 case "$1" in
     ahostsv4)
         printf '%s STREAM %s\n' 100.64.0.7 "$2"
@@ -554,6 +558,25 @@ EOF
     assert_failure
 }
 
+@test "caddy: accepts wildcard private DNS names" {
+    sed -i '/^routes =/i\    *.preview.tomagranate.com' "$TEST_CONF"
+
+    run_caddy_function _caddy::desired_dns_names
+
+    assert_success
+    assert_output --partial "*.preview.tomagranate.com"
+}
+
+@test "caddy: resolves a wildcard through a concrete hostname" {
+    sed -i '/^routes =/i\    *.preview.tomagranate.com' "$TEST_CONF"
+
+    run_caddy_function _caddy::dns_resolves
+
+    assert_success
+    grep -F 'getent ahostsv4 primer-check.preview.tomagranate.com' "$MOCK_LOG"
+    grep -F 'getent ahostsv6 primer-check.preview.tomagranate.com' "$MOCK_LOG"
+}
+
 @test "caddy: dry-run plans the custom binary, service, and routes" {
     run zsh -c "
         export PRIMER_DIR='$PRIMER_DIR' DRY_RUN=true MOD_DIR='$PRIMER_DIR/modules/caddy'
@@ -585,6 +608,7 @@ EOF
     done
     mkdir -p \
         "$TEST_ROOT/etc/caddy/apps.d" \
+        "$TEST_ROOT/etc/caddy/local.d" \
         "$TEST_ROOT/usr/local/bin" \
         "$TEST_ROOT/var/lib/primer/caddy"
     cat > "$TEST_ROOT/usr/local/bin/caddy" <<'EOF'
@@ -609,6 +633,8 @@ EOF
     assert_success
     CADDY_CONFIG_DIR="$TEST_ROOT/etc/caddy" \
     CADDY_RUNTIME_DIR="$TEST_ROOT/run/caddy" \
+    CADDY_RUNTIME_OWNER="$(id -un)" \
+    CADDY_RUNTIME_GROUP="$(id -gn)" \
     TAILSCALE_BIN="$MOCK_DIR/tailscale" \
         "$TEST_ROOT/usr/local/libexec/primer-caddy-tailnet"
 
@@ -661,6 +687,11 @@ EOF
     run_caddy_function mod_status
     assert_failure
     chmod 0755 "$TEST_ROOT/etc/caddy/apps.d"
+
+    chmod 0775 "$TEST_ROOT/etc/caddy/local.d"
+    run_caddy_function mod_status
+    assert_failure
+    chmod 0755 "$TEST_ROOT/etc/caddy/local.d"
 
     chmod 0775 "$TEST_ROOT/usr/local/libexec/primer-caddy-tailnet"
     run_caddy_function mod_status
@@ -843,6 +874,18 @@ EOF
     [ "$(grep -c 'systemctl reload caddy.service' "$MOCK_LOG")" -eq 2 ]
 }
 
+@test "caddy: route reconciliation preserves local fragments" {
+    mkdir -p "$TEST_ROOT/etc/caddy/local.d"
+    printf 'local route\n' > "$TEST_ROOT/etc/caddy/local.d/relaunch.caddy"
+    printf 'stale\n' > "$CADDY_APPS_DIR/stale.caddy"
+    printf 'stale\n' > "$CADDY_ROUTE_MANIFEST"
+
+    route_helper reconcile
+
+    assert_success
+    [ "$(cat "$TEST_ROOT/etc/caddy/local.d/relaunch.caddy")" = 'local route' ]
+}
+
 @test "caddy: refuses Plans migration when the addon is not selected" {
     cat > "$MOCK_DIR/tailscale" <<'EOF'
 #!/bin/sh
@@ -918,6 +961,14 @@ EOF
     assert_output --partial "will not replace a customized service"
     run grep -F "systemctl disable --now plans.service" "$MOCK_LOG"
     assert_failure
+}
+
+@test "caddy: accepts Fedora's global service drop-in" {
+    touch "$TEST_ROOT/global-service-drop-in"
+
+    run_caddy_function _caddy::plans_service_matches
+
+    assert_success
 }
 
 @test "caddy: refuses to replace an unrelated Tailscale Serve target" {
@@ -1030,6 +1081,87 @@ EOF
     [ "$(stat -c %a "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 600 ]
     grep -Fx 'GATE_SECRET=gate-private' "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
     [ "$(grep -c 'systemctl reload caddy.service' "$MOCK_LOG")" -eq 0 ]
+}
+
+@test "caddy: preserves a known legacy local import during Plans migration" {
+    cat >> "$TEST_CONF" <<EOF
+    plans-media
+migrate_plans_config_digests = $(printf 'known legacy config\nimport /etc/caddy/relaunch-admin.Caddyfile\n' | sha256sum | cut -d ' ' -f1)
+migrate_plans_local_imports = /etc/caddy/relaunch-admin.Caddyfile
+migrate_plans_route = plans-media
+migrate_plans_host = plans.tomagranate.com
+migrate_plans_worker_host = agents-infra.sunburst-d5c.workers.dev
+EOF
+    printf 'known legacy config\nimport /etc/caddy/relaunch-admin.Caddyfile\n' \
+        > "$CADDY_CONFIG_DIR/plans.Caddyfile"
+    printf 'GATE_SECRET=gate-private\n' > "$TEST_ROOT/legacy.env"
+
+    run_caddy_function '_caddy::snapshot_migration_routes && _caddy::stage_migration_routes'
+
+    assert_success
+    grep -Fx 'import /etc/caddy/relaunch-admin.Caddyfile' \
+        "$TEST_ROOT/etc/caddy/local.d/migrated-plans-imports.caddy"
+}
+
+@test "caddy: rollback removes a newly migrated local import" {
+    cat >> "$TEST_CONF" <<EOF
+    plans-media
+migrate_plans_config_digests = $(printf 'known legacy config\nimport /etc/caddy/relaunch-admin.Caddyfile\n' | sha256sum | cut -d ' ' -f1)
+migrate_plans_local_imports = /etc/caddy/relaunch-admin.Caddyfile
+migrate_plans_route = plans-media
+migrate_plans_host = plans.tomagranate.com
+migrate_plans_worker_host = agents-infra.sunburst-d5c.workers.dev
+EOF
+    printf 'known legacy config\nimport /etc/caddy/relaunch-admin.Caddyfile\n' \
+        > "$CADDY_CONFIG_DIR/plans.Caddyfile"
+    printf 'GATE_SECRET=gate-private\n' > "$TEST_ROOT/legacy.env"
+
+    run_caddy_function '_caddy::snapshot_migration_routes && _caddy::stage_migration_routes && _caddy::restore_migration_routes'
+
+    assert_success
+    [ ! -e "$TEST_ROOT/etc/caddy/local.d/migrated-plans-imports.caddy" ]
+}
+
+@test "caddy: refuses to replace a changed migrated local import" {
+    cat >> "$TEST_CONF" <<EOF
+    plans-media
+migrate_plans_config_digests = $(printf 'known legacy config\nimport /etc/caddy/relaunch-admin.Caddyfile\n' | sha256sum | cut -d ' ' -f1)
+migrate_plans_local_imports = /etc/caddy/relaunch-admin.Caddyfile
+migrate_plans_route = plans-media
+migrate_plans_host = plans.tomagranate.com
+migrate_plans_worker_host = agents-infra.sunburst-d5c.workers.dev
+EOF
+    printf 'known legacy config\nimport /etc/caddy/relaunch-admin.Caddyfile\n' \
+        > "$CADDY_CONFIG_DIR/plans.Caddyfile"
+    printf 'GATE_SECRET=gate-private\n' > "$TEST_ROOT/legacy.env"
+    mkdir -p "$TEST_ROOT/etc/caddy/local.d"
+    printf 'import /etc/caddy/custom.Caddyfile\n' \
+        > "$TEST_ROOT/etc/caddy/local.d/migrated-plans-imports.caddy"
+
+    run_caddy_function '_caddy::snapshot_migration_routes && _caddy::stage_migration_routes'
+
+    assert_failure
+    assert_output --partial 'preserve its local routes manually'
+    grep -Fx 'import /etc/caddy/custom.Caddyfile' \
+        "$TEST_ROOT/etc/caddy/local.d/migrated-plans-imports.caddy"
+}
+
+@test "caddy: requires configured imports for a newer legacy fingerprint" {
+    cat >> "$TEST_CONF" <<EOF
+    plans-media
+migrate_plans_config_digests = $(printf 'known legacy config\n' | sha256sum | cut -d ' ' -f1)
+migrate_plans_local_imports = /etc/caddy/relaunch-admin.Caddyfile
+migrate_plans_route = plans-media
+migrate_plans_host = plans.tomagranate.com
+migrate_plans_worker_host = agents-infra.sunburst-d5c.workers.dev
+EOF
+    printf 'known legacy config\n' > "$CADDY_CONFIG_DIR/plans.Caddyfile"
+    printf 'GATE_SECRET=gate-private\n' > "$TEST_ROOT/legacy.env"
+
+    run_caddy_function '_caddy::snapshot_migration_routes && _caddy::stage_migration_routes'
+
+    assert_failure
+    [ ! -e "$TEST_ROOT/etc/caddy/local.d/migrated-plans-imports.caddy" ]
 }
 
 @test "caddy: preserves legacy Plans secret quoting during migration" {
@@ -1201,6 +1333,12 @@ EOF
 }
 
 @test "caddy: tailnet generator binds every Tailscale address" {
+    cat > "$MOCK_DIR/install" <<'EOF'
+#!/bin/sh
+printf 'install %s\n' "$*" >> "$MOCK_LOG"
+exec /usr/bin/install "$@"
+EOF
+    chmod +x "$MOCK_DIR/install"
     cat > "$MOCK_DIR/tailscale" <<'EOF'
 #!/bin/sh
 cat <<'JSON'
@@ -1209,17 +1347,24 @@ JSON
 EOF
     chmod +x "$MOCK_DIR/tailscale"
     run env CADDY_CONFIG_DIR="$CADDY_CONFIG_DIR" CADDY_RUNTIME_DIR="$TEST_ROOT/run" \
+        CADDY_RUNTIME_OWNER="$(id -un)" CADDY_RUNTIME_GROUP="$(id -gn)" \
+        PATH="$MOCK_DIR:$PATH" MOCK_LOG="$MOCK_LOG" \
         TAILSCALE_BIN="$MOCK_DIR/tailscale" \
         "$PRIMER_DIR/modules/caddy/files/usr/local/libexec/primer-caddy-tailnet"
     assert_success
     grep -F "bind 100.64.0.1 fd7a:115c:a1e0::1" "$CADDY_CONFIG_DIR/tailnet.caddy"
     grep -Fx "TAILSCALE_HOSTNAME=host.tailnet.ts.net" "$TEST_ROOT/run/tailnet.env"
+    [ "$(stat -c %U "$TEST_ROOT/run")" = "$(id -un)" ]
+    [ "$(stat -c %G "$TEST_ROOT/run")" = "$(id -gn)" ]
+    grep -F "install -d -o $(id -un) -g $(id -gn) -m 0755 $TEST_ROOT/run" "$MOCK_LOG"
 
     CADDY_CONFIG_DIR="$CADDY_CONFIG_DIR" CADDY_RUNTIME_DIR="$TEST_ROOT/run" \
+        CADDY_RUNTIME_OWNER="$(id -un)" CADDY_RUNTIME_GROUP="$(id -gn)" \
         TAILSCALE_BIN="$MOCK_DIR/tailscale" \
         "$PRIMER_DIR/modules/caddy/files/usr/local/libexec/primer-caddy-tailnet" status
     printf 'TAILSCALE_HOSTNAME=old.tailnet.ts.net\n' > "$TEST_ROOT/run/tailnet.env"
     run env CADDY_CONFIG_DIR="$CADDY_CONFIG_DIR" CADDY_RUNTIME_DIR="$TEST_ROOT/run" \
+        CADDY_RUNTIME_OWNER="$(id -un)" CADDY_RUNTIME_GROUP="$(id -gn)" \
         TAILSCALE_BIN="$MOCK_DIR/tailscale" \
         "$PRIMER_DIR/modules/caddy/files/usr/local/libexec/primer-caddy-tailnet" status
     assert_failure

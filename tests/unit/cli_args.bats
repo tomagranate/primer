@@ -14,6 +14,7 @@ setup() {
     assert_success
     assert_output --partial "Usage"
     assert_output --partial "Commands"
+    assert_output --partial "optional machine role"
 }
 
 @test "cli: -h exits 0 and shows usage" {
@@ -132,7 +133,7 @@ setup() {
     assert_success
     assert_output --partial "Profile: fedora-kde"
     assert_output --partial "Source: machine.conf"
-    assert_output --partial "Addons: gaming"
+    assert_output --partial "Optional roles: gaming"
     assert_output --partial "gaming (active)"
 }
 

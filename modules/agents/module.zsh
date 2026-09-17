@@ -51,8 +51,18 @@ _agents::install_method() {
     print -r -- "$method"
 }
 
+_agents::bin() {
+    if [[ -n "${AGENTS_BIN:-}" ]]; then
+        print -r -- "$AGENTS_BIN"
+    elif [[ -x "$HOME/.local/bin/agents" ]]; then
+        print -r -- "$HOME/.local/bin/agents"
+    else
+        print -r -- agents
+    fi
+}
+
 _agents::cli_ok() {
-    command -v agents >/dev/null 2>&1
+    command -v "$(_agents::bin)" >/dev/null 2>&1
 }
 
 _agents::install_cli() {
@@ -155,7 +165,7 @@ _agents::init_home() {
         echo "[dry-run] AGENTS_HOME=$(_agents::home_path) agents init --no-apply"
         return 0
     fi
-    AGENTS_HOME="$(_agents::home_path)" agents init --no-apply || return 1
+    AGENTS_HOME="$(_agents::home_path)" "$(_agents::bin)" init --no-apply || return 1
 }
 
 _agents::ensure_archive() {
@@ -182,7 +192,7 @@ _agents::ensure_archive() {
 
     mkdir -p "$(dirname "$archive")"
     primer::status_msg "initializing chat archive..."
-    agents archive init --path "$archive" --remote "$ssh_url" || return 1
+    "$(_agents::bin)" archive init --path "$archive" --remote "$ssh_url" || return 1
 }
 
 _agents::sync() {
@@ -190,8 +200,8 @@ _agents::sync() {
         echo "[dry-run] agents sync"
         return 0
     fi
-    command -v agents >/dev/null 2>&1 || return 1
-    AGENTS_HOME="$(_agents::home_path)" agents sync || return 1
+    _agents::cli_ok || return 1
+    AGENTS_HOME="$(_agents::home_path)" "$(_agents::bin)" sync || return 1
 }
 
 mod_update() {

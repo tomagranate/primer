@@ -523,6 +523,7 @@ _caddy::deploy() {
     _caddy::root install -d -m 0755 \
         "$(_caddy::root_path /etc/caddy)" \
         "$(_caddy::root_path /etc/caddy/apps.d)" \
+        "$(_caddy::root_path /etc/caddy/local.d)" \
         "$(_caddy::root_path /etc/caddy/env.d)" \
         "$(_caddy::root_path /var/lib/caddy)" \
         "$(_caddy::root_path /var/lib/primer)" \
@@ -530,6 +531,7 @@ _caddy::deploy() {
     _caddy::root chown "$owner:$group" \
         "$(_caddy::root_path /etc/caddy)" \
         "$(_caddy::root_path /etc/caddy/apps.d)" \
+        "$(_caddy::root_path /etc/caddy/local.d)" \
         "$(_caddy::root_path /etc/caddy/env.d)" \
         "$(_caddy::root_path /var/lib/primer)" \
         "$(_caddy::root_path /var/lib/primer/caddy)" || return 1
@@ -553,7 +555,7 @@ _caddy::definitions_ready() {
         group="$(id -gn)"
     fi
     for managed_path in \
-        /etc/caddy /etc/caddy/apps.d /etc/caddy/env.d \
+        /etc/caddy /etc/caddy/apps.d /etc/caddy/local.d /etc/caddy/env.d \
         /var/lib/primer /var/lib/primer/caddy; do
         [[ "$(stat -c %a "$(_caddy::root_path "$managed_path")" 2>/dev/null)" == 755 ]] \
             && [[ "$(stat -c %U "$(_caddy::root_path "$managed_path")" 2>/dev/null)" == "$owner" ]] \
@@ -634,11 +636,16 @@ _caddy::tailnet_fingerprint() {
 }
 
 _caddy::refresh_tailnet() {
-    local before after restart_was_pending=false
+    local before after runtime_owner=caddy runtime_group=caddy restart_was_pending=false
+    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
+        runtime_owner="$(id -un)"
+        runtime_group="$(id -gn)"
+    fi
     _caddy::restart_pending gateway && restart_was_pending=true
     before="$(_caddy::tailnet_fingerprint)"
     _caddy::mark_restart gateway || return 1
-    _caddy::root "$(_caddy::root_path /usr/local/libexec/primer-caddy-tailnet)" || return 1
+    _caddy::root env CADDY_RUNTIME_OWNER="$runtime_owner" CADDY_RUNTIME_GROUP="$runtime_group" \
+        "$(_caddy::root_path /usr/local/libexec/primer-caddy-tailnet)" || return 1
     after="$(_caddy::tailnet_fingerprint)"
     if [[ "$before" == "$after" ]] && ! $restart_was_pending; then
         _caddy::clear_restart gateway
@@ -658,7 +665,7 @@ _caddy::desired_dns_names() {
         [[ -n "$name" ]] || continue
         name="${(L)name}"
         name="${name//\{machine\}/$machine}"
-        print -r -- "$name" | grep -Eq '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$' || return 1
+        print -r -- "$name" | grep -Eq '^(\*\.)?[a-z0-9]([a-z0-9.-]*[a-z0-9])?$' || return 1
         [[ "$name" == "$zone" || "$name" == *".$zone" ]] || {
             print "Cloudflare DNS name is outside $zone: $name" >&2
             return 1
@@ -781,18 +788,19 @@ _caddy::dns_ready() {
 }
 
 _caddy::dns_resolves() {
-    local name entry type address results resolved
+    local name lookup entry type address results resolved
     local -a addresses names
     addresses=("${(@f)$(_caddy::tailscale_addresses)}") || return 1
     names=("${(@f)$(_caddy::desired_dns_names)}") || return 1
     for name in "${names[@]}"; do
+        lookup="${name/#\*./primer-check.}"
         for entry in "${addresses[@]}"; do
             type="${entry%% *}"
             address="${entry#* }"
             if [[ "$type" == A ]]; then
-                results="$(getent ahostsv4 "$name" 2>/dev/null)" || return 1
+                results="$(getent ahostsv4 "$lookup" 2>/dev/null)" || return 1
             else
-                results="$(getent ahostsv6 "$name" 2>/dev/null)" || return 1
+                results="$(getent ahostsv6 "$lookup" 2>/dev/null)" || return 1
             fi
             resolved="$(print -r -- "$results" | awk 'NF {print $1}' | sort -u)"
             [[ "$resolved" == "$address" ]] || return 1
@@ -830,12 +838,21 @@ _caddy::snapshot_migration_routes() {
     fi
     if _caddy::plans_migration_needed; then
         routes+=("$(mod_config migrate_plans_route | head -1)")
+        source="$(_caddy::root_path /etc/caddy/local.d/migrated-plans-imports.caddy)"
+        if [[ -f "$source" ]]; then
+            cp -p "$source" "$backup/migrated-plans-imports.caddy" \
+                || { rm -r "$backup"; return 1; }
+        fi
+        touch "$backup/plans-local-imports"
     fi
     for route in "${routes[@]}"; do
         print -r -- "$route" | grep -Eq '^[a-z0-9][a-z0-9-]*$' \
             || { rm -r "$backup"; return 1; }
         source="$(_caddy::root_path /etc/caddy/apps.d/$route.caddy)"
-        [[ -f "$source" ]] && cp -p "$source" "$backup/$route.caddy"
+        if [[ -f "$source" ]]; then
+            cp -p "$source" "$backup/$route.caddy" \
+                || { rm -r "$backup"; return 1; }
+        fi
     done
     temp="$(_caddy::root_path /etc/caddy/primer-routes)"
     [[ -f "$temp" ]] && cp -p "$temp" "$backup/primer-routes"
@@ -856,6 +873,15 @@ _caddy::restore_migration_routes() {
             _caddy::root rm -f "$target" || return 1
         fi
     done < "$_CADDY_MIGRATION_BACKUP/routes"
+    if [[ -e "$_CADDY_MIGRATION_BACKUP/plans-local-imports" ]]; then
+        target="$(_caddy::root_path /etc/caddy/local.d/migrated-plans-imports.caddy)"
+        if [[ -f "$_CADDY_MIGRATION_BACKUP/migrated-plans-imports.caddy" ]]; then
+            _caddy::root install -m 0644 \
+                "$_CADDY_MIGRATION_BACKUP/migrated-plans-imports.caddy" "$target" || return 1
+        else
+            _caddy::root rm -f "$target" || return 1
+        fi
+    fi
     if [[ -f "$_CADDY_MIGRATION_BACKUP/primer-routes" ]]; then
         _caddy::root install -m 0644 "$_CADDY_MIGRATION_BACKUP/primer-routes" "$manifest"
     else
@@ -880,14 +906,16 @@ _caddy::plans_service_managed() {
 }
 
 _caddy::plans_service_matches() {
-    local config expected actual unit expected_unit actual_unit fragment
+    local config expected actual unit expected_unit actual_unit fragment matched=false
     local exec_start exec_reload environment user group drop_in_paths command
     config="$(_caddy::root_path /etc/caddy/plans.Caddyfile)"
-    expected="$(mod_config migrate_plans_config_digest | head -1)"
-    print -r -- "$expected" | grep -Eq '^[0-9a-f]{64}$' || return 1
     [[ -f "$config" ]] || return 1
     actual="$(sha256sum "$config" 2>/dev/null | awk '{print $1}')" || return 1
-    [[ "$actual" == "$expected" ]] || return 1
+    while IFS= read -r expected; do
+        print -r -- "$expected" | grep -Eq '^[0-9a-f]{64}$' || return 1
+        [[ "$actual" == "$expected" ]] && matched=true
+    done < <(mod_config migrate_plans_config_digest; mod_config migrate_plans_config_digests)
+    $matched || return 1
     unit="$(_caddy::root_path /etc/systemd/system/plans.service)"
     expected_unit="$(mod_config migrate_plans_unit_digest | head -1)"
     print -r -- "$expected_unit" | grep -Eq '^[0-9a-f]{64}$' || return 1
@@ -905,10 +933,47 @@ _caddy::plans_service_matches() {
         && [[ "$exec_reload" == *'argv[]=/usr/local/bin/caddy reload --config /etc/caddy/plans.Caddyfile --force ;'* ]] \
         && [[ "$environment" == '/etc/agents-infra/plans.env (ignore_errors=no)' ]] \
         && [[ "$user" == caddy && "$group" == caddy ]] \
-        && [[ -z "$drop_in_paths" ]] || return 1
+        && [[ "$drop_in_paths" != *'/plans.service.d/'* ]] || return 1
     for command in ExecCondition ExecStartPre ExecStartPost ExecStop ExecStopPost; do
         [[ -z "$(systemctl show plans.service --property="$command" --value 2>/dev/null)" ]] || return 1
     done
+}
+
+_caddy::stage_plans_local_imports() {
+    local legacy target import temp expected actual contents="" required=false
+    legacy="$(_caddy::root_path /etc/caddy/plans.Caddyfile)"
+    target="$(_caddy::root_path /etc/caddy/local.d/migrated-plans-imports.caddy)"
+    actual="$(sha256sum "$legacy" 2>/dev/null | awk '{print $1}')" || return 1
+    # Additional fingerprints describe newer gateways whose configured imports
+    # must survive migration. The original Plans-only fingerprint has none.
+    while IFS= read -r expected; do
+        [[ "$actual" == "$expected" ]] && required=true
+    done < <(mod_config migrate_plans_config_digests)
+    while IFS= read -r import; do
+        print -r -- "$import" | grep -Eq '^/[A-Za-z0-9._/-]+$' || return 1
+        if ! grep -Fxq "import $import" "$legacy"; then
+            $required && return 1
+            continue
+        fi
+        contents+="import $import"$'\n'
+    done < <(mod_config migrate_plans_local_imports)
+    [[ -n "$contents" ]] || return 0
+    temp="$(mktemp)" || return 1
+    print -rn -- "$contents" >"$temp"
+    if [[ -f "$target" ]] && ! cmp -s "$temp" "$target"; then
+        print "Refusing to replace $target; preserve its local routes manually." >&2
+        rm -f "$temp"
+        return 1
+    fi
+    _caddy::mark_restart gateway || { rm -f "$temp"; return 1; }
+    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
+        install -D -m 0644 "$temp" "$target"
+    else
+        _caddy::root install -D -o root -g root -m 0644 "$temp" "$target"
+    fi
+    local rc=$?
+    rm -f "$temp"
+    return "$rc"
 }
 
 _caddy::plans_migration_needed() {
@@ -1042,6 +1107,7 @@ _caddy::stage_migration_routes() {
         worker="$(mod_config migrate_plans_worker_host | head -1)"
         [[ "$route" == plans-media ]] || return 1
         _caddy::stage_plans_credentials || return 1
+        _caddy::stage_plans_local_imports || return 1
         temp="$(mktemp)" || return 1
         "$(_caddy::fragment_helper)" plans-media "$host" "$worker" >"$temp" \
             || { rm -f "$temp"; return 1; }
