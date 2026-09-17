@@ -11,7 +11,7 @@ home="${GITHUB_RUNNER_HOME:-/var/lib/github-runner}"
 user="${GITHUB_RUNNER_USER:-gha-runner}"
 
 case "$instance" in
-    ''|*/*|*..*)
+    ''|.|..|*/*)
         echo "usage: primer-github-runner-cleanup <instance>" >&2
         exit 2
         ;;

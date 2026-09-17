@@ -236,6 +236,7 @@ run_cleanup() {
     assert_success
     [ ! -e "$work/.jbot-review" ]
     [ ! -e "$GITHUB_RUNNER_HOME/$instance/_work/_temp/jbot-shard-cache" ]
+    grep -F "chown -R gha-runner:gha-runner $GITHUB_RUNNER_HOME/$instance/_work" "$MOCK_LOG"
 }
 
 @test "github-runner: cleanup kills containers that mount this instance's work tree" {
@@ -263,6 +264,22 @@ foreign"
     run env GITHUB_RUNNER_HOME="$GITHUB_RUNNER_HOME" \
         "$PRIMER_DIR/modules/github-runner/files/usr/local/libexec/primer-github-runner-cleanup" \
         "../etc"
+    assert_failure
+}
+
+@test "github-runner: cleanup accepts a repo name with dots" {
+    run_cleanup "tomagranate--relaunch..name"
+    assert_success
+}
+
+@test "github-runner: mod_status fails when the cleanup helper is missing" {
+    run_github_runner_module "mod_update"
+    assert_success
+    run_github_runner_module "mod_status"
+    assert_success
+
+    rm -f "$GITHUB_RUNNER_LIBEXEC_DIR/primer-github-runner-cleanup"
+    run_github_runner_module "mod_status"
     assert_failure
 }
 
