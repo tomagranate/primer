@@ -261,6 +261,68 @@ _t3_code::route_ready() {
     return "$rc"
 }
 
+# `t3 pair --tailscale` reclaims MagicDNS root for T3. Clear that mapping when it
+# is exactly the legacy single-handler proxy to this local port.
+_t3_code::legacy_serve_active() {
+    local local_port="$1" serve_status
+    command -v tailscale >/dev/null 2>&1 || return 1
+    command -v jq >/dev/null 2>&1 || return 1
+    serve_status="$(tailscale serve status --json 2>/dev/null)" || return 1
+    print -r -- "$serve_status" | jq -e --arg target "http://127.0.0.1:$local_port" '
+        .TCP["443"] != null and
+        ([.Web | to_entries[]? | select(.key | endswith(":443"))] | length == 1) and
+        ([.Web | to_entries[]? | select(.key | endswith(":443")) |
+          .value.Handlers | keys] == [["/"]]) and
+        ([.Web | to_entries[]? | select(.key | endswith(":443")) |
+          .value.Handlers["/"].Proxy] == [$target])
+    ' >/dev/null 2>&1
+}
+
+_t3_code::clear_legacy_serve() {
+    local local_port="$1"
+    _t3_code::legacy_serve_active "$local_port" || return 0
+    if [[ "$DRY_RUN" == true ]]; then
+        print "[dry-run] tailscale serve --https=443 off"
+        return 0
+    fi
+    tailscale serve --https=443 off
+}
+
+_t3_code::pair_helper_path() {
+    print -r -- "${T3_CODE_PAIR_HELPER:-/usr/local/bin/primer-t3-pair}"
+}
+
+_t3_code::install_pair_helper() {
+    local source="$MOD_DIR/files/usr/local/bin/primer-t3-pair"
+    local target="$(_t3_code::pair_helper_path)"
+    if [[ "$DRY_RUN" == true ]]; then
+        print "[dry-run] install $target"
+        return 0
+    fi
+    [[ -f "$source" ]] || return 1
+    if [[ -n "${T3_CODE_TEST_ROOT:-}" ]]; then
+        install -D -m 0755 "$source" "$target"
+        return $?
+    fi
+    _t3_code::root install -D -m 0755 "$source" "$target"
+}
+
+_t3_code::pair_helper_matches() {
+    local source="$MOD_DIR/files/usr/local/bin/primer-t3-pair"
+    local target="$(_t3_code::pair_helper_path)"
+    [[ -f "$source" && -x "$target" ]] || return 1
+    cmp -s "$source" "$target"
+}
+
+_t3_code::ready_message() {
+    local hostname
+    hostname="$(_t3_code::service_hostname)" || {
+        print -r -- "available at t3.<machine>.tomagranate.com"
+        return 0
+    }
+    print -r -- "available at https://$hostname/"
+}
+
 mod_update() {
     local local_port
     local_port="$(_t3_code::local_port)" || {
@@ -273,6 +335,8 @@ mod_update() {
         echo "[dry-run] t3 service install"
         echo "[dry-run] systemctl --user restart t3code.service"
         _t3_code::install_route "$local_port" || return 1
+        _t3_code::clear_legacy_serve "$local_port" || return 1
+        _t3_code::install_pair_helper || return 1
         _t3_code::install_launcher || return 1
         primer::item_update "service" "done"
         primer::item_update "caddy-route" "done"
@@ -315,6 +379,16 @@ mod_update() {
         primer::status_msg "Caddy route failed"
         return 1
     fi
+    if ! _t3_code::clear_legacy_serve "$local_port"; then
+        primer::item_update "caddy-route" "failed" "legacy Tailscale Serve clear failed"
+        primer::status_msg "legacy Tailscale Serve clear failed"
+        return 1
+    fi
+    if ! _t3_code::install_pair_helper; then
+        primer::item_update "caddy-route" "failed" "pair helper install failed"
+        primer::status_msg "pair helper install failed"
+        return 1
+    fi
     primer::item_update "caddy-route" "done"
 
     primer::status_msg "installing desktop app..."
@@ -324,7 +398,7 @@ mod_update() {
         return 1
     fi
     primer::item_update "desktop-app" "done"
-    primer::status_msg "available over Tailscale"
+    primer::status_msg "$(_t3_code::ready_message)"
 }
 
 mod_status() {
@@ -341,10 +415,12 @@ mod_status() {
         && _t3_code::drop_in_matches "$local_port" \
         && [[ ! -e "$(_t3_code::service_restart_marker)" ]] \
         && _t3_code::route_ready "$local_port" \
+        && ! _t3_code::legacy_serve_active "$local_port" \
+        && _t3_code::pair_helper_matches \
         && _t3_code::launcher_matches || {
             primer::status_msg "service or proxy not ready"
             return 1
         }
 
-    primer::status_msg "available over Tailscale"
+    primer::status_msg "$(_t3_code::ready_message)"
 }

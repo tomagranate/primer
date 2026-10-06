@@ -156,7 +156,8 @@ step finishes.
 The Fedora profile installs T3 Code as a persistent systemd user service.
 User lingering starts the service during boot, before the user logs in.
 The shared Caddy gateway proxies `t3.<machine>.tomagranate.com` to T3.
-T3 remains at the root, so routes such as `/.well-known` stay unchanged.
+T3 remains at the root of that hostname, so routes such as `/.well-known` stay
+unchanged. Other apps can share the same machine on different hostnames.
 
 Open the server from another device on the same tailnet:
 
@@ -164,12 +165,15 @@ Open the server from another device on the same tailnet:
 https://t3.<machine>.tomagranate.com/
 ```
 
-Create a pairing link when a new client needs access:
+Create a pairing link (with QR when `qrencode` or `qrcode-terminal` is available):
 
 ```sh
-t3 auth pairing create \
-  --base-url "https://t3.$(hostname -s | tr '[:upper:]' '[:lower:]').tomagranate.com"
+primer-t3-pair
 ```
+
+Do not run `t3 pair --tailscale`. That command maps MagicDNS root
+(`https://<machine>.<tailnet>.ts.net/`) to T3 and blocks other HTTPS apps on the
+machine. Primer clears that legacy Serve mapping when it updates `t3-code`.
 
 ## Architecture
 

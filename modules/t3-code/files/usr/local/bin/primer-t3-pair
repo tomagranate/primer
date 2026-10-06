@@ -1,0 +1,85 @@
+#!/bin/sh
+# Mint a T3 pairing token against the Primer Caddy hostname.
+# Do not use `t3 pair --tailscale`; that steals MagicDNS root from Caddy.
+set -eu
+
+machine="$(hostname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+suffix="${PRIMER_T3_DOMAIN_SUFFIX:-tomagranate.com}"
+base_url="${PRIMER_T3_BASE_URL:-https://t3.${machine}.${suffix}}"
+
+usage() {
+    printf 'usage: primer-t3-pair [--ttl TTL] [--label LABEL]\n' >&2
+    printf 'Pairs through %s\n' "$base_url" >&2
+    printf 'Override with PRIMER_T3_BASE_URL or PRIMER_T3_DOMAIN_SUFFIX.\n' >&2
+}
+
+ttl=""
+label=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --ttl)
+            [ "$#" -ge 2 ] || { usage; exit 2; }
+            ttl=$2
+            shift 2
+            ;;
+        --label)
+            [ "$#" -ge 2 ] || { usage; exit 2; }
+            label=$2
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            usage
+            exit 2
+            ;;
+    esac
+done
+
+if ! command -v t3 >/dev/null 2>&1; then
+    printf 't3 not found on PATH\n' >&2
+    exit 1
+fi
+if ! command -v jq >/dev/null 2>&1; then
+    printf 'jq not found on PATH\n' >&2
+    exit 1
+fi
+
+set -- t3 auth pairing create --base-url "$base_url" --json
+[ -n "$ttl" ] && set -- "$@" --ttl "$ttl"
+[ -n "$label" ] && set -- "$@" --label "$label"
+
+json=""
+if ! json="$("$@" 2>&1)"; then
+    printf 'pairing create failed:\n%s\n' "$json" >&2
+    exit 1
+fi
+token="$(printf '%s\n' "$json" | jq -r '.credential // empty')"
+pair_url="$(printf '%s\n' "$json" | jq -r '.pairUrl // empty')"
+expires="$(printf '%s\n' "$json" | jq -r '.expiresAt // empty')"
+
+[ -n "$token" ] && [ -n "$pair_url" ] || {
+    printf 'pairing create failed:\n%s\n' "$json" >&2
+    exit 1
+}
+
+printf 'Token: %s\n' "$token"
+printf 'Pairing URL: %s\n' "$pair_url"
+[ -n "$expires" ] && printf 'Expires: %s\n' "$expires"
+printf '\n'
+
+if command -v qrencode >/dev/null 2>&1 \
+    && qrencode -t ANSIUTF8 "$pair_url"; then
+    exit 0
+fi
+
+if command -v node >/dev/null 2>&1 \
+    && node -e "require('qrcode-terminal')" >/dev/null 2>&1 \
+    && node -e "require('qrcode-terminal').generate(process.argv[1], {small: true})" \
+        "$pair_url"; then
+    exit 0
+fi
+
+printf 'QR skipped (install qrencode, or npm i -g qrcode-terminal).\n' >&2
