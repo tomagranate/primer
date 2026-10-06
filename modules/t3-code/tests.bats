@@ -8,9 +8,11 @@ setup() {
     export MOCK_DIR="$(mktemp -d)"
     export MOCK_LOG="$(mktemp)"
     export MOD_ITEMS_FILE="$(mktemp)"
+    export MOD_STATUS_FILE="$TEST_HOME/mod-status"
     export T3_CODE_SYSTEMD_USER_DIR="$TEST_HOME/systemd/user"
     export T3_CODE_APPLICATIONS_DIR="$TEST_HOME/applications"
     export T3_CODE_ICON_PATH="$TEST_HOME/icons/t3-code.png"
+    export T3_CODE_PAIR_HELPER="$TEST_HOME/bin/primer-t3-pair"
     export CADDY_ROUTE_HELPER="$MOCK_DIR/primer-caddy-route"
     export T3_CODE_TEST_ROOT=1
     export T3_CODE_MACHINE_NAME=Tombook-Linux
@@ -49,7 +51,29 @@ EOF
 #!/bin/sh
 exit 0
 EOF
-    chmod +x "$MOCK_DIR/t3" "$MOCK_DIR/systemctl" "$MOCK_DIR/primer-caddy-route" "$MOCK_DIR/google-chrome-stable"
+    cat > "$MOCK_DIR/tailscale" <<'EOF'
+#!/bin/sh
+printf 'tailscale %s\n' "$*" >> "$MOCK_LOG"
+case "$*" in
+    "serve status --json")
+        if [ -f "$TEST_HOME/legacy-serve.json" ]; then
+            cat "$TEST_HOME/legacy-serve.json"
+        else
+            printf '{}\n'
+        fi
+        ;;
+    "serve --https=443 off")
+        rm -f "$TEST_HOME/legacy-serve.json"
+        ;;
+esac
+exit 0
+EOF
+    cat > "$MOCK_DIR/jq" <<'EOF'
+#!/bin/sh
+exec /usr/bin/jq "$@"
+EOF
+    chmod +x "$MOCK_DIR/t3" "$MOCK_DIR/systemctl" "$MOCK_DIR/primer-caddy-route" \
+        "$MOCK_DIR/google-chrome-stable" "$MOCK_DIR/tailscale" "$MOCK_DIR/jq"
 }
 
 teardown() {
@@ -64,7 +88,7 @@ run_t3_code_module() {
         export DRY_RUN='${DRY_RUN:-false}'
         export MOD_DIR='${PRIMER_DIR}/modules/t3-code'
         export MOD_NAME='t3-code'
-        export MOD_STATUS_FILE='$(mktemp)'
+        export MOD_STATUS_FILE='${MOD_STATUS_FILE}'
         export MOD_ITEMS_FILE='${MOD_ITEMS_FILE}'
         export HOME='${TEST_HOME}'
         export PATH='${MOCK_DIR}:/usr/bin:/bin'
@@ -72,6 +96,7 @@ run_t3_code_module() {
         export T3_CODE_SYSTEMD_USER_DIR='${T3_CODE_SYSTEMD_USER_DIR}'
         export T3_CODE_APPLICATIONS_DIR='${T3_CODE_APPLICATIONS_DIR}'
         export T3_CODE_ICON_PATH='${T3_CODE_ICON_PATH}'
+        export T3_CODE_PAIR_HELPER='${T3_CODE_PAIR_HELPER}'
         export CADDY_ROUTE_HELPER='${CADDY_ROUTE_HELPER}'
         export T3_CODE_TEST_ROOT='${T3_CODE_TEST_ROOT}'
         export T3_CODE_MACHINE_NAME='${T3_CODE_MACHINE_NAME}'
@@ -89,8 +114,10 @@ run_t3_code_module() {
     assert_success
     assert_output --partial "t3 service install"
     assert_output --partial "install Caddy route t3-code -> http://127.0.0.1:3773"
-    refute_output --partial "tailscale serve"
-    [ ! -s "$MOCK_LOG" ]
+    assert_output --partial "install $T3_CODE_PAIR_HELPER"
+    refute_output --partial "tailscale serve --bg"
+    run grep -F "tailscale serve --bg" "$MOCK_LOG"
+    assert_failure
 }
 
 @test "t3-code: installs the service and custom-host Caddy route" {
@@ -107,6 +134,27 @@ run_t3_code_module() {
     grep -F -- "--app=http://127.0.0.1:3773" "$T3_CODE_APPLICATIONS_DIR/t3-code.desktop"
     grep -Fx "StartupWMClass=T3Code" "$T3_CODE_APPLICATIONS_DIR/t3-code.desktop"
     cmp -s "$TEST_HOME/.t3/runtime/versions/0.0.33/node_modules/t3/dist/client/apple-touch-icon.png" "$T3_CODE_ICON_PATH"
+    cmp -s "$PRIMER_DIR/modules/t3-code/files/usr/local/bin/primer-t3-pair" "$T3_CODE_PAIR_HELPER"
+    assert_equal "$(cat "$MOD_STATUS_FILE")" "available at https://t3.tombook-linux.tomagranate.com/"
+}
+
+@test "t3-code: clears legacy Tailscale Serve that stole MagicDNS root" {
+    cat > "$TEST_HOME/legacy-serve.json" <<'EOF'
+{
+  "TCP": {"443": {"HTTPS": true}},
+  "Web": {
+    "tomputer.example.ts.net:443": {
+      "Handlers": {
+        "/": {"Proxy": "http://127.0.0.1:3773"}
+      }
+    }
+  }
+}
+EOF
+    run_t3_code_module "mod_update"
+    assert_success
+    grep -Fx "tailscale serve --https=443 off" "$MOCK_LOG"
+    [ ! -e "$TEST_HOME/legacy-serve.json" ]
 }
 
 @test "t3-code: status succeeds when the service and route are ready" {
@@ -119,9 +167,12 @@ Environment=T3CODE_PORT=3773
 EOF
     run_t3_code_module "_t3_code::install_launcher"
     assert_success
+    run_t3_code_module "_t3_code::install_pair_helper"
+    assert_success
     run_t3_code_module "_t3_code::root() { return 99; }; mod_status"
     assert_success
     grep -E 'primer-caddy-route status t3-code /tmp/' "$MOCK_LOG"
+    assert_equal "$(cat "$MOD_STATUS_FILE")" "available at https://t3.tombook-linux.tomagranate.com/"
 }
 
 @test "t3-code: status fails without the managed service settings" {
@@ -156,11 +207,13 @@ EOF
     assert_success
 }
 
-@test "t3-code: never manages Tailscale Serve" {
-    run grep -F "tailscale serve" "$PRIMER_DIR/modules/t3-code/module.zsh"
+@test "t3-code: keeps Caddy hostnames and never publishes Tailscale Serve" {
+    run grep -F "tailscale serve --bg" "$PRIMER_DIR/modules/t3-code/module.zsh"
     assert_failure
     run grep -F "t3 pair --tailscale" "$PRIMER_DIR/README.md"
-    assert_failure
+    assert_success
+    run grep -F "primer-t3-pair" "$PRIMER_DIR/README.md"
+    assert_success
     run_t3_code_module "_t3_code::route_contents 3773"
     assert_success
     assert_output --partial 'https://t3.tombook-linux.tomagranate.com:443 {'
@@ -168,6 +221,33 @@ EOF
     assert_output --partial 'dns cloudflare {env.CLOUDFLARE_API_TOKEN}'
     assert_output --partial 'reverse_proxy http://127.0.0.1:3773'
     refute_output --partial "handle_path"
+}
+
+@test "t3-code: status fails while legacy Tailscale Serve still owns 443" {
+    mkdir -p "$T3_CODE_SYSTEMD_USER_DIR/t3code.service.d"
+    cat > "$T3_CODE_SYSTEMD_USER_DIR/t3code.service.d/primer.conf" <<'EOF'
+[Service]
+Environment=T3CODE_MODE=web
+Environment=T3CODE_HOST=127.0.0.1
+Environment=T3CODE_PORT=3773
+EOF
+    cat > "$TEST_HOME/legacy-serve.json" <<'EOF'
+{
+  "TCP": {"443": {"HTTPS": true}},
+  "Web": {
+    "tomputer.example.ts.net:443": {
+      "Handlers": {
+        "/": {"Proxy": "http://127.0.0.1:3773"}
+      }
+    }
+  }
+}
+EOF
+    run_t3_code_module "_t3_code::install_launcher && _t3_code::install_pair_helper"
+    assert_success
+    run_t3_code_module "_t3_code::root() { return 99; }; mod_status"
+    assert_failure
+    assert_equal "$(cat "$MOD_STATUS_FILE")" "service or proxy not ready"
 }
 
 @test "t3-code: rejects an invalid short machine name" {
