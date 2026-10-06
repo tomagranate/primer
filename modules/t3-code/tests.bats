@@ -294,3 +294,21 @@ EOF
     assert_output --partial "QR skipped"
     grep -Fx "t3 auth pairing create --base-url https://t3.tombook-linux.tomagranate.com --json --ttl 5m --label agent" "$MOCK_LOG"
 }
+
+@test "t3-code: primer-t3-pair reports a failed t3 create" {
+    cat > "$MOCK_DIR/t3" <<'EOF'
+#!/bin/sh
+printf 't3 offline\n' >&2
+exit 2
+EOF
+    chmod +x "$MOCK_DIR/t3"
+
+    run env -i \
+        PATH="$MOCK_DIR:/usr/bin:/bin" \
+        HOME="$TEST_HOME" \
+        PRIMER_T3_BASE_URL="https://t3.tombook-linux.tomagranate.com" \
+        "$PRIMER_DIR/modules/t3-code/files/usr/local/bin/primer-t3-pair"
+    assert_failure
+    assert_output --partial "pairing create failed:"
+    assert_output --partial "t3 offline"
+}

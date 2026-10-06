@@ -51,7 +51,11 @@ set -- t3 auth pairing create --base-url "$base_url" --json
 [ -n "$ttl" ] && set -- "$@" --ttl "$ttl"
 [ -n "$label" ] && set -- "$@" --label "$label"
 
-json="$("$@")"
+json=""
+if ! json="$("$@" 2>&1)"; then
+    printf 'pairing create failed:\n%s\n' "$json" >&2
+    exit 1
+fi
 token="$(printf '%s\n' "$json" | jq -r '.credential // empty')"
 pair_url="$(printf '%s\n' "$json" | jq -r '.pairUrl // empty')"
 expires="$(printf '%s\n' "$json" | jq -r '.expiresAt // empty')"
