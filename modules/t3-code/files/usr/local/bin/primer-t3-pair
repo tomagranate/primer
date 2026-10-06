@@ -66,15 +66,15 @@ printf 'Pairing URL: %s\n' "$pair_url"
 [ -n "$expires" ] && printf 'Expires: %s\n' "$expires"
 printf '\n'
 
-if command -v qrencode >/dev/null 2>&1; then
-    qrencode -t ANSIUTF8 "$pair_url"
+if command -v qrencode >/dev/null 2>&1 \
+    && qrencode -t ANSIUTF8 "$pair_url"; then
     exit 0
 fi
 
 if command -v node >/dev/null 2>&1 \
-    && node -e "require('qrcode-terminal')" >/dev/null 2>&1; then
-    node -e "require('qrcode-terminal').generate(process.argv[1], {small: true})" \
-        "$pair_url"
+    && node -e "require('qrcode-terminal')" >/dev/null 2>&1 \
+    && node -e "require('qrcode-terminal').generate(process.argv[1], {small: true})" \
+        "$pair_url"; then
     exit 0
 fi
 

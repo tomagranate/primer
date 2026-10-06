@@ -259,3 +259,38 @@ EOF
     run grep -F 'primer-caddy-route install t3-code' "$MOCK_LOG"
     assert_failure
 }
+
+@test "t3-code: primer-t3-pair mints against the Caddy hostname" {
+    cat > "$MOCK_DIR/t3" <<'EOF'
+#!/bin/sh
+printf 't3 %s\n' "$*" >> "$MOCK_LOG"
+case "$*" in
+    "auth pairing create --base-url https://t3.tombook-linux.tomagranate.com --json --ttl 5m --label agent")
+        printf '%s\n' '{"credential":"TOK123","pairUrl":"https://t3.tombook-linux.tomagranate.com/pair#token=TOK123","expiresAt":"2099-01-01T00:00:00.000Z"}'
+        ;;
+    *)
+        printf 'unexpected: %s\n' "$*" >&2
+        exit 1
+        ;;
+esac
+EOF
+    chmod +x "$MOCK_DIR/t3"
+    # Shadow host QR tools so the helper takes the skip path.
+    printf '#!/bin/sh\nexit 127\n' > "$MOCK_DIR/qrencode"
+    printf '#!/bin/sh\nexit 127\n' > "$MOCK_DIR/node"
+    chmod +x "$MOCK_DIR/qrencode" "$MOCK_DIR/node"
+
+    run env -i \
+        PATH="$MOCK_DIR:/usr/bin:/bin" \
+        HOME="$TEST_HOME" \
+        MOCK_LOG="$MOCK_LOG" \
+        PRIMER_T3_BASE_URL="https://t3.tombook-linux.tomagranate.com" \
+        "$PRIMER_DIR/modules/t3-code/files/usr/local/bin/primer-t3-pair" \
+        --ttl 5m --label agent
+    assert_success
+    assert_output --partial "Token: TOK123"
+    assert_output --partial "Pairing URL: https://t3.tombook-linux.tomagranate.com/pair#token=TOK123"
+    assert_output --partial "Expires: 2099-01-01T00:00:00.000Z"
+    assert_output --partial "QR skipped"
+    grep -Fx "t3 auth pairing create --base-url https://t3.tombook-linux.tomagranate.com --json --ttl 5m --label agent" "$MOCK_LOG"
+}
