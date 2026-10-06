@@ -1,0 +1,40 @@
+[Unit]
+Description=Stateless GitHub Actions CI runner (%i)
+Documentation=https://docs.github.com/en/actions/hosting-your-own-runners
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gha-ci-%i
+Group=gha-ci-%i
+WorkingDirectory=/var/lib/github-ci-runner/%i
+ExecStartPre=/usr/local/libexec/primer-github-ci-runner-cleanup.sh %i
+ExecStart=/var/lib/github-ci-runner/%i/run.sh
+ExecStopPost=/usr/local/libexec/primer-github-ci-runner-cleanup.sh %i
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+CPUWeight=40
+MemoryMax=4G
+Slice=gha-ci-stateless.slice
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+LockPersonality=true
+RemoveIPC=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/github-ci-runner/%i
+Environment=HOME=/var/lib/github-ci-runner/%i/_work/_home
+Environment=DOTNET_CLI_TELEMETRY_OPTOUT=1
+Environment=ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/usr/local/libexec/primer-github-ci-runner-cleanup.sh
+
+[Install]
+WantedBy=multi-user.target
