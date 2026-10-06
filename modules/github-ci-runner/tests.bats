@@ -24,6 +24,14 @@ seed_dist = $TEST_HOME/seed
 repos =
     tomagranate/nerve
     tomagranate/relaunch
+    tomagranate/primer
+    tomagranate/coolgrid
+    tomagranate/set-tracker
+    tomagranate/set-tracker-copy
+    tomagranate/set-tracker-best
+    tomagranate/keel
+    tomagranate/concrete
+    tomagranate/agents-infra
 EOF
     mkdir -p "$TEST_HOME/seed"
     printf tarball > "$TEST_HOME/seed/actions-runner-linux-x64-2.337.0.tar.gz"
@@ -124,6 +132,8 @@ run_module() {
     assert_success
     assert_output --partial "register tomputer-ci-nerve"
     assert_output --partial "register tomputer-ci-relaunch"
+    assert_output --partial "register tomputer-ci-primer"
+    assert_output --partial "register tomputer-ci-agents-infra"
     refute_output --partial "github-runner@tomagranate"
     [ ! -f "$GITHUB_CI_SYSTEMD_DIR/github-ci-runner@.service" ]
 }
@@ -148,6 +158,8 @@ run_module() {
     grep -F "useradd --system --create-home --home-dir $GITHUB_CI_RUNNER_HOME/nerve --shell /usr/sbin/nologin gha-ci-nerve" "$MOCK_LOG"
     grep -F "useradd --system --create-home --home-dir $GITHUB_CI_RUNNER_HOME/relaunch --shell /usr/sbin/nologin gha-ci-relaunch" "$MOCK_LOG"
     grep -F "gh api -X POST repos/tomagranate/nerve/actions/runners/registration-token" "$MOCK_LOG"
+    grep -F "gh api -X POST repos/tomagranate/primer/actions/runners/registration-token" "$MOCK_LOG"
+    grep -F "gh api -X POST repos/tomagranate/agents-infra/actions/runners/registration-token" "$MOCK_LOG"
     grep -F "systemctl start github-ci-runner@nerve.service" "$MOCK_LOG"
     grep -F "systemctl start github-ci-runner@relaunch.service" "$MOCK_LOG"
     grep -F "chown root:gha-ci-nerve $GITHUB_CI_RUNNER_HOME/nerve" "$MOCK_LOG"
