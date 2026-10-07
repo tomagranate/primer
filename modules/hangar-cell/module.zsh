@@ -83,7 +83,6 @@ _hcell::uplink() {
 }
 
 _hcell::ensure_libvirt() {
-    _hcell::in_test && return 0
     _hcell::root systemctl enable --now virtqemud.socket virtnetworkd.socket || return 1
     local virsh=(virsh -c qemu:///system)
     if ! "${virsh[@]}" net-info ci-isolated >/dev/null 2>&1; then
@@ -98,7 +97,6 @@ _hcell::ensure_libvirt() {
 # Guests reach the internet on 443 (and 5432 for hosted Postgres), DHCP and
 # DNS on the host, and the four cache ports. Nothing on the home network.
 _hcell::ensure_firewall() {
-    _hcell::in_test && return 0
     local uplink zone cidr
     uplink="$(_hcell::uplink)"
     [[ -n "$uplink" ]] || { print "no default route" >&2; return 1; }
@@ -143,7 +141,7 @@ _hcell::ensure_ksm() {
     local file="$(_hcell::tmpfiles_dir)/hangar-ksm.conf" line='w /sys/kernel/mm/ksm/run - - - - 1'
     [[ -f "$file" && "$(<"$file")" == "$line" ]] && return 0
     print -r -- "$line" | _hcell::root install -D -m 0644 /dev/stdin "$file" || return 1
-    _hcell::in_test || _hcell::root systemd-tmpfiles --create "$file"
+    _hcell::root systemd-tmpfiles --create "$file"
 }
 
 # Members of group hangar may drain this cell through its local socket.
@@ -153,6 +151,9 @@ _hcell::ensure_group() {
     id -nG "$user" 2>/dev/null | tr ' ' '\n' | grep -Fxq hangar && return 0
     _hcell::root usermod -aG hangar "$user"
 }
+
+# New group membership reaches only new login sessions.
+_hcell::session_in_group() { id -nG 2>/dev/null | tr ' ' '\n' | grep -Fxq hangar }
 
 _hcell::ensure_secret() {
     local dir="$(_hcell::etc)/secrets" file token
@@ -209,7 +210,7 @@ _hcell::install_units() {
         _hcell::root install -D -m 0644 "$src" "$systemd/$name" || return 1
         _hcell::changed
     done
-    _hcell::in_test || _hcell::root systemctl daemon-reload
+    _hcell::root systemctl daemon-reload
 }
 
 _hcell::ensure_stack() {
@@ -219,7 +220,6 @@ _hcell::ensure_stack() {
     done
     # Verdaccio runs as uid 10001 in its image.
     _hcell::root chown 10001:65533 "$data/npm" || return 1
-    _hcell::in_test && return 0
     _hcell::root systemctl enable --now hangar-stack.service || return 1
     # A new release can change the compose file; apply it.
     [[ -z "${_HCELL_RESTART:-}" ]] || _hcell::root systemctl restart hangar-stack.service
@@ -240,7 +240,6 @@ _hcell::ensure_image() {
         [[ "$actual" == "$sha" ]] || { print "base image checksum mismatch" >&2; return 1; }
         _hcell::root mv "$base.partial" "$base" || return 1
     fi
-    _hcell::in_test && return 0
     _hcell::root systemctl enable --now hangar-image.timer || return 1
     if [[ ! -e "$images/current" ]]; then
         _hcell::root systemctl start --no-block hangar-image.service
@@ -264,7 +263,6 @@ EOF
 }
 
 _hcell::enable() {
-    _hcell::in_test && return 0
     _hcell::root systemctl enable hangar-cell.service || return 1
     if [[ -n "${_HCELL_RESTART:-}" ]]; then
         _hcell::root systemctl restart hangar-cell.service
@@ -288,6 +286,10 @@ mod_update() {
     _hcell::ensure_image || { primer::status_msg "image setup failed"; return 1; }
     _hcell::ensure_gamemode || { primer::status_msg "GameMode hook failed"; return 1; }
     _hcell::enable || { primer::status_msg "service start failed"; return 1; }
+    if command -v gamemoded >/dev/null 2>&1 && ! _hcell::session_in_group; then
+        primer::status_msg "cell online · log out and in so games can pause CI"
+        return 0
+    fi
     primer::status_msg "cell online"
 }
 
@@ -301,11 +303,10 @@ mod_status() {
     if command -v gamemoded >/dev/null 2>&1; then
         ini="${XDG_CONFIG_HOME:-$HOME/.config}/gamemode.ini"
         grep -q 'hangar cell drain' "$ini" 2>/dev/null || issues+=("gamemode.ini has no hangar hooks")
+        _hcell::session_in_group || issues+=("log out and in so games can pause CI")
     fi
-    if ! _hcell::in_test; then
-        systemctl is-active --quiet hangar-cell.service || issues+=("hangar-cell not running")
-        [[ -e "$(_hcell::images)/current" ]] || issues+=("no golden image yet")
-    fi
+    systemctl is-active --quiet hangar-cell.service || issues+=("hangar-cell not running")
+    [[ -e "$(_hcell::images)/current" ]] || issues+=("no golden image yet")
     (( ${#issues} == 0 )) && { primer::status_msg "cell online"; return 0; }
     primer::status_msg "${(j: · :)issues}"
     return 1

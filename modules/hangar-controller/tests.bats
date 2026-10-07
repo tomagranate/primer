@@ -31,6 +31,20 @@ case "$2" in
   */cell-token) echo cell-secret ;;
 esac
 EOF
+    cat > "$MOCK_DIR/tailscale" <<'EOF'
+#!/bin/sh
+echo "tailscale $*" >> "$MOCK_LOG"
+if [ "$1 $2" = "funnel status" ] && [ -f "$TEST_HOME/.funnel" ]; then
+  echo "https://tombook-linux.example.ts.net:10000 (Funnel on)"
+  echo "|-- /github/webhook proxy http://127.0.0.1:8781/github/webhook"
+fi
+[ "$1 $2" = "funnel --bg" ] && touch "$TEST_HOME/.funnel"
+exit 0
+EOF
+    cat > "$MOCK_DIR/systemctl" <<'EOF'
+#!/bin/sh
+echo "systemctl $*" >> "$MOCK_LOG"
+EOF
     chmod +x "$MOCK_DIR"/*
 }
 
@@ -47,7 +61,7 @@ run_module() {
         export MOD_STATUS_FILE='$(mktemp)'
         export HOME='${TEST_HOME}'
         export PATH='${MOCK_DIR}:/usr/bin:/bin'
-        export MOCK_LOG='${MOCK_LOG}'
+        export MOCK_LOG='${MOCK_LOG}' TEST_HOME='${TEST_HOME}'
         export OP_SERVICE_ACCOUNT_TOKEN=ticket
         export HANGAR_SYSTEMD_DIR='${ROOT}/etc/systemd/system'
         export HANGAR_ETC_DIR='${ROOT}/etc/hangar'
@@ -80,12 +94,20 @@ run_module() {
     grep -Fx 'ci-container = "medium"' "$cfg"
     grep -Fx '[sizes.large]' "$cfg"
     [ -f "$ROOT/etc/systemd/system/hangar-controller.service" ]
+    grep -Fx "systemctl restart hangar-controller.service" "$MOCK_LOG"
 
-    # A second run reads no secrets again.
+    # Only /github/webhook is public, on the configured Funnel port.
+    grep -Fx "tailscale funnel --bg --yes --https=10000 --set-path=/github/webhook http://127.0.0.1:8781/github/webhook" "$MOCK_LOG"
+    [ "$(grep -c "tailscale funnel --bg" "$MOCK_LOG")" = 1 ]
+
+    # A second run reads no secrets and leaves Funnel as it is.
     : > "$MOCK_LOG"
     run_module "mod_update"
     assert_success
-    [ ! -s "$MOCK_LOG" ]
+    if grep -E "^op |funnel --bg|restart" "$MOCK_LOG"; then
+        echo "second run must change nothing" >&2
+        return 1
+    fi
 
     run_module 'mod_status; rc=$?; cat "$MOD_STATUS_FILE"; exit $rc'
     assert_success
@@ -96,4 +118,15 @@ run_module() {
     run_module "mod_update"
     assert_failure
     [ ! -e "$ROOT/etc/hangar/controller.toml" ]
+}
+
+@test "hangar-controller: dry-run changes nothing" {
+    export DRY_RUN=true
+    run_module "mod_update"
+    assert_success
+    [ ! -e "$ROOT/etc/hangar" ]
+    if grep -E "^op |funnel --bg|systemctl (enable|start|restart)" "$MOCK_LOG"; then
+        echo "dry-run must not change the machine" >&2
+        return 1
+    fi
 }

@@ -84,6 +84,11 @@ touch "$TEST_HOME/.member"
 EOF
     cat > "$MOCK_DIR/id" <<'EOF'
 #!/bin/sh
+# "id -nG tom" reads the group file; plain "id -nG" is this login session.
+if [ "$#" -eq 1 ]; then
+  [ -f "$TEST_HOME/.session" ] && echo "tom hangar" || echo tom
+  exit 0
+fi
 [ -f "$TEST_HOME/.member" ] && echo "tom hangar" || echo tom
 EOF
     cat > "$MOCK_DIR/chown" <<'EOF'
@@ -92,6 +97,31 @@ echo "chown $*" >> "$MOCK_LOG"
 EOF
     cat > "$MOCK_DIR/gamemoded" <<'EOF'
 #!/bin/sh
+EOF
+    cat > "$MOCK_DIR/firewall-cmd" <<'EOF'
+#!/bin/sh
+echo "firewall-cmd $*" >> "$MOCK_LOG"
+case "$*" in
+  *--get-zone-of-interface=eno1*) echo FedoraWorkstation ;;
+  *--get-zones*) echo "FedoraWorkstation trusted" ;;
+  *--get-policies*) echo "allow-host-ipv6" ;;
+esac
+EOF
+    cat > "$MOCK_DIR/virsh" <<'EOF'
+#!/bin/sh
+echo "virsh $*" >> "$MOCK_LOG"
+case "$*" in
+  *net-info*) [ -f "$TEST_HOME/.net" ] && echo "Active:         yes" ;;
+  *net-define*) touch "$TEST_HOME/.net" ;;
+esac
+EOF
+    cat > "$MOCK_DIR/systemctl" <<'EOF'
+#!/bin/sh
+echo "systemctl $*" >> "$MOCK_LOG"
+EOF
+    cat > "$MOCK_DIR/systemd-tmpfiles" <<'EOF'
+#!/bin/sh
+echo "systemd-tmpfiles $*" >> "$MOCK_LOG"
 EOF
     chmod +x "$MOCK_DIR"/*
 }
@@ -162,8 +192,56 @@ run_module() {
     grep -Fx "start=/usr/local/bin/hangar cell drain" "$TEST_HOME/.config/gamemode.ini"
     grep -Fx "end=/usr/local/bin/hangar cell resume" "$TEST_HOME/.config/gamemode.ini"
 
+    # Guests: DHCP, DNS, and the four cache ports on the host; nothing else.
+    local fw="firewall-cmd -q --permanent"
+    grep -Fx "$fw --new-zone=ci-guests" "$MOCK_LOG"
+    grep -Fx "$fw --zone=ci-guests --set-target=DROP" "$MOCK_LOG"
+    grep -Fx "$fw --zone=ci-guests --change-interface=virbr-ci" "$MOCK_LOG"
+    grep -Fx "$fw --zone=ci-guests --add-port=3000/tcp --add-port=5000/tcp --add-port=3142/tcp --add-port=4873/tcp" "$MOCK_LOG"
+    # Out: 443 and 5432 to the internet only; home network and tailnet rejected.
+    grep -Fx "$fw --policy=ci-guests-egress --set-target=DROP" "$MOCK_LOG"
+    grep -Fx "$fw --policy=ci-guests-egress --add-egress-zone=FedoraWorkstation" "$MOCK_LOG"
+    grep -Fx "$fw --policy=ci-guests-egress --add-service=https --add-port=5432/tcp" "$MOCK_LOG"
+    grep -F 'destination address="192.168.0.0/16" reject' "$MOCK_LOG"
+    grep -F 'destination address="100.64.0.0/10" reject' "$MOCK_LOG"
+    grep -Fx "$fw --direct --add-rule ipv4 filter FORWARD 0 -i virbr-ci -d 192.168.0.0/16 -j REJECT" "$MOCK_LOG"
+    grep -Fx "$fw --direct --add-rule ipv4 filter FORWARD 0 -i eno1 -o virbr-ci -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT" "$MOCK_LOG"
+    if grep -E "add-port=(22|80|8782)/" "$MOCK_LOG"; then
+        echo "guests must not reach other host ports" >&2
+        return 1
+    fi
+
+    # libvirt network, services, and the first image build.
+    grep -F "virsh -c qemu:///system net-define $PRIMER_DIR/modules/hangar-cell/files/libvirt/ci-isolated.xml" "$MOCK_LOG"
+    grep -F "virsh -c qemu:///system net-autostart ci-isolated" "$MOCK_LOG"
+    grep -Fx "systemctl enable --now hangar-stack.service" "$MOCK_LOG"
+    grep -Fx "systemctl enable --now hangar-image.timer" "$MOCK_LOG"
+    grep -Fx "systemctl start --no-block hangar-image.service" "$MOCK_LOG"
+    grep -Fx "systemctl restart hangar-cell.service" "$MOCK_LOG"
+
+    # This login session predates the group, so games cannot pause CI yet.
+    run_module 'mod_status; rc=$?; cat "$MOD_STATUS_FILE"; exit $rc'
+    assert_failure
+    assert_output --partial "log out and in so games can pause CI"
+
+    touch "$TEST_HOME/.session"
+    mkdir -p "$ROOT/var/lib/libvirt/images/hangar" && touch "$ROOT/var/lib/libvirt/images/hangar/current"
     run_module 'mod_status; rc=$?; cat "$MOD_STATUS_FILE"; exit $rc'
     assert_success
+}
+
+@test "hangar-cell: dry-run changes nothing" {
+    export DRY_RUN=true
+    run_module "mod_update"
+    assert_success
+    assert_output --partial "[dry-run] install hangar 0.1.0"
+    [ ! -e "$ROOT/usr/local/bin/hangar" ]
+    [ ! -e "$ROOT/etc/hangar" ]
+    [ ! -e "$TEST_HOME/.config/gamemode.ini" ]
+    if grep -E "^(gh|curl|op|groupadd|usermod) |net-define|--permanent --zone|systemctl (enable|start|restart)" "$MOCK_LOG"; then
+        echo "dry-run must not change the machine" >&2
+        return 1
+    fi
 }
 
 @test "hangar-cell: a second run downloads nothing and keeps your gamemode.ini" {
@@ -174,10 +252,11 @@ run_module() {
 
     run_module "mod_update"
     assert_success
-    if grep -E "^(gh|curl|op) " "$MOCK_LOG"; then
-        echo "nothing should download again" >&2
+    if grep -E "^(gh|curl|op) |net-define|restart hangar-cell" "$MOCK_LOG"; then
+        echo "nothing should download, define, or restart again" >&2
         return 1
     fi
+    grep -Fx "systemctl start hangar-cell.service" "$MOCK_LOG"
     [ "$(cat "$TEST_HOME/.config/gamemode.ini")" = "[general]" ]
 
     run_module 'mod_status; rc=$?; cat "$MOD_STATUS_FILE"; exit $rc'

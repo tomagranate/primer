@@ -102,21 +102,29 @@ _hctl::install_unit() {
     local dst="$(_hctl::systemd_dir)/hangar-controller.service"
     cmp -s "$src" "$dst" && return 0
     _hctl::root install -D -m 0644 "$src" "$dst" || return 1
-    _hctl::in_test || _hctl::root systemctl daemon-reload
+    _hctl::root systemctl daemon-reload
     _hctl::changed
+}
+
+# True when Funnel serves /github/webhook on this port. Status prints the
+# port on a header line and each path on the lines under it.
+_hctl::funnel_on() {
+    tailscale funnel status 2>/dev/null | awk -v port=":$1 " '
+        /^https:\/\// { here = index($0, port) > 0 }
+        here && /\/github\/webhook proxy/ { found = 1 }
+        END { exit !found }'
 }
 
 # Only /github/webhook is public. Everything else on the controller is tailnet-only.
 _hctl::ensure_funnel() {
-    _hctl::in_test && return 0
     local port="$(_hctl::config funnel_port 10000)"
-    tailscale funnel status 2>/dev/null | grep -q ":$port/github/webhook" && return 0
+    _hctl::funnel_on "$port" && return 0
+    [[ "$DRY_RUN" == true ]] && { print "[dry-run] tailscale funnel /github/webhook on $port"; return 0; }
     tailscale funnel --bg --yes --https="$port" --set-path=/github/webhook \
         http://127.0.0.1:8781/github/webhook >/dev/null
 }
 
 _hctl::enable() {
-    _hctl::in_test && return 0
     _hctl::root systemctl enable hangar-controller.service || return 1
     if [[ -n "${_HCTL_RESTART:-}" ]]; then
         _hctl::root systemctl restart hangar-controller.service
@@ -141,10 +149,8 @@ mod_status() {
     cmp -s "$MOD_DIR/files/etc/systemd/system/hangar-controller.service" \
         "$(_hctl::systemd_dir)/hangar-controller.service" || issues+=("unit drifted")
     [[ -f "$(_hctl::etc)/controller.toml" ]] || issues+=("no controller.toml")
-    if ! _hctl::in_test; then
-        systemctl is-active --quiet hangar-controller.service || issues+=("controller not running")
-        tailscale funnel status 2>/dev/null | grep -q "/github/webhook" || issues+=("Funnel off")
-    fi
+    systemctl is-active --quiet hangar-controller.service || issues+=("controller not running")
+    _hctl::funnel_on "$(_hctl::config funnel_port 10000)" || issues+=("Funnel off")
     (( ${#issues} == 0 )) && { primer::status_msg "controller online"; return 0; }
     primer::status_msg "${(j: · :)issues}"
     return 1
