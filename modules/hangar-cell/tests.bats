@@ -114,8 +114,14 @@ EOF
 #!/bin/sh
 echo "virsh $*" >> "$MOCK_LOG"
 case "$*" in
-  *net-info*) [ -f "$TEST_HOME/.net" ] && echo "Active:         yes" ;;
+  *net-info*)
+    [ -f "$TEST_HOME/.net" ] || exit 1
+    [ -f "$TEST_HOME/.net-active" ] && echo "Active:         yes" || echo "Active:         no" ;;
   *net-define*) touch "$TEST_HOME/.net" ;;
+  # Like libvirt: the network's firewalld zone must exist before it starts.
+  *net-start*)
+    grep -q -- "--new-zone=ci-guests" "$MOCK_LOG" || { echo "INVALID_ZONE: ci-guests" >&2; exit 1; }
+    touch "$TEST_HOME/.net-active" ;;
 esac
 EOF
     cat > "$MOCK_DIR/systemctl" <<'EOF'
