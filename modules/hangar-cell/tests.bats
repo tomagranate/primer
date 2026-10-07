@@ -101,6 +101,9 @@ EOF
     cat > "$MOCK_DIR/firewall-cmd" <<'EOF'
 #!/bin/sh
 echo "firewall-cmd $*" >> "$MOCK_LOG"
+# Like the real tool: a service and a port in one call is a usage error.
+case "$*" in *--add-service=*--add-port=*|*--add-port=*--add-service=*) exit 2 ;; esac
+[ -n "$FW_FAIL" ] && case "$*" in *--set-target*) exit 1 ;; esac
 case "$*" in
   *--get-zone-of-interface=eno1*) echo FedoraWorkstation ;;
   *--get-zones*) echo "FedoraWorkstation trusted" ;;
@@ -141,7 +144,7 @@ run_module() {
         export USER=tom
         export XDG_CONFIG_HOME='${TEST_HOME}/.config'
         export PATH='${MOCK_DIR}:/usr/bin:/bin'
-        export MOCK_LOG='${MOCK_LOG}' TEST_HOME='${TEST_HOME}'
+        export MOCK_LOG='${MOCK_LOG}' TEST_HOME='${TEST_HOME}' FW_FAIL='${FW_FAIL:-}'
         ${OP_UNSET:+unset OP_SERVICE_ACCOUNT_TOKEN}
         ${OP_UNSET:-export OP_SERVICE_ACCOUNT_TOKEN=ticket}
         export PRIMER_OP_TICKET='${TEST_HOME}/op-ticket'
@@ -203,7 +206,8 @@ run_module() {
     # Out: 443 and 5432 to the internet only; home network and tailnet rejected.
     grep -Fx "$fw --policy=ci-guests-egress --set-target=DROP" "$MOCK_LOG"
     grep -Fx "$fw --policy=ci-guests-egress --add-egress-zone=FedoraWorkstation" "$MOCK_LOG"
-    grep -Fx "$fw --policy=ci-guests-egress --add-service=https --add-port=5432/tcp" "$MOCK_LOG"
+    grep -Fx "$fw --policy=ci-guests-egress --add-service=https" "$MOCK_LOG"
+    grep -Fx "$fw --policy=ci-guests-egress --add-port=5432/tcp" "$MOCK_LOG"
     grep -F 'destination address="192.168.0.0/16" reject' "$MOCK_LOG"
     grep -F 'destination address="100.64.0.0/10" reject' "$MOCK_LOG"
     grep -Fx "$fw --direct --add-rule ipv4 filter FORWARD 0 -i virbr-ci -d 192.168.0.0/16 -j REJECT" "$MOCK_LOG"
@@ -295,4 +299,15 @@ run_module() {
     run_module "mod_update"
     assert_success
     grep -F "op read op://Dev/hangar/cell-token (token=from-ticket)" "$MOCK_LOG"
+}
+
+@test "hangar-cell: a firewall error stops the update before the cell starts" {
+    export FW_FAIL=1
+    run_module 'mod_update; rc=$?; cat "$MOD_STATUS_FILE"; exit $rc'
+    assert_failure
+    assert_output --partial "firewall setup failed"
+    if grep -F "hangar-cell.service" "$MOCK_LOG" | grep -E "enable|start|restart"; then
+        echo "the cell must not start with a half-built firewall" >&2
+        return 1
+    fi
 }
