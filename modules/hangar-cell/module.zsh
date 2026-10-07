@@ -159,7 +159,8 @@ _hcell::session_in_group() { id -nG 2>/dev/null | tr ' ' '\n' | grep -Fxq hangar
 _hcell::ensure_secret() {
     local dir="$(_hcell::etc)/secrets" file token
     file="$dir/cell-token"
-    [[ -s "$file" ]] && return 0
+    # The secrets folder is root-only, so check it as root.
+    _hcell::root test -s "$file" && return 0
     [[ "$DRY_RUN" == true ]] && { print "[dry-run] read cell token"; return 0; }
     token="$(_hcell::op_read "$(_hcell::config cell_token_ref)")" || return 1
     [[ -n "$token" ]] || return 1

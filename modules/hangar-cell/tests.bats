@@ -48,7 +48,7 @@ cp "$TEST_HOME/base.img" "$out"
 EOF
     cat > "$MOCK_DIR/op" <<'EOF'
 #!/bin/sh
-echo "op $*" >> "$MOCK_LOG"
+echo "op $* (token=$OP_SERVICE_ACCOUNT_TOKEN)" >> "$MOCK_LOG"
 echo cell-secret
 EOF
     cat > "$MOCK_DIR/ip" <<'EOF'
@@ -142,7 +142,9 @@ run_module() {
         export XDG_CONFIG_HOME='${TEST_HOME}/.config'
         export PATH='${MOCK_DIR}:/usr/bin:/bin'
         export MOCK_LOG='${MOCK_LOG}' TEST_HOME='${TEST_HOME}'
-        export OP_SERVICE_ACCOUNT_TOKEN=ticket
+        ${OP_UNSET:+unset OP_SERVICE_ACCOUNT_TOKEN}
+        ${OP_UNSET:-export OP_SERVICE_ACCOUNT_TOKEN=ticket}
+        export PRIMER_OP_TICKET='${TEST_HOME}/op-ticket'
         export HANGAR_SYSTEMD_DIR='${ROOT}/etc/systemd/system'
         export HANGAR_ETC_DIR='${ROOT}/etc/hangar'
         export HANGAR_SHARE_DIR='${ROOT}/usr/local/share/hangar'
@@ -280,4 +282,17 @@ run_module() {
     assert_failure
     assert_output --partial "checksum mismatch"
     [ ! -e "$ROOT/usr/local/bin/hangar" ]
+}
+
+@test "hangar-cell: reads the cell token with the agents sudo ticket" {
+    export OP_UNSET=1
+    run_module "mod_update"
+    assert_failure
+    assert_output --partial "Run agents sudo"
+    [ ! -e "$ROOT/etc/hangar/secrets/cell-token" ]
+
+    echo from-ticket > "$TEST_HOME/op-ticket"
+    run_module "mod_update"
+    assert_success
+    grep -F "op read op://Dev/hangar/cell-token (token=from-ticket)" "$MOCK_LOG"
 }
