@@ -84,12 +84,13 @@ _hcell::uplink() {
 
 _hcell::ensure_libvirt() {
     _hcell::root systemctl enable --now virtqemud.socket virtnetworkd.socket || return 1
+    # The system libvirt connection needs root, even to read.
     local virsh=(virsh -c qemu:///system)
-    if ! "${virsh[@]}" net-info ci-isolated >/dev/null 2>&1; then
+    if ! _hcell::root "${virsh[@]}" net-info ci-isolated >/dev/null 2>&1; then
         _hcell::root "${virsh[@]}" net-define "$MOD_DIR/files/libvirt/ci-isolated.xml" || return 1
     fi
     _hcell::root "${virsh[@]}" net-autostart ci-isolated >/dev/null || return 1
-    if ! "${virsh[@]}" net-info ci-isolated 2>/dev/null | grep -Eq '^Active:[[:space:]]+yes'; then
+    if ! _hcell::root "${virsh[@]}" net-info ci-isolated 2>/dev/null | grep -Eq '^Active:[[:space:]]+yes'; then
         _hcell::root "${virsh[@]}" net-start ci-isolated || return 1
     fi
 }
