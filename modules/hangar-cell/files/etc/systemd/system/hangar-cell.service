@@ -1,0 +1,17 @@
+[Unit]
+Description=Hangar cell: CI job VMs for the Hangar fleet
+After=network-online.target tailscaled.service virtqemud.socket virtnetworkd.socket hangar-stack.service
+Wants=network-online.target hangar-stack.service
+
+[Service]
+ExecStart=/usr/local/bin/hangar cell
+# The drain socket in /run/hangar is group hangar, so GameMode hooks can use it.
+Group=hangar
+RuntimeDirectory=hangar
+RuntimeDirectoryMode=0750
+Restart=always
+RestartSec=5
+Environment=RUST_LOG=hangar=info
+
+[Install]
+WantedBy=multi-user.target

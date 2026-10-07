@@ -13,7 +13,7 @@ test::load_module_config() {
                 key=""
             elif [[ "$line" =~ '^[[:space:]]+(.+)' && -n "$section" && -n "$key" ]]; then
                 _mod_config[${section}.${key}]+=$'\n'"${match[1]}"
-            elif [[ "$line" =~ '^([a-z_-]+)[[:space:]]*=[[:space:]]*(.*)' && -n "$section" ]]; then
+            elif [[ "$line" =~ '^([a-z0-9_-]+)[[:space:]]*=[[:space:]]*(.*)' && -n "$section" ]]; then
                 key="${match[1]}"
                 _mod_config[${section}.${key}]="${match[2]}"
             fi

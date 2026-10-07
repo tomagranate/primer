@@ -98,6 +98,8 @@ Modules run in parallel as a DAG -- each starts as soon as its dependencies are 
 | **t3-code** | npm-global + caddy | Runs T3 Code at boot at `t3.<machine>.tomagranate.com` |
 | **plans-media** | caddy + agents | Addon: hosts Agents Plans, Media, and development previews |
 | **basil** | caddy + agents + shell-installers | Addon: installs Hermes and cloudflared, then manages Basil services and routes |
+| **hangar-cell** | dnf + Tailscale login | Addon: makes this machine a Hangar CI cell — job VMs from a golden image, local caches, GameMode pause, and Wake-on-LAN on wired NICs |
+| **hangar-controller** | hangar-cell | Addon: runs the Hangar controller — GitHub job webhooks through Tailscale Funnel, scheduling across cells, and a status page on port 8782 |
 | **managed-settings** | shell-installers/homebrew-apps | Applies configured JSON/TOML user settings, including AI CLI permission defaults |
 | **login-shell** | zsh | Changes the user's login shell to zsh when possible |
 | **xcode-cli-tools** | -- | Installs Xcode Command Line Tools and waits for the installer dialog to be accepted |

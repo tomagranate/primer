@@ -34,6 +34,14 @@ depends_on = alpha
     expect(result[1]?.deps).toEqual(["alpha"]);
   });
 
+  test("reads keys that contain digits", () => {
+    const result = nodes(`
+[alpha]
+runner_sha256 = abc123
+`);
+    expect(result[0]?.config["alpha.runner_sha256"]).toBe("abc123");
+  });
+
   test("defaults interactive steps to pane mode", () => {
     const result = nodes(`
 [logins]

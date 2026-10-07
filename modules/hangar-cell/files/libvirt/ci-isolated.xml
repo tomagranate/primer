@@ -1,0 +1,17 @@
+<!-- NAT network for Hangar job VMs. firewalld zone ci-guests limits what
+     guests reach: the internet on 443 (and 5432), plus the cell caches. -->
+<network>
+  <name>ci-isolated</name>
+  <forward mode='nat'>
+    <nat>
+      <port start='1024' end='65535'/>
+    </nat>
+  </forward>
+  <bridge name='virbr-ci' zone='ci-guests' stp='off' delay='0'/>
+  <domain name='ci.invalid' localOnly='yes'/>
+  <ip address='192.168.124.1' netmask='255.255.255.0'>
+    <dhcp>
+      <range start='192.168.124.100' end='192.168.124.199'/>
+    </dhcp>
+  </ip>
+</network>
