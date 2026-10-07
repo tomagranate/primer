@@ -97,6 +97,7 @@ _hcell::ensure_libvirt() {
 
 # Guests reach the internet on 443 (and 5432 for hosted Postgres), DHCP and
 # DNS on the host, and the four cache ports. Nothing on the home network.
+# Adding a rule that exists already succeeds, so every call must succeed.
 _hcell::ensure_firewall() {
     local uplink zone cidr
     uplink="$(_hcell::uplink)"
@@ -108,33 +109,35 @@ _hcell::ensure_firewall() {
 
     firewall-cmd --permanent --get-zones | tr ' ' '\n' | grep -Fxq ci-guests \
         || _hcell::root "${fw[@]}" --new-zone=ci-guests || return 1
-    _hcell::root "${fw[@]}" --zone=ci-guests --set-target=DROP
-    _hcell::root "${fw[@]}" --zone=ci-guests --change-interface=virbr-ci
-    _hcell::root "${fw[@]}" --zone=ci-guests --add-service=dhcp --add-service=dns
+    _hcell::root "${fw[@]}" --zone=ci-guests --set-target=DROP || return 1
+    _hcell::root "${fw[@]}" --zone=ci-guests --change-interface=virbr-ci || return 1
+    _hcell::root "${fw[@]}" --zone=ci-guests --add-service=dhcp --add-service=dns || return 1
     _hcell::root "${fw[@]}" --zone=ci-guests \
-        --add-port=3000/tcp --add-port=5000/tcp --add-port=3142/tcp --add-port=4873/tcp
+        --add-port=3000/tcp --add-port=5000/tcp --add-port=3142/tcp --add-port=4873/tcp || return 1
 
     firewall-cmd --permanent --get-policies | tr ' ' '\n' | grep -Fxq ci-guests-egress \
         || _hcell::root "${fw[@]}" --new-policy=ci-guests-egress || return 1
-    _hcell::root "${fw[@]}" --policy=ci-guests-egress --set-target=DROP
-    _hcell::root "${fw[@]}" --policy=ci-guests-egress --add-ingress-zone=ci-guests
-    _hcell::root "${fw[@]}" --policy=ci-guests-egress --add-egress-zone="$zone"
-    _hcell::root "${fw[@]}" --policy=ci-guests-egress --add-service=https --add-port=5432/tcp
+    _hcell::root "${fw[@]}" --policy=ci-guests-egress --set-target=DROP || return 1
+    _hcell::root "${fw[@]}" --policy=ci-guests-egress --add-ingress-zone=ci-guests || return 1
+    _hcell::root "${fw[@]}" --policy=ci-guests-egress --add-egress-zone="$zone" || return 1
+    # firewall-cmd rejects --add-service and --add-port in one call.
+    _hcell::root "${fw[@]}" --policy=ci-guests-egress --add-service=https || return 1
+    _hcell::root "${fw[@]}" --policy=ci-guests-egress --add-port=5432/tcp || return 1
     for cidr in "${private[@]}"; do
         _hcell::root "${fw[@]}" --policy=ci-guests-egress \
-            --add-rich-rule="rule priority=\"-100\" family=\"ipv4\" destination address=\"$cidr\" reject"
+            --add-rich-rule="rule priority=\"-100\" family=\"ipv4\" destination address=\"$cidr\" reject" || return 1
     done
 
     # Docker sets the iptables FORWARD policy to DROP, so libvirt NAT needs
     # these rules too.
     for cidr in "${private[@]}"; do
-        _hcell::root "${fw[@]}" --direct --add-rule ipv4 filter FORWARD 0 -i virbr-ci -d "$cidr" -j REJECT
+        _hcell::root "${fw[@]}" --direct --add-rule ipv4 filter FORWARD 0 -i virbr-ci -d "$cidr" -j REJECT || return 1
     done
-    _hcell::root "${fw[@]}" --direct --add-rule ipv4 filter FORWARD 1 -i virbr-ci -p tcp --dport 443 -j ACCEPT
-    _hcell::root "${fw[@]}" --direct --add-rule ipv4 filter FORWARD 1 -i virbr-ci -p tcp --dport 5432 -j ACCEPT
+    _hcell::root "${fw[@]}" --direct --add-rule ipv4 filter FORWARD 1 -i virbr-ci -p tcp --dport 443 -j ACCEPT || return 1
+    _hcell::root "${fw[@]}" --direct --add-rule ipv4 filter FORWARD 1 -i virbr-ci -p tcp --dport 5432 -j ACCEPT || return 1
     _hcell::root "${fw[@]}" --direct --add-rule ipv4 filter FORWARD 0 -i "$uplink" -o virbr-ci \
-        -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-    _hcell::root firewall-cmd -q --reload
+        -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT || return 1
+    _hcell::root firewall-cmd -q --reload || return 1
 }
 
 # KSM shares identical pages between VMs booted from the same image.
