@@ -114,8 +114,14 @@ EOF
 #!/bin/sh
 echo "virsh $*" >> "$MOCK_LOG"
 case "$*" in
-  *net-info*) [ -f "$TEST_HOME/.net" ] && echo "Active:         yes" ;;
+  *net-info*)
+    [ -f "$TEST_HOME/.net" ] || exit 1
+    [ -f "$TEST_HOME/.net-active" ] && echo "Active:         yes" || echo "Active:         no" ;;
   *net-define*) touch "$TEST_HOME/.net" ;;
+  # Like libvirt: the network's firewalld zone must exist before it starts.
+  *net-start*)
+    grep -q -- "--new-zone=ci-guests" "$MOCK_LOG" || { echo "INVALID_ZONE: ci-guests" >&2; exit 1; }
+    touch "$TEST_HOME/.net-active" ;;
 esac
 EOF
     cat > "$MOCK_DIR/systemctl" <<'EOF'
@@ -156,6 +162,7 @@ run_module() {
         export HANGAR_STACK_DATA='${ROOT}/var/lib/hangar/stack'
         export HANGAR_TMPFILES_DIR='${ROOT}/etc/tmpfiles.d'
         export HANGAR_SYS_NET='${ROOT}/sys/class/net'
+        export HANGAR_DEV_KVM='${KVM:-/dev/null}'
         source \"\$PRIMER_DIR/lib/module.zsh\"
         source \"\$PRIMER_DIR/tests/helpers/module-config.zsh\"
         test::load_module_config '${TEST_CONF}'
@@ -220,6 +227,7 @@ run_module() {
     # libvirt network, services, and the first image build.
     grep -F "virsh -c qemu:///system net-define $PRIMER_DIR/modules/hangar-cell/files/libvirt/ci-isolated.xml" "$MOCK_LOG"
     grep -F "virsh -c qemu:///system net-autostart ci-isolated" "$MOCK_LOG"
+    grep -Fx "systemctl enable --now virtqemud.socket virtnetworkd.socket virtstoraged.socket" "$MOCK_LOG"
     grep -Fx "systemctl enable --now hangar-stack.service" "$MOCK_LOG"
     grep -Fx "systemctl enable --now hangar-image.timer" "$MOCK_LOG"
     grep -Fx "systemctl start --no-block hangar-image.service" "$MOCK_LOG"
@@ -308,6 +316,17 @@ run_module() {
     assert_output --partial "firewall setup failed"
     if grep -F "hangar-cell.service" "$MOCK_LOG" | grep -E "enable|start|restart"; then
         echo "the cell must not start with a half-built firewall" >&2
+        return 1
+    fi
+}
+
+@test "hangar-cell: a machine without KVM stops early with a BIOS hint" {
+    export KVM="$TEST_HOME/no-kvm"
+    run_module 'mod_update; rc=$?; cat "$MOD_STATUS_FILE"; exit $rc'
+    assert_failure
+    assert_output --partial "turn on SVM/VT-x in the BIOS"
+    if [ -s "$MOCK_LOG" ] || [ -e "$ROOT/usr/local/bin/hangar" ] || [ -e "$ROOT/etc/systemd/system/hangar-cell.service" ]; then
+        echo "nothing should change on a machine that cannot run VMs" >&2
         return 1
     fi
 }

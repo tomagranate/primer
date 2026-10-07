@@ -82,8 +82,16 @@ _hcell::uplink() {
     ip route show default 2>/dev/null | awk '{for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit }}'
 }
 
+# KVM needs CPU virtualization (AMD SVM or Intel VT-x) on in the BIOS.
+_hcell::ensure_kvm() {
+    [[ -e "${HANGAR_DEV_KVM:-/dev/kvm}" ]] && return 0
+    print "No /dev/kvm. Turn on SVM (AMD) or VT-x (Intel) in the BIOS, then retry." >&2
+    return 1
+}
+
 _hcell::ensure_libvirt() {
-    _hcell::root systemctl enable --now virtqemud.socket virtnetworkd.socket || return 1
+    # virt-install needs the storage driver to build images.
+    _hcell::root systemctl enable --now virtqemud.socket virtnetworkd.socket virtstoraged.socket || return 1
     # The system libvirt connection needs root, even to read.
     local virsh=(virsh -c qemu:///system)
     if ! _hcell::root "${virsh[@]}" net-info ci-isolated >/dev/null 2>&1; then
@@ -279,10 +287,13 @@ _hcell::enable() {
 mod_update() {
     [[ "$(uname -s)" == Linux ]] || { primer::status_msg "Linux only"; return 1; }
     typeset -g _HCELL_RESTART=""
+    # Check first: a machine that cannot run VMs gets no changes at all.
+    _hcell::ensure_kvm || { primer::status_msg "turn on SVM/VT-x in the BIOS"; return 1; }
     _hcell::install_release || { primer::status_msg "hangar install failed"; return 1; }
     _hcell::install_units || { primer::status_msg "unit install failed"; return 1; }
-    _hcell::ensure_libvirt || { primer::status_msg "libvirt setup failed"; return 1; }
+    # The ci-isolated network names the ci-guests zone, so the zone comes first.
     _hcell::ensure_firewall || { primer::status_msg "firewall setup failed"; return 1; }
+    _hcell::ensure_libvirt || { primer::status_msg "libvirt setup failed"; return 1; }
     _hcell::ensure_ksm || { primer::status_msg "KSM setup failed"; return 1; }
     _hcell::ensure_group || { primer::status_msg "group setup failed"; return 1; }
     _hcell::ensure_secret || { primer::status_msg "cell token unavailable"; return 1; }
