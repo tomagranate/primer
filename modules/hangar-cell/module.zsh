@@ -287,9 +287,10 @@ _hcell::enable() {
 mod_update() {
     [[ "$(uname -s)" == Linux ]] || { primer::status_msg "Linux only"; return 1; }
     typeset -g _HCELL_RESTART=""
+    # Check first: a machine that cannot run VMs gets no changes at all.
+    _hcell::ensure_kvm || { primer::status_msg "turn on SVM/VT-x in the BIOS"; return 1; }
     _hcell::install_release || { primer::status_msg "hangar install failed"; return 1; }
     _hcell::install_units || { primer::status_msg "unit install failed"; return 1; }
-    _hcell::ensure_kvm || { primer::status_msg "turn on SVM/VT-x in the BIOS"; return 1; }
     # The ci-isolated network names the ci-guests zone, so the zone comes first.
     _hcell::ensure_firewall || { primer::status_msg "firewall setup failed"; return 1; }
     _hcell::ensure_libvirt || { primer::status_msg "libvirt setup failed"; return 1; }

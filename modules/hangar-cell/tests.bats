@@ -325,7 +325,7 @@ run_module() {
     run_module 'mod_update; rc=$?; cat "$MOD_STATUS_FILE"; exit $rc'
     assert_failure
     assert_output --partial "turn on SVM/VT-x in the BIOS"
-    if grep -E "net-define|firewall-cmd -q" "$MOCK_LOG"; then
+    if [ -s "$MOCK_LOG" ] || [ -e "$ROOT/usr/local/bin/hangar" ] || [ -e "$ROOT/etc/systemd/system/hangar-cell.service" ]; then
         echo "nothing should change on a machine that cannot run VMs" >&2
         return 1
     fi
