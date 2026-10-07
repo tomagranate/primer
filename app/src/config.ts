@@ -61,7 +61,7 @@ export function parseConf(text: string, into: RawConfig): void {
       continue;
     }
 
-    const kv = line.match(/^([a-z_-]+)\s*(\+?=)\s*(.*)/);
+    const kv = line.match(/^([a-z0-9_-]+)\s*(\+?=)\s*(.*)/);
     if (kv && section) {
       key = kv[1]!;
       const configKey = `${section}.${key}`;

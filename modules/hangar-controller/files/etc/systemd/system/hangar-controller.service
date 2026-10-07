@@ -1,0 +1,14 @@
+[Unit]
+Description=Hangar controller: GitHub job webhooks and scheduling for the Hangar fleet
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/hangar controller
+StateDirectory=hangar
+Restart=always
+RestartSec=5
+Environment=RUST_LOG=hangar=info
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,19 @@
+# VM sizes, and which runner label gets which size. A job is Hangar's when
+# one of its labels is listed here.
+[sizes.small]
+vcpu = 2
+memory_mb = 4096
+
+[sizes.medium]
+vcpu = 4
+memory_mb = 8192
+
+[sizes.large]
+vcpu = 8
+memory_mb = 16384
+
+[labels]
+ci-stateless = "medium"
+ci-container = "medium"
+ci-deploy = "small"
+ci-large = "large"

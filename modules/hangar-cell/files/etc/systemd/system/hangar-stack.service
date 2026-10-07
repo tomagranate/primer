@@ -1,0 +1,15 @@
+[Unit]
+Description=Hangar cell caches: Actions cache, Docker mirror, apt, npm
+After=docker.service virtnetworkd.socket network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# The caches listen on the ci-isolated bridge, so start it first.
+ExecStartPre=-/usr/bin/virsh -c qemu:///system net-start ci-isolated
+ExecStart=/usr/bin/docker compose -p hangar-stack -f /usr/local/share/hangar/stack/compose.yml up -d --remove-orphans
+ExecStop=/usr/bin/docker compose -p hangar-stack -f /usr/local/share/hangar/stack/compose.yml down
+
+[Install]
+WantedBy=multi-user.target

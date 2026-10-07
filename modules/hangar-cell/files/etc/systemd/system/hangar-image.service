@@ -1,0 +1,10 @@
+[Unit]
+Description=Hangar: build a fresh golden VM image
+After=network-online.target virtnetworkd.socket
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/share/hangar/image/build
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=1h
