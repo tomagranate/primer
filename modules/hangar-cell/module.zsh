@@ -28,8 +28,13 @@ _hcell::machine() { hostname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' }
 
 _hcell::root() {
     [[ "$DRY_RUN" == true ]] && { printf '[dry-run] sudo %s\n' "$*"; return 0; }
-    if _hcell::in_test || (( EUID == 0 )); then
+    if (( EUID == 0 )); then
         "$@"
+        return $?
+    fi
+    # Tests run as the user; the mark lets mocks act like root-only tools.
+    if _hcell::in_test; then
+        HANGAR_AS_ROOT=1 "$@"
         return $?
     fi
     primer::run_as_root "Hangar cell" "$@"
