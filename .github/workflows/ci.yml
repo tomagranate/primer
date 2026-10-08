@@ -9,7 +9,9 @@ on:
 jobs:
   lint-and-test:
     # Hangar: home CI VMs (https://github.com/tomagranate/hangar). No Actions quota.
-    runs-on: [self-hosted, Linux, X64, ci-stateless]
+    # This repo is public: pull requests from forks run on GitHub-hosted
+    # runners, never on the home machines.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted", "Linux", "X64", "ci-stateless"]') }}
     timeout-minutes: 20
     steps:
       - name: Checkout
