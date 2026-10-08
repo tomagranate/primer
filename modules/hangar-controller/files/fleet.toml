@@ -4,9 +4,10 @@
 vcpu = 2
 memory_mb = 4096
 
+# 6 GB is what the old dispatcher gave these jobs, nerve E2E included.
 [sizes.medium]
 vcpu = 4
-memory_mb = 8192
+memory_mb = 6144
 
 [sizes.large]
 vcpu = 8
