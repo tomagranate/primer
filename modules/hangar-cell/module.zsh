@@ -154,6 +154,23 @@ _hcell::ensure_firewall() {
     _hcell::root firewall-cmd -q --reload || return 1
 }
 
+# libvirt reads /proc of every client; the cell's frequent virsh calls made
+# SELinux log each denial and setroubleshoot burn ~1.5 cores analysing them.
+# The module only silences that log (dontaudit). It grants nothing.
+_hcell::ensure_selinux_quiet() {
+    command -v semodule >/dev/null 2>&1 || return 0
+    _hcell::root semodule -l 2>/dev/null | grep -qx hangar_virtqemud && return 0
+    [[ "$DRY_RUN" == true ]] && { print "[dry-run] install SELinux module hangar_virtqemud"; return 0; }
+    local tmp
+    tmp="$(mktemp -d)"
+    checkmodule -M -m -o "$tmp/hangar_virtqemud.mod" "$MOD_DIR/files/selinux/hangar_virtqemud.te" \
+        && semodule_package -o "$tmp/hangar_virtqemud.pp" -m "$tmp/hangar_virtqemud.mod" \
+        && _hcell::root semodule -i "$tmp/hangar_virtqemud.pp"
+    local rc=$?
+    rm -rf "$tmp"
+    return $rc
+}
+
 # KSM shares identical pages between VMs booted from the same image.
 _hcell::ensure_ksm() {
     local file="$(_hcell::tmpfiles_dir)/hangar-ksm.conf" line='w /sys/kernel/mm/ksm/run - - - - 1'
@@ -301,6 +318,7 @@ mod_update() {
     _hcell::ensure_firewall || { primer::status_msg "firewall setup failed"; return 1; }
     _hcell::ensure_libvirt || { primer::status_msg "libvirt setup failed"; return 1; }
     _hcell::ensure_ksm || { primer::status_msg "KSM setup failed"; return 1; }
+    _hcell::ensure_selinux_quiet || { primer::status_msg "SELinux module failed"; return 1; }
     _hcell::ensure_group || { primer::status_msg "group setup failed"; return 1; }
     _hcell::ensure_secret || { primer::status_msg "cell token unavailable"; return 1; }
     _hcell::write_config || { primer::status_msg "config failed"; return 1; }

@@ -16,5 +16,7 @@ memory_mb = 16384
 [labels]
 ci-stateless = "medium"
 ci-container = "medium"
-ci-deploy = "small"
+# Deploys build assets too (nerve web build): 2 vCPU timed out. The old
+# dispatcher gave them 4 vCPU and 6 GB.
+ci-deploy = "medium"
 ci-large = "large"

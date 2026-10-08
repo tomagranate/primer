@@ -130,6 +130,16 @@ EOF
 #!/bin/sh
 echo "systemctl $*" >> "$MOCK_LOG"
 EOF
+    for tool in checkmodule semodule_package; do
+        printf '#!/bin/sh\necho "%s $*" >> "$MOCK_LOG"\n' "$tool" > "$MOCK_DIR/$tool"
+    done
+    cat > "$MOCK_DIR/semodule" <<'EOF'
+#!/bin/sh
+echo "semodule $*" >> "$MOCK_LOG"
+[ "$1" = -l ] && [ -f "$TEST_HOME/.semodule" ] && echo hangar_virtqemud
+[ "$1" = -i ] && touch "$TEST_HOME/.semodule"
+exit 0
+EOF
     cat > "$MOCK_DIR/systemd-tmpfiles" <<'EOF'
 #!/bin/sh
 echo "systemd-tmpfiles $*" >> "$MOCK_LOG"
@@ -230,6 +240,13 @@ run_module() {
     grep -F "virsh -c qemu:///system net-define $PRIMER_DIR/modules/hangar-cell/files/libvirt/ci-isolated.xml" "$MOCK_LOG"
     grep -F "virsh -c qemu:///system net-autostart ci-isolated" "$MOCK_LOG"
     grep -Fx "systemctl enable --now virtqemud.socket virtnetworkd.socket virtstoraged.socket" "$MOCK_LOG"
+    # SELinux: only a dontaudit module, built from the shipped policy source.
+    grep -F "checkmodule -M -m -o" "$MOCK_LOG"
+    grep -E "^semodule -i .*hangar_virtqemud.pp$" "$MOCK_LOG"
+    if grep -E "^(allow|auditallow) " "$PRIMER_DIR/modules/hangar-cell/files/selinux/hangar_virtqemud.te"; then
+        echo "the module must not grant access" >&2
+        return 1
+    fi
     grep -Fx "systemctl enable --now hangar-stack.service" "$MOCK_LOG"
     grep -Fx "systemctl enable --now hangar-image.timer" "$MOCK_LOG"
     grep -Fx "systemctl start --no-block hangar-image.service" "$MOCK_LOG"
@@ -268,7 +285,7 @@ run_module() {
 
     run_module "mod_update"
     assert_success
-    if grep -E "^(gh|curl|op) |net-define|restart hangar-cell" "$MOCK_LOG"; then
+    if grep -E "^(gh|curl|op) |net-define|restart hangar-cell|semodule -i" "$MOCK_LOG"; then
         echo "nothing should download, define, or restart again" >&2
         return 1
     fi

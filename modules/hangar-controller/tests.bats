@@ -94,6 +94,8 @@ run_module() {
     grep -Fx 'github_app_id = 4242' "$cfg"
     grep -Fx 'owner = "tomagranate"' "$cfg"
     grep -Fx 'ci-container = "medium"' "$cfg"
+    # Deploys build the web app; on the small size they timed out.
+    grep -Fx 'ci-deploy = "medium"' "$cfg"
     grep -Fx '[sizes.large]' "$cfg"
     [ -f "$ROOT/etc/systemd/system/hangar-controller.service" ]
     grep -Fx "systemctl restart hangar-controller.service" "$MOCK_LOG"
