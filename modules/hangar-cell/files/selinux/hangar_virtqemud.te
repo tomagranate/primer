@@ -1,0 +1,15 @@
+module hangar_virtqemud 1.0;
+
+require {
+	type unconfined_service_t;
+	type virtqemud_t;
+	class file { open read };
+	class dir search;
+}
+
+# libvirt tries to read the /proc entry of every client that connects. The
+# Hangar cell runs virsh about once a second, so each denial (and the
+# setroubleshoot analysis that follows) costs real CPU. Grant nothing; just
+# stop logging it.
+dontaudit virtqemud_t unconfined_service_t:dir search;
+dontaudit virtqemud_t unconfined_service_t:file { open read };
