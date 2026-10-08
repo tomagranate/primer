@@ -101,6 +101,8 @@ EOF
     cat > "$MOCK_DIR/firewall-cmd" <<'EOF'
 #!/bin/sh
 echo "firewall-cmd $*" >> "$MOCK_LOG"
+# Like tomputer's polkit: firewalld refuses reads that do not come from root.
+case "$*" in *--get-*) [ "$HANGAR_AS_ROOT" = 1 ] || { echo "Authorization failed." >&2; exit 1; } ;; esac
 # Like the real tool: a service and a port in one call is a usage error.
 case "$*" in *--add-service=*--add-port=*|*--add-port=*--add-service=*) exit 2 ;; esac
 [ -n "$FW_FAIL" ] && case "$*" in *--set-target*) exit 1 ;; esac
