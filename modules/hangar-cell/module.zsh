@@ -110,12 +110,13 @@ _hcell::ensure_firewall() {
     local uplink zone cidr
     uplink="$(_hcell::uplink)"
     [[ -n "$uplink" ]] || { print "no default route" >&2; return 1; }
-    zone="$(firewall-cmd --get-zone-of-interface="$uplink" 2>/dev/null)"
-    [[ -n "$zone" ]] || zone="$(firewall-cmd --get-default-zone)"
+    # polkit may refuse firewalld queries from a user, so read as root too.
+    zone="$(_hcell::root firewall-cmd --get-zone-of-interface="$uplink" 2>/dev/null)"
+    [[ -n "$zone" ]] || zone="$(_hcell::root firewall-cmd --get-default-zone)"
     local fw=(firewall-cmd -q --permanent)
     local private=(0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 224.0.0.0/4)
 
-    firewall-cmd --permanent --get-zones | tr ' ' '\n' | grep -Fxq ci-guests \
+    _hcell::root firewall-cmd --permanent --get-zones | tr ' ' '\n' | grep -Fxq ci-guests \
         || _hcell::root "${fw[@]}" --new-zone=ci-guests || return 1
     _hcell::root "${fw[@]}" --zone=ci-guests --set-target=DROP || return 1
     _hcell::root "${fw[@]}" --zone=ci-guests --change-interface=virbr-ci || return 1
@@ -123,7 +124,7 @@ _hcell::ensure_firewall() {
     _hcell::root "${fw[@]}" --zone=ci-guests \
         --add-port=3000/tcp --add-port=5000/tcp --add-port=3142/tcp --add-port=4873/tcp || return 1
 
-    firewall-cmd --permanent --get-policies | tr ' ' '\n' | grep -Fxq ci-guests-egress \
+    _hcell::root firewall-cmd --permanent --get-policies | tr ' ' '\n' | grep -Fxq ci-guests-egress \
         || _hcell::root "${fw[@]}" --new-policy=ci-guests-egress || return 1
     _hcell::root "${fw[@]}" --policy=ci-guests-egress --set-target=DROP || return 1
     _hcell::root "${fw[@]}" --policy=ci-guests-egress --add-ingress-zone=ci-guests || return 1
