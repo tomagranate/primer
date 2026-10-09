@@ -1,0 +1,9 @@
+[Unit]
+Description=Hangar: wipe the Docker layer cache every week
+
+[Timer]
+OnCalendar=Sun 03:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
