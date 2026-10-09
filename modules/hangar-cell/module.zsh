@@ -109,7 +109,7 @@ _hcell::ensure_libvirt() {
 }
 
 # Guests reach the internet on 443 (and 5432 for hosted Postgres), DHCP and
-# DNS on the host, and the four cache ports. Nothing on the home network.
+# DNS on the host, and the cache ports. Nothing on the home network.
 # Adding a rule that exists already succeeds, so every call must succeed.
 _hcell::ensure_firewall() {
     local uplink zone cidr
@@ -127,7 +127,7 @@ _hcell::ensure_firewall() {
     _hcell::root "${fw[@]}" --zone=ci-guests --change-interface=virbr-ci || return 1
     _hcell::root "${fw[@]}" --zone=ci-guests --add-service=dhcp --add-service=dns || return 1
     _hcell::root "${fw[@]}" --zone=ci-guests \
-        --add-port=3000/tcp --add-port=5000/tcp --add-port=3142/tcp --add-port=4873/tcp || return 1
+        --add-port=3000/tcp --add-port=5000/tcp --add-port=5001/tcp --add-port=3142/tcp --add-port=4873/tcp || return 1
 
     _hcell::root firewall-cmd --permanent --get-policies | tr ' ' '\n' | grep -Fxq ci-guests-egress \
         || _hcell::root "${fw[@]}" --new-policy=ci-guests-egress || return 1
@@ -251,12 +251,13 @@ _hcell::install_units() {
 
 _hcell::ensure_stack() {
     local data="$(_hcell::stack_data)" dir
-    for dir in cache registry apt npm; do
+    for dir in cache registry buildcache apt npm; do
         _hcell::root install -d -m 0755 "$data/$dir" || return 1
     done
     # Verdaccio runs as uid 10001 in its image.
     _hcell::root chown 10001:65533 "$data/npm" || return 1
     _hcell::root systemctl enable --now hangar-stack.service || return 1
+    _hcell::root systemctl enable --now hangar-buildcache-clean.timer || return 1
     # A new release can change the compose file; apply it.
     [[ -z "${_HCELL_RESTART:-}" ]] || _hcell::root systemctl restart hangar-stack.service
 }

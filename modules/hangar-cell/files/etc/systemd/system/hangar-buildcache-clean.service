@@ -1,0 +1,12 @@
+[Unit]
+Description=Hangar: wipe the Docker layer cache; the next builds fill it again
+Requires=hangar-stack.service
+After=hangar-stack.service
+
+[Service]
+Type=oneshot
+# Old cache layers pile up as builds replace them. A weekly wipe is simpler
+# and safer than registry garbage collection. Jobs ignore cache export errors.
+ExecStart=/usr/bin/docker compose -p hangar-stack -f /usr/local/share/hangar/stack/compose.yml stop buildcache
+ExecStart=/usr/bin/find /var/lib/hangar/stack/buildcache -mindepth 1 -delete
+ExecStopPost=/usr/bin/docker compose -p hangar-stack -f /usr/local/share/hangar/stack/compose.yml start buildcache

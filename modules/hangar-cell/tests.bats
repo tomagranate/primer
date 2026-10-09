@@ -213,15 +213,17 @@ run_module() {
     grep -F "groupadd --system hangar" "$MOCK_LOG"
     grep -F "usermod -aG hangar tom" "$MOCK_LOG"
     [ -d "$ROOT/var/lib/hangar/stack/npm" ]
+    [ -d "$ROOT/var/lib/hangar/stack/buildcache" ]
+    grep -Fx "systemctl enable --now hangar-buildcache-clean.timer" "$MOCK_LOG"
     grep -Fx "start=/usr/local/bin/hangar cell drain" "$TEST_HOME/.config/gamemode.ini"
     grep -Fx "end=/usr/local/bin/hangar cell resume" "$TEST_HOME/.config/gamemode.ini"
 
-    # Guests: DHCP, DNS, and the four cache ports on the host; nothing else.
+    # Guests: DHCP, DNS, and the cache ports on the host; nothing else.
     local fw="firewall-cmd -q --permanent"
     grep -Fx "$fw --new-zone=ci-guests" "$MOCK_LOG"
     grep -Fx "$fw --zone=ci-guests --set-target=DROP" "$MOCK_LOG"
     grep -Fx "$fw --zone=ci-guests --change-interface=virbr-ci" "$MOCK_LOG"
-    grep -Fx "$fw --zone=ci-guests --add-port=3000/tcp --add-port=5000/tcp --add-port=3142/tcp --add-port=4873/tcp" "$MOCK_LOG"
+    grep -Fx "$fw --zone=ci-guests --add-port=3000/tcp --add-port=5000/tcp --add-port=5001/tcp --add-port=3142/tcp --add-port=4873/tcp" "$MOCK_LOG"
     # Out: 443 and 5432 to the internet only; home network and tailnet rejected.
     grep -Fx "$fw --policy=ci-guests-egress --set-target=DROP" "$MOCK_LOG"
     grep -Fx "$fw --policy=ci-guests-egress --add-egress-zone=FedoraWorkstation" "$MOCK_LOG"
