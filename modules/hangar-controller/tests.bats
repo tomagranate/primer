@@ -97,6 +97,9 @@ run_module() {
     # Deploys build the web app; on the small size they timed out.
     grep -Fx 'ci-deploy = "medium"' "$cfg"
     grep -Fx '[sizes.large]' "$cfg"
+    # E2E VMs get 8 GB; 6 GB ran out of memory.
+    grep -Fx 'ci-e2e = "e2e"' "$cfg"
+    grep -A2 -Fx '[sizes.e2e]' "$cfg" | grep -Fx 'memory_mb = 8192'
     [ -f "$ROOT/etc/systemd/system/hangar-controller.service" ]
     grep -Fx "systemctl restart hangar-controller.service" "$MOCK_LOG"
 

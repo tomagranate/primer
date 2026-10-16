@@ -9,6 +9,12 @@ memory_mb = 4096
 vcpu = 4
 memory_mb = 6144
 
+# Nerve E2E runs the app stack, Electric, ClamAV, and Chromium in one VM; at
+# 6 GB it ran out of memory and the runner was killed.
+[sizes.e2e]
+vcpu = 4
+memory_mb = 8192
+
 [sizes.large]
 vcpu = 8
 memory_mb = 16384
@@ -19,4 +25,5 @@ ci-container = "medium"
 # Deploys build assets too (nerve web build): 2 vCPU timed out. The old
 # dispatcher gave them 4 vCPU and 6 GB.
 ci-deploy = "medium"
+ci-e2e = "e2e"
 ci-large = "large"
