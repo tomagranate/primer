@@ -13,22 +13,62 @@ gateway_unit="${CADDY_SERVICE:-caddy.service}"
 expected_owner="${CADDY_EXPECTED_OWNER:-root}"
 expected_group="${CADDY_EXPECTED_GROUP:-root}"
 
+stat_darwin=false
+if [[ "${CADDY_STAT_DARWIN:-}" == 1 ]] || [[ "$(uname -s 2>/dev/null)" == Darwin ]]; then
+    stat_darwin=true
+fi
+
+stat_mode() {
+    if $stat_darwin; then
+        stat -f '%Lp' "$1" 2>/dev/null
+    else
+        stat -c '%a' "$1" 2>/dev/null
+    fi
+}
+
+stat_owner() {
+    if $stat_darwin; then
+        stat -f '%Su' "$1" 2>/dev/null
+    else
+        stat -c '%U' "$1" 2>/dev/null
+    fi
+}
+
+stat_group() {
+    if $stat_darwin; then
+        stat -f '%Sg' "$1" 2>/dev/null
+    else
+        stat -c '%G' "$1" 2>/dev/null
+    fi
+}
+
 valid_name() {
     [[ "$1" =~ ^[a-z0-9][a-z0-9-]*$ ]]
 }
 
+# bash 3.2 has no mapfile; keep helpers LaunchDaemon-safe on macOS.
+# Append stdin lines into the named array without tripping `set -u` on empty.
+read_into() {
+    local __dest="$1" __line
+    eval "$__dest=()"
+    while IFS= read -r __line || [[ -n "$__line" ]]; do
+        [[ -n "$__line" ]] || continue
+        eval "$__dest+=(\"\$__line\")"
+    done
+}
+
 manifest_ready() {
     [[ -f "$manifest" && ! -L "$manifest" ]] \
-        && [[ "$(stat -c %a "$manifest" 2>/dev/null)" == 644 ]] \
-        && [[ "$(stat -c %U "$manifest" 2>/dev/null)" == "$expected_owner" ]] \
-        && [[ "$(stat -c %G "$manifest" 2>/dev/null)" == "$expected_group" ]]
+        && [[ "$(stat_mode "$manifest")" == 644 ]] \
+        && [[ "$(stat_owner "$manifest")" == "$expected_owner" ]] \
+        && [[ "$(stat_group "$manifest")" == "$expected_group" ]]
 }
 
 reload_marker_ready() {
     [[ -f "$reload_marker" && ! -L "$reload_marker" ]] \
-        && [[ "$(stat -c %a "$reload_marker" 2>/dev/null)" == 644 ]] \
-        && [[ "$(stat -c %U "$reload_marker" 2>/dev/null)" == "$expected_owner" ]] \
-        && [[ "$(stat -c %G "$reload_marker" 2>/dev/null)" == "$expected_group" ]]
+        && [[ "$(stat_mode "$reload_marker")" == 644 ]] \
+        && [[ "$(stat_owner "$reload_marker")" == "$expected_owner" ]] \
+        && [[ "$(stat_group "$reload_marker")" == "$expected_group" ]]
 }
 
 mark_reload_pending() {
@@ -50,9 +90,9 @@ route_ready() {
     manifest_ready \
         && [[ ! -e "$reload_marker" && ! -L "$reload_marker" ]] \
         && grep -Fxq "$name" "$manifest" && [[ -f "$target" ]] || return 1
-    [[ "$(stat -c %a "$target" 2>/dev/null)" == 644 ]] \
-        && [[ "$(stat -c %U "$target" 2>/dev/null)" == "$expected_owner" ]] \
-        && [[ "$(stat -c %G "$target" 2>/dev/null)" == "$expected_group" ]] || return 1
+    [[ "$(stat_mode "$target")" == 644 ]] \
+        && [[ "$(stat_owner "$target")" == "$expected_owner" ]] \
+        && [[ "$(stat_group "$target")" == "$expected_group" ]] || return 1
     [[ -z "$source" ]] || { [[ -f "$source" ]] && cmp -s "$source" "$target"; }
 }
 
@@ -98,8 +138,8 @@ install_route() {
     target="$apps_dir/$name.caddy"
     if [[ -f "$target" ]] && cmp -s "$source" "$target"; then
         install -m 0644 "$source" "$target"
-        mapfile -t owned < <(read_manifest)
-        if printf '%s\n' "${owned[@]}" | grep -Fxq "$name"; then
+        read_into owned < <(read_manifest)
+        if ((${#owned[@]} > 0)) && printf '%s\n' "${owned[@]}" | grep -Fxq "$name"; then
             if $reload; then
                 validate || { echo "route rejected by Caddy: $name" >&2; return 1; }
                 reload_gateway || { echo "route reload failed: $name" >&2; return 1; }
@@ -113,10 +153,10 @@ install_route() {
             mark_reload_pending
         fi
         [[ -f "$manifest" ]] && manifest_existed=true
-        write_manifest "${owned[@]}" "$name"
+        write_manifest "${owned[@]+"${owned[@]}"}" "$name"
         if $reload && ! reload_gateway; then
             if $manifest_existed; then
-                write_manifest "${owned[@]}"
+                write_manifest "${owned[@]+"${owned[@]}"}"
             else
                 rm -f "$manifest"
             fi
@@ -148,8 +188,8 @@ install_route() {
         echo "route rejected by Caddy: $name" >&2
         return 1
     fi
-    mapfile -t owned < <(read_manifest)
-    write_manifest "${owned[@]}" "$name"
+    read_into owned < <(read_manifest)
+    write_manifest "${owned[@]+"${owned[@]}"}" "$name"
     if $reload && ! reload_gateway; then
         if [[ -f "$backup_dir/route.caddy" ]]; then
             mv -f "$backup_dir/route.caddy" "$target"
@@ -172,18 +212,25 @@ install_route() {
 }
 
 reconcile_routes() {
-    local name changed=false pending=false backup_dir
-    declare -A wanted=()
+    local name candidate changed=false pending=false backup_dir keep
+    local -a wanted_names=() owned
     for name in "$@"; do
         valid_name "$name" || { echo "invalid desired route name: $name" >&2; return 2; }
-        wanted["$name"]=1
+        wanted_names+=("$name")
     done
-    mapfile -t owned < <(read_manifest)
+    read_into owned < <(read_manifest)
     [[ -e "$reload_marker" || -L "$reload_marker" ]] && pending=true
     backup_dir="$(mktemp -d "$config_dir/.route-backup.XXXXXX")"
     [[ -f "$manifest" ]] && cp -p "$manifest" "$backup_dir/manifest"
-    for name in "${owned[@]}"; do
-        [[ -n "${wanted[$name]:-}" ]] && continue
+    for name in "${owned[@]+"${owned[@]}"}"; do
+        keep=false
+        for candidate in "${wanted_names[@]+"${wanted_names[@]}"}"; do
+            if [[ "$candidate" == "$name" ]]; then
+                keep=true
+                break
+            fi
+        done
+        $keep && continue
         if ! $pending; then
             mark_reload_pending
             pending=true
@@ -195,7 +242,7 @@ reconcile_routes() {
     write_manifest "$@"
     if $changed || $pending; then
         if ! validate; then
-            for name in "${owned[@]}"; do
+            for name in "${owned[@]+"${owned[@]}"}"; do
                 [[ -f "$backup_dir/$name.caddy" ]] && mv -f "$backup_dir/$name.caddy" "$apps_dir/$name.caddy"
             done
             if [[ -f "$backup_dir/manifest" ]]; then
@@ -208,7 +255,7 @@ reconcile_routes() {
             return 1
         fi
         if ! reload_gateway; then
-            for name in "${owned[@]}"; do
+            for name in "${owned[@]+"${owned[@]}"}"; do
                 [[ -f "$backup_dir/$name.caddy" ]] && mv -f "$backup_dir/$name.caddy" "$apps_dir/$name.caddy"
             done
             if [[ -f "$backup_dir/manifest" ]]; then
@@ -238,8 +285,25 @@ if [[ "$command" == status ]]; then
 fi
 
 mkdir -p "$apps_dir" "$(dirname "$lock_file")"
-exec 9>"$lock_file"
-flock 9
+lock_dir="${lock_file}.d"
+release_mkdir_lock() {
+    rmdir "$lock_dir" 2>/dev/null || true
+}
+if command -v flock >/dev/null 2>&1; then
+    exec 9>"$lock_file"
+    flock 9
+else
+    waited=0
+    while ! mkdir "$lock_dir" 2>/dev/null; do
+        sleep 0.1
+        waited=$((waited + 1))
+        if (( waited > 6000 )); then
+            echo "could not acquire route lock: $lock_dir" >&2
+            exit 1
+        fi
+    done
+    trap release_mkdir_lock EXIT
+fi
 if [[ -e "$manifest" || -L "$manifest" ]] && ! manifest_ready; then
     echo "route manifest has unsafe ownership or permissions: $manifest" >&2
     exit 1

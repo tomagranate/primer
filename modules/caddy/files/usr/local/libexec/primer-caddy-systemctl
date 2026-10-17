@@ -1,0 +1,202 @@
+#!/bin/bash
+# systemctl-compatible shim for the Primer Caddy LaunchDaemon on macOS.
+set -euo pipefail
+
+label="com.tomagranate.primer-caddy"
+plist="/Library/LaunchDaemons/${label}.plist"
+domain="system/${label}"
+caddy_bin="${CADDY_BIN:-/usr/local/bin/caddy}"
+config="${CADDY_CONFIG_DIR:-/etc/caddy}/Caddyfile"
+validate_helper="${CADDY_VALIDATE_HELPER:-/usr/local/libexec/primer-caddy-validate}"
+admin_sock="${CADDY_ADMIN_SOCK:-unix//run/caddy/admin.sock}"
+
+usage() {
+    echo "usage: primer-caddy-systemctl {enable|disable|start|stop|restart|reload|is-active|is-enabled|start --wait|reset-failed} UNIT" >&2
+    exit 2
+}
+
+is_caddy_unit() {
+    case "$1" in
+        caddy.service|caddy) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+is_validate_unit() {
+    case "$1" in
+        caddy-validate.service|caddy-validate) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+is_plans_unit() {
+    case "$1" in
+        plans.service|plans) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+daemon_loaded() {
+    launchctl print "$domain" >/dev/null 2>&1
+}
+
+daemon_enabled() {
+    # Disabled services print "disabled" under state on modern launchctl print.
+    local print_out
+    print_out="$(launchctl print "$domain" 2>/dev/null)" || return 1
+    ! grep -Eq 'state = disabled|\"enabled\" => false' <<<"$print_out"
+}
+
+[[ $# -ge 1 ]] || usage
+
+cmd="$1"
+shift
+
+case "$cmd" in
+    reset-failed)
+        # No systemd failed-state tracking under launchd.
+        exit 0
+        ;;
+    start)
+        wait=false
+        if [[ "${1:-}" == --wait ]]; then
+            wait=true
+            shift
+        fi
+        [[ $# -eq 1 ]] || usage
+        unit="$1"
+        if is_validate_unit "$unit"; then
+            "$validate_helper"
+            exit $?
+        fi
+        if is_caddy_unit "$unit"; then
+            if daemon_loaded; then
+                launchctl kickstart -k "$domain"
+            else
+                [[ -f "$plist" ]] || { echo "missing LaunchDaemon plist: $plist" >&2; exit 1; }
+                launchctl bootstrap system "$plist"
+            fi
+            exit 0
+        fi
+        if is_plans_unit "$unit"; then
+            echo "plans.service is not managed on Darwin" >&2
+            exit 0
+        fi
+        usage
+        ;;
+    reload)
+        [[ $# -eq 1 ]] || usage
+        is_caddy_unit "$1" || usage
+        "$caddy_bin" reload --config "$config" --address "$admin_sock" --force
+        ;;
+    restart)
+        [[ $# -eq 1 ]] || usage
+        is_caddy_unit "$1" || usage
+        if daemon_loaded; then
+            launchctl kickstart -k "$domain"
+        else
+            [[ -f "$plist" ]] || { echo "missing LaunchDaemon plist: $plist" >&2; exit 1; }
+            launchctl bootstrap system "$plist"
+        fi
+        ;;
+    stop)
+        [[ $# -eq 1 ]] || usage
+        if is_caddy_unit "$1"; then
+            daemon_loaded || exit 0
+            launchctl bootout "$domain"
+            exit 0
+        fi
+        if is_plans_unit "$1"; then
+            exit 0
+        fi
+        usage
+        ;;
+    enable)
+        [[ $# -eq 1 ]] || usage
+        if is_caddy_unit "$1"; then
+            [[ -f "$plist" ]] || { echo "missing LaunchDaemon plist: $plist" >&2; exit 1; }
+            launchctl enable "$domain" 2>/dev/null || true
+            if ! daemon_loaded; then
+                launchctl bootstrap system "$plist"
+            fi
+            exit 0
+        fi
+        if is_plans_unit "$1"; then
+            exit 0
+        fi
+        usage
+        ;;
+    disable)
+        now=false
+        if [[ "${1:-}" == --now ]]; then
+            now=true
+            shift
+        fi
+        [[ $# -eq 1 ]] || usage
+        if is_caddy_unit "$1"; then
+            launchctl disable "$domain" 2>/dev/null || true
+            if $now && daemon_loaded; then
+                launchctl bootout "$domain" 2>/dev/null || true
+            fi
+            exit 0
+        fi
+        if is_plans_unit "$1"; then
+            exit 0
+        fi
+        usage
+        ;;
+    is-active)
+        quiet=false
+        if [[ "${1:-}" == --quiet ]]; then
+            quiet=true
+            shift
+        fi
+        [[ $# -eq 1 ]] || usage
+        if is_caddy_unit "$1"; then
+            if daemon_loaded; then
+                $quiet || echo active
+                exit 0
+            fi
+            $quiet || echo inactive
+            exit 1
+        fi
+        if is_plans_unit "$1"; then
+            $quiet || echo inactive
+            exit 1
+        fi
+        usage
+        ;;
+    is-enabled)
+        quiet=false
+        if [[ "${1:-}" == --quiet ]]; then
+            quiet=true
+            shift
+        fi
+        [[ $# -eq 1 ]] || usage
+        if is_caddy_unit "$1"; then
+            if [[ -f "$plist" ]] && { daemon_loaded || daemon_enabled; }; then
+                $quiet || echo enabled
+                exit 0
+            fi
+            # Fresh install: plist present and not explicitly disabled counts as enabled intent.
+            if [[ -f "$plist" ]]; then
+                $quiet || echo enabled
+                exit 0
+            fi
+            $quiet || echo disabled
+            exit 1
+        fi
+        if is_plans_unit "$1"; then
+            $quiet || echo disabled
+            exit 1
+        fi
+        usage
+        ;;
+    cat|show|daemon-reload)
+        # Soft-success for Linux-only callers that may still invoke these.
+        exit 0
+        ;;
+    *)
+        usage
+        ;;
+esac

@@ -171,7 +171,7 @@ EOF
     assert_success
     run_t3_code_module "_t3_code::root() { return 99; }; mod_status"
     assert_success
-    grep -E 'primer-caddy-route status t3-code /tmp/' "$MOCK_LOG"
+    grep -E 'primer-caddy-route status t3-code ' "$MOCK_LOG"
     assert_equal "$(cat "$MOD_STATUS_FILE")" "available at https://t3.tombook-linux.tomagranate.com/"
 }
 
@@ -311,4 +311,50 @@ EOF
     assert_failure
     assert_output --partial "pairing create failed:"
     assert_output --partial "t3 offline"
+}
+
+@test "t3-code: Darwin path configures LaunchAgent env and skips desktop launcher" {
+    mkdir -p "$TEST_HOME/Library/LaunchAgents"
+    agent_plist="$TEST_HOME/Library/LaunchAgents/com.t3tools.t3code.service.plist"
+    cat > "$agent_plist" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.t3tools.t3code.service</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/true</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>
+EOF
+    cat > "$MOCK_DIR/launchctl" <<'EOF'
+#!/bin/sh
+printf 'launchctl %s\n' "$*" >> "$MOCK_LOG"
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/launchctl"
+
+    run_t3_code_module "
+        export T3_CODE_FORCE_DARWIN=1
+        export T3_CODE_LAUNCH_AGENT='$agent_plist'
+        mod_update
+    "
+    assert_success
+    grep -Fx "t3 service install" "$MOCK_LOG"
+    grep -Fx "t3 service restart" "$MOCK_LOG"
+    run grep -F "systemctl --user" "$MOCK_LOG"
+    assert_failure
+    /usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:T3CODE_HOST' "$agent_plist" \
+        | grep -Fx 127.0.0.1
+    /usr/libexec/PlistBuddy -c 'Print :EnvironmentVariables:T3CODE_PORT' "$agent_plist" \
+        | grep -Fx 3773
+    [ ! -e "$T3_CODE_APPLICATIONS_DIR/t3-code.desktop" ]
 }

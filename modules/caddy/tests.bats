@@ -2,6 +2,46 @@
 
 load '../../tests/helpers/common'
 
+stat_mode() {
+    if [[ "$(uname -s)" == Darwin ]]; then
+        stat -f '%Lp' "$1"
+    else
+        stat -c '%a' "$1"
+    fi
+}
+
+stat_owner() {
+    if [[ "$(uname -s)" == Darwin ]]; then
+        stat -f '%Su' "$1"
+    else
+        stat -c '%U' "$1"
+    fi
+}
+
+stat_group() {
+    if [[ "$(uname -s)" == Darwin ]]; then
+        stat -f '%Sg' "$1"
+    else
+        stat -c '%G' "$1"
+    fi
+}
+
+stat_fingerprint() {
+    if [[ "$(uname -s)" == Darwin ]]; then
+        stat -f '%d:%i:%z:%m' "$1"
+    else
+        stat -c '%d:%i:%s:%Y' "$1"
+    fi
+}
+
+sed_i() {
+    if [[ "$(uname -s)" == Darwin ]]; then
+        sed -i '' "$@"
+    else
+        sed -i "$@"
+    fi
+}
+
 setup() {
     export TEST_ROOT="$(mktemp -d)"
     export TEST_CONF="$(mktemp)"
@@ -258,7 +298,7 @@ run_caddy_function() {
     run_caddy_function _caddy::install_cloudflare_token
     assert_success
     refute_output --partial private
-    [ "$(stat -c %a "$TEST_ROOT/etc/caddy/env.d/cloudflare.env")" = 600 ]
+    [ "$(stat_mode "$TEST_ROOT/etc/caddy/env.d/cloudflare.env")" = 600 ]
     grep -Fx 'CLOUDFLARE_API_TOKEN=minted-dns-private' "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
     grep -Fx 'CLOUDFLARE_API_TOKEN_ID=cccccccccccccccccccccccccccccccc' "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
     grep -Fx 'CLOUDFLARE_ZONE_ID=dddddddddddddddddddddddddddddddd' "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
@@ -331,7 +371,7 @@ run_caddy_function() {
     run_caddy_function _caddy::record_cloudflare_validity
     assert_success
 
-    sed -i 's/old-private/replacement-private/' "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    sed_i 's/old-private/replacement-private/' "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
     run_caddy_function _caddy::install_cloudflare_token
 
     assert_success
@@ -559,7 +599,22 @@ EOF
 }
 
 @test "caddy: accepts wildcard private DNS names" {
-    sed -i '/^routes =/i\    *.preview.tomagranate.com' "$TEST_CONF"
+    cat > "$TEST_CONF" <<EOF
+[caddy]
+caddy_version = v2.11.4
+xcaddy_version = v0.4.5
+cloudflare_module = github.com/caddy-dns/cloudflare@v0.2.4
+cloudflare_token_required = true
+cloudflare_zone = tomagranate.com
+cloudflare_reader_ref = op://Agents/Cloudflare Reader/credential
+cloudflare_minter_ref = op://Agents/Cloudflare Token Minter/credential
+cloudflare_account_id_ref = op://Agents/Cloudflare Token Minter/account id
+dns_names =
+    t3.{machine}.tomagranate.com
+    *.preview.tomagranate.com
+routes =
+    t3-code
+EOF
 
     run_caddy_function _caddy::desired_dns_names
 
@@ -568,7 +623,22 @@ EOF
 }
 
 @test "caddy: resolves a wildcard through a concrete hostname" {
-    sed -i '/^routes =/i\    *.preview.tomagranate.com' "$TEST_CONF"
+    cat > "$TEST_CONF" <<EOF
+[caddy]
+caddy_version = v2.11.4
+xcaddy_version = v0.4.5
+cloudflare_module = github.com/caddy-dns/cloudflare@v0.2.4
+cloudflare_token_required = true
+cloudflare_zone = tomagranate.com
+cloudflare_reader_ref = op://Agents/Cloudflare Reader/credential
+cloudflare_minter_ref = op://Agents/Cloudflare Token Minter/credential
+cloudflare_account_id_ref = op://Agents/Cloudflare Token Minter/account id
+dns_names =
+    t3.{machine}.tomagranate.com
+    *.preview.tomagranate.com
+routes =
+    t3-code
+EOF
 
     run_caddy_function _caddy::dns_resolves
 
@@ -669,7 +739,7 @@ EOF
     printf 'CORRUPTED=1\n' >> "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
     run_caddy_function mod_status
     assert_failure
-    sed -i '$d' "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
+    sed_i '$d' "$TEST_ROOT/etc/caddy/env.d/cloudflare.env"
     run_caddy_function _caddy::record_cloudflare_validity
     assert_success
 
@@ -732,7 +802,7 @@ EOF
     assert_failure
     route_helper install example "$TEST_ROOT/route"
     assert_success
-    [ "$(stat -c %a "$CADDY_APPS_DIR/example.caddy")" = 644 ]
+    [ "$(stat_mode "$CADDY_APPS_DIR/example.caddy")" = 644 ]
     route_helper status example "$TEST_ROOT/route"
     assert_success
     [ "$(grep -c 'systemctl start --wait caddy-validate.service' "$MOCK_LOG")" -eq 2 ]
@@ -1078,7 +1148,7 @@ EOF
     grep -F "reverse_proxy http://127.0.0.1:3773" "$TEST_ROOT/etc/caddy/apps.d/t3-code.caddy"
     grep -F "reverse_proxy https://agents-infra.sunburst-d5c.workers.dev" \
         "$TEST_ROOT/etc/caddy/apps.d/plans-media.caddy"
-    [ "$(stat -c %a "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 600 ]
+    [ "$(stat_mode "$TEST_ROOT/etc/caddy/env.d/plans-media.env")" = 600 ]
     grep -Fx 'GATE_SECRET=gate-private' "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
     [ "$(grep -c 'systemctl reload caddy.service' "$MOCK_LOG")" -eq 0 ]
 }
@@ -1189,7 +1259,7 @@ EOF
     mkdir -p "$TEST_ROOT/etc/caddy/env.d"
     printf 'GATE_SECRET=""\n' > "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
     chmod 0600 "$TEST_ROOT/etc/caddy/env.d/plans-media.env"
-    stat -c '%d:%i:%s:%Y' "$TEST_ROOT/etc/caddy/env.d/plans-media.env" \
+    stat_fingerprint "$TEST_ROOT/etc/caddy/env.d/plans-media.env" \
         > "$TEST_ROOT/etc/caddy/env.d/plans-media.env.valid"
     printf 'GATE_SECRET=gate-private\n' > "$TEST_ROOT/legacy.env"
 
@@ -1333,12 +1403,6 @@ EOF
 }
 
 @test "caddy: tailnet generator binds every Tailscale address" {
-    cat > "$MOCK_DIR/install" <<'EOF'
-#!/bin/sh
-printf 'install %s\n' "$*" >> "$MOCK_LOG"
-exec /usr/bin/install "$@"
-EOF
-    chmod +x "$MOCK_DIR/install"
     cat > "$MOCK_DIR/tailscale" <<'EOF'
 #!/bin/sh
 cat <<'JSON'
@@ -1354,9 +1418,9 @@ EOF
     assert_success
     grep -F "bind 100.64.0.1 fd7a:115c:a1e0::1" "$CADDY_CONFIG_DIR/tailnet.caddy"
     grep -Fx "TAILSCALE_HOSTNAME=host.tailnet.ts.net" "$TEST_ROOT/run/tailnet.env"
-    [ "$(stat -c %U "$TEST_ROOT/run")" = "$(id -un)" ]
-    [ "$(stat -c %G "$TEST_ROOT/run")" = "$(id -gn)" ]
-    grep -F "install -d -o $(id -un) -g $(id -gn) -m 0755 $TEST_ROOT/run" "$MOCK_LOG"
+    [ "$(stat_owner "$TEST_ROOT/run")" = "$(id -un)" ]
+    [ "$(stat_group "$TEST_ROOT/run")" = "$(id -gn)" ]
+    [ "$(stat_mode "$TEST_ROOT/run")" = 755 ]
 
     CADDY_CONFIG_DIR="$CADDY_CONFIG_DIR" CADDY_RUNTIME_DIR="$TEST_ROOT/run" \
         CADDY_RUNTIME_OWNER="$(id -un)" CADDY_RUNTIME_GROUP="$(id -gn)" \
@@ -1368,4 +1432,44 @@ EOF
         TAILSCALE_BIN="$MOCK_DIR/tailscale" \
         "$PRIMER_DIR/modules/caddy/files/usr/local/libexec/primer-caddy-tailnet" status
     assert_failure
+}
+
+@test "caddy: Darwin helpers and deploy install LaunchDaemon files" {
+    run_caddy_function '
+        export CADDY_FORCE_DARWIN=1
+        _caddy::is_darwin || exit 1
+        _caddy::ensure_user || exit 1
+        _caddy::deploy || exit 1
+        [[ -f "$CADDY_ROOT_DIR/Library/LaunchDaemons/com.tomagranate.primer-caddy.plist" ]] || exit 1
+        [[ -x "$CADDY_ROOT_DIR/usr/local/libexec/primer-caddy-run" ]] || exit 1
+        [[ -x "$CADDY_ROOT_DIR/usr/local/libexec/primer-caddy-validate" ]] || exit 1
+        [[ -x "$CADDY_ROOT_DIR/usr/local/libexec/primer-caddy-systemctl" ]] || exit 1
+        [[ ! -e "$CADDY_ROOT_DIR/etc/systemd/system/caddy.service" ]] || exit 1
+        _caddy::definitions_ready || exit 1
+        print ok
+    '
+    assert_success
+    assert_output --partial ok
+}
+
+@test "caddy: Darwin systemctl shim validates and reports inactive" {
+    validate_log="$(mktemp)"
+    cat > "$MOCK_DIR/primer-caddy-validate" <<EOF
+#!/bin/sh
+printf 'validate\n' >> "$validate_log"
+exit 0
+EOF
+    chmod +x "$MOCK_DIR/primer-caddy-validate"
+    run env CADDY_VALIDATE_HELPER="$MOCK_DIR/primer-caddy-validate" \
+        "$PRIMER_DIR/modules/caddy/files/usr/local/libexec/primer-caddy-systemctl" \
+        start --wait caddy-validate.service
+    assert_success
+    grep -Fx validate "$validate_log"
+    run "$PRIMER_DIR/modules/caddy/files/usr/local/libexec/primer-caddy-systemctl" \
+        is-active --quiet caddy.service
+    assert_failure
+    run "$PRIMER_DIR/modules/caddy/files/usr/local/libexec/primer-caddy-systemctl" \
+        reset-failed caddy-validate.service
+    assert_success
+    rm -f "$validate_log"
 }
