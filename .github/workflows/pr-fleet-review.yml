@@ -9,9 +9,9 @@ on:
         description: Pull request number to review
         required: true
       model:
-        description: Model pool override
+        description: Model pool override (empty uses the action default)
         required: false
-        default: opencode-go/deepseek-v4.1-flash,opencode-go/deepseek-v4-flash,opencode-go/glm-5.3-flash
+        default: ""
 
 concurrency:
   group: fleet-review-${{ github.event.pull_request.number || inputs.pr-number }}
@@ -42,5 +42,5 @@ jobs:
       - uses: tomagranate/fleet-review@v1
         with:
           opencode-api-key: ${{ secrets.OPENCODE_API_KEY }}
-          model: ${{ inputs.model || 'opencode-go/deepseek-v4.1-flash,opencode-go/deepseek-v4-flash,opencode-go/glm-5.3-flash' }}
+          model: ${{ inputs.model }}
           pr-number: ${{ inputs.pr-number || '' }}
