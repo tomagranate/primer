@@ -1,6 +1,143 @@
 #!/bin/zsh
 # modules/caddy -- one validated Caddy gateway for Primer applications
 
+# Tests keep the Linux path unless CADDY_FORCE_DARWIN=1.
+_caddy::is_darwin() {
+    [[ "${CADDY_FORCE_DARWIN:-}" == 1 ]] && return 0
+    [[ -n "${CADDY_TEST_ROOT:-}" ]] && return 1
+    [[ "$(uname -s)" == Darwin ]]
+}
+
+# Stat format follows the host OS, not the Darwin feature flag used by tests.
+_caddy::stat_bsd() {
+    [[ "$(uname -s)" == Darwin ]]
+}
+
+_caddy::stat_mode() {
+    if _caddy::stat_bsd; then
+        stat -f '%Lp' "$1" 2>/dev/null
+    else
+        stat -c '%a' "$1" 2>/dev/null
+    fi
+}
+
+_caddy::stat_owner() {
+    if _caddy::stat_bsd; then
+        stat -f '%Su' "$1" 2>/dev/null
+    else
+        stat -c '%U' "$1" 2>/dev/null
+    fi
+}
+
+_caddy::stat_group() {
+    if _caddy::stat_bsd; then
+        stat -f '%Sg' "$1" 2>/dev/null
+    else
+        stat -c '%G' "$1" 2>/dev/null
+    fi
+}
+
+_caddy::stat_fingerprint() {
+    if _caddy::stat_bsd; then
+        stat -f '%d:%i:%z:%m' "$1" 2>/dev/null
+    else
+        stat -c '%d:%i:%s:%Y' "$1" 2>/dev/null
+    fi
+}
+
+_caddy::sha256() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$@"
+    else
+        shasum -a 256 "$@"
+    fi
+}
+
+# Prefer XDG_RUNTIME_DIR; on macOS fall back to a private temp dir.
+_caddy::runtime_dir() {
+    local runtime="${XDG_RUNTIME_DIR:-}"
+    if [[ -z "$runtime" ]]; then
+        if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
+            runtime="${CADDY_ROOT_DIR:-/tmp}"
+        else
+            runtime="${TMPDIR:-/tmp}/primer-runtime-$(id -u)"
+        fi
+    fi
+    mkdir -p -m 0700 "$runtime" 2>/dev/null || true
+    [[ -d "$runtime" ]] || return 1
+    print -r -- "$runtime"
+}
+
+_caddy::file_owner() {
+    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
+        print -r -- "$(id -un)"
+    else
+        print -r -- root
+    fi
+}
+
+_caddy::file_group() {
+    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
+        print -r -- "$(id -gn)"
+    elif _caddy::is_darwin; then
+        print -r -- wheel
+    else
+        print -r -- root
+    fi
+}
+
+# Process owner for /run/caddy and /var/lib/caddy.
+_caddy::caddy_user() {
+    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
+        print -r -- "$(id -un)"
+    elif _caddy::is_darwin; then
+        print -r -- root
+    else
+        print -r -- caddy
+    fi
+}
+
+_caddy::caddy_group() {
+    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
+        print -r -- "$(id -gn)"
+    elif _caddy::is_darwin; then
+        print -r -- wheel
+    else
+        print -r -- caddy
+    fi
+}
+
+_caddy::systemctl_bin() {
+    if [[ -n "${SYSTEMCTL_BIN:-}" ]]; then
+        print -r -- "$SYSTEMCTL_BIN"
+        return 0
+    fi
+    if _caddy::is_darwin; then
+        print -r -- "$(_caddy::root_path /usr/local/libexec/primer-caddy-systemctl)"
+    else
+        print -r -- systemctl
+    fi
+}
+
+# Run systemctl or the Darwin LaunchDaemon shim.
+_caddy::ctl() {
+    local bin="$(_caddy::systemctl_bin)" need_root=false
+    case "${1:-}" in
+        enable|disable|start|stop|restart|reload|daemon-reload) need_root=true ;;
+    esac
+    # launchctl system domain needs root; Linux status queries do not.
+    if _caddy::is_darwin || [[ "$bin" != systemctl ]]; then
+        need_root=true
+    fi
+    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
+        "$bin" "$@"
+    elif $need_root; then
+        _caddy::root "$bin" "$@"
+    else
+        "$bin" "$@"
+    fi
+}
+
 _caddy::root_path() {
     print -r -- "${CADDY_ROOT_DIR:-}$1"
 }
@@ -30,12 +167,8 @@ _caddy::curl_with_token() {
     local token="$1" runtime header_file rc
     shift
     [[ -n "$token" && "$token" != *$'\n'* && "$token" != *$'\r'* ]] || return 1
-    runtime="${XDG_RUNTIME_DIR:-}"
-    if [[ -z "$runtime" && -n "${CADDY_TEST_ROOT:-}" ]]; then
-        runtime="${CADDY_ROOT_DIR:-/tmp}"
-    fi
-    [[ -n "$runtime" && -d "$runtime" ]] || {
-        print "XDG_RUNTIME_DIR is required for secure Cloudflare requests" >&2
+    runtime="$(_caddy::runtime_dir)" || {
+        print "A private runtime directory is required for secure Cloudflare requests" >&2
         return 1
     }
     header_file="$(mktemp "$runtime/primer-caddy-header.XXXXXX")" || return 1
@@ -48,7 +181,12 @@ _caddy::curl_with_token() {
 }
 
 _caddy::op_ticket() {
-    print -r -- "${PRIMER_OP_TICKET:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/op-ticket}"
+    local runtime
+    runtime="${XDG_RUNTIME_DIR:-}"
+    if [[ -z "$runtime" ]]; then
+        runtime="$(_caddy::runtime_dir 2>/dev/null)" || runtime="/run/user/$(id -u)"
+    fi
+    print -r -- "${PRIMER_OP_TICKET:-$runtime/op-ticket}"
 }
 
 _caddy::root() {
@@ -60,17 +198,15 @@ _caddy::root() {
 }
 
 _caddy::custom_binary_ready() {
-    local binary version modules owner=root group=root
+    local binary version modules owner group
     binary="$(_caddy::binary)"
     version="$(mod_config caddy_version | head -1)"
-    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
-        owner="$(id -un)"
-        group="$(id -gn)"
-    fi
+    owner="$(_caddy::file_owner)"
+    group="$(_caddy::file_group)"
     [[ -x "$binary" ]] || return 1
-    [[ "$(stat -c %a "$binary" 2>/dev/null)" == 755 ]] \
-        && [[ "$(stat -c %U "$binary" 2>/dev/null)" == "$owner" ]] \
-        && [[ "$(stat -c %G "$binary" 2>/dev/null)" == "$group" ]] || return 1
+    [[ "$(_caddy::stat_mode "$binary")" == 755 ]] \
+        && [[ "$(_caddy::stat_owner "$binary")" == "$owner" ]] \
+        && [[ "$(_caddy::stat_group "$binary")" == "$group" ]] || return 1
     [[ "$($binary version 2>/dev/null)" == "$version "* || "$($binary version 2>/dev/null)" == "$version" ]] || return 1
     modules="$($binary list-modules 2>/dev/null)" || return 1
     print -r -- "$modules" | grep -Fxq dns.providers.cloudflare \
@@ -109,7 +245,7 @@ _caddy::cloudflare_mint_cleanup_file() {
 }
 
 _caddy::cloudflare_fingerprint() {
-    stat -c '%d:%i:%s:%Y' "$(_caddy::cloudflare_env)" 2>/dev/null
+    _caddy::stat_fingerprint "$(_caddy::cloudflare_env)"
 }
 
 _caddy::record_cloudflare_validity() {
@@ -118,28 +254,24 @@ _caddy::record_cloudflare_validity() {
     temp="$(mktemp)" || return 1
     _caddy::cloudflare_fingerprint > "$temp" || { rm -f "$temp"; return 1; }
     date +%s >> "$temp" || { rm -f "$temp"; return 1; }
-    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
-        install -D -m 0644 "$temp" "$target"
-    else
-        _caddy::root install -D -o root -g root -m 0644 "$temp" "$target"
-    fi
+    _caddy::install_at 0644 "$temp" "$target"
     local rc=$?
     rm -f "$temp"
     return "$rc"
 }
 
 _caddy::cloudflare_file_integrity_ready() {
-    local file validity owner=root fingerprint
+    local file validity owner fingerprint
     file="$(_caddy::cloudflare_env)"
     validity="$(_caddy::cloudflare_validity_file)"
-    [[ -n "${CADDY_TEST_ROOT:-}" ]] && owner="$(id -un)"
+    owner="$(_caddy::file_owner)"
     fingerprint="$(sed -n '1p' "$validity" 2>/dev/null)"
     [[ -s "$file" ]] \
-        && [[ "$(stat -c %a "$file" 2>/dev/null)" == 600 ]] \
-        && [[ "$(stat -c %U "$file" 2>/dev/null)" == "$owner" ]] \
+        && [[ "$(_caddy::stat_mode "$file")" == 600 ]] \
+        && [[ "$(_caddy::stat_owner "$file")" == "$owner" ]] \
         && [[ -s "$validity" ]] \
-        && [[ "$(stat -c %a "$validity" 2>/dev/null)" == 644 ]] \
-        && [[ "$(stat -c %U "$validity" 2>/dev/null)" == "$owner" ]] \
+        && [[ "$(_caddy::stat_mode "$validity")" == 644 ]] \
+        && [[ "$(_caddy::stat_owner "$validity")" == "$owner" ]] \
         && [[ "$fingerprint" == "$(_caddy::cloudflare_fingerprint)" ]]
 }
 
@@ -166,12 +298,10 @@ _caddy::restart_marker() {
 }
 
 _caddy::mark_restart() {
-    local marker owner=root group=root
+    local marker owner group
     marker="$(_caddy::restart_marker "$1")" || return 1
-    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
-        owner="$(id -un)"
-        group="$(id -gn)"
-    fi
+    owner="$(_caddy::file_owner)"
+    group="$(_caddy::file_group)"
     _caddy::root install -d -m 0755 "${marker:h}" \
         && _caddy::root chown "$owner:$group" "${marker:h}" \
         && _caddy::root install -m 0644 /dev/null "$marker"
@@ -196,11 +326,17 @@ _caddy::op_read() {
         return
     fi
     ticket="$(_caddy::op_ticket)"
-    [[ -s "$ticket" ]] || {
-        print "Agent access is not active. Run agents sudo, then retry Primer." >&2
-        return 1
-    }
-    OP_SERVICE_ACCOUNT_TOKEN="$(<"$ticket")" op read "$ref"
+    if [[ -s "$ticket" ]]; then
+        OP_SERVICE_ACCOUNT_TOKEN="$(<"$ticket")" op read "$ref"
+        return
+    fi
+    # Attended Mac uses the user's 1Password CLI session.
+    if _caddy::is_darwin; then
+        op read "$ref"
+        return
+    fi
+    print "Agent access is not active. Run agents sudo, then retry Primer." >&2
+    return 1
 }
 
 _caddy::zone_name() {
@@ -281,12 +417,11 @@ _caddy::mint_cloudflare_token() {
         ]
       }]
     }')" || return 1
-    runtime="${XDG_RUNTIME_DIR:-}"
-    if [[ -z "$runtime" && -z "${CADDY_TEST_ROOT:-}" ]]; then
-        print "XDG_RUNTIME_DIR is required for secure Cloudflare token setup" >&2
+    runtime="$(_caddy::runtime_dir)" || {
+        print "A private runtime directory is required for secure Cloudflare token setup" >&2
         return 1
-    fi
-    response="$(mktemp "${runtime:-/tmp}/primer-caddy-mint.XXXXXX")" || return 1
+    }
+    response="$(mktemp "$runtime/primer-caddy-mint.XXXXXX")" || return 1
     chmod 0600 "$response"
     if ! _caddy::curl_with_token "$(_caddy::op_read "$minter_ref")" -fsS \
         "$(_caddy::cloudflare_api)/accounts/$account_id/tokens" \
@@ -306,7 +441,7 @@ _caddy::mint_cloudflare_token() {
         rm -f "$response"
         return 1
     fi
-    token_file="$(mktemp "${runtime:-/tmp}/primer-caddy-cloudflare.XXXXXX")" || {
+    token_file="$(mktemp "$runtime/primer-caddy-cloudflare.XXXXXX")" || {
         rm -f "$response"
         return 1
     }
@@ -355,8 +490,7 @@ _caddy::delete_cloudflare_token() {
     [[ -n "$token_id" ]] || return 0
     account_id="$(_caddy::op_read "$(mod_config cloudflare_account_id_ref | head -1)")" || return 1
     minter_ref="$(mod_config cloudflare_minter_ref | head -1)"
-    runtime="${XDG_RUNTIME_DIR:-${CADDY_TEST_ROOT:+${CADDY_ROOT_DIR:-/tmp}}}"
-    [[ -n "$runtime" && -d "$runtime" ]] || return 1
+    runtime="$(_caddy::runtime_dir)" || return 1
     response="$(mktemp "$runtime/primer-caddy-delete.XXXXXX")" || return 1
     http_status="$(_caddy::curl_with_token "$(_caddy::op_read "$minter_ref")" -sS -o "$response" \
         -w '%{http_code}' -X DELETE \
@@ -379,11 +513,7 @@ _caddy::record_cloudflare_cleanup_at() {
     [[ -n "$token_id" && "$token_id" != *$'\n'* ]] || return 1
     temp="$(mktemp)" || return 1
     print -r -- "$token_id" > "$temp"
-    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
-        install -D -m 0600 "$temp" "$target"
-    else
-        _caddy::root install -D -o root -g root -m 0600 "$temp" "$target"
-    fi
+    _caddy::install_at 0600 "$temp" "$target"
     local rc=$?
     rm -f "$temp"
     return "$rc"
@@ -439,13 +569,8 @@ _caddy::clear_installed_minted_cloudflare_cleanup() {
 
 _caddy::install_cloudflare_token_file() {
     local source="$1" target="$(_caddy::cloudflare_env)"
-    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
-        install -D -m 0600 "$source" "$target" \
-            && _caddy::record_cloudflare_validity
-    else
-        _caddy::root install -D -o root -g root -m 0600 "$source" "$target" \
-            && _caddy::record_cloudflare_validity
-    fi
+    _caddy::install_at 0600 "$source" "$target" \
+        && _caddy::record_cloudflare_validity
 }
 
 # Caddy owns the DNS token because multiple routes can use Cloudflare DNS-01.
@@ -463,7 +588,8 @@ _caddy::install_cloudflare_token() {
                 || _caddy::mark_restart gateway \
                 || return 1
             _caddy::root chmod 0600 "$target"
-            [[ -n "${CADDY_TEST_ROOT:-}" ]] || _caddy::root chown root:root "$target"
+            [[ -n "${CADDY_TEST_ROOT:-}" ]] \
+                || _caddy::root chown "$(_caddy::file_owner):$(_caddy::file_group)" "$target"
             _caddy::record_cloudflare_validity
             return $?
         fi
@@ -478,6 +604,44 @@ _caddy::install_cloudflare_token() {
     _caddy::mint_cloudflare_token || return 1
 }
 
+_caddy::mise_bin() {
+    if command -v mise >/dev/null 2>&1; then
+        command -v mise
+        return 0
+    fi
+    local candidate
+    for candidate in \
+        "$HOME/.local/bin/mise" \
+        "$HOME/.mise/bin/mise" \
+        "/opt/homebrew/bin/mise" \
+        "/usr/local/bin/mise"; do
+        [[ -x "$candidate" ]] || continue
+        print -r -- "$candidate"
+        return 0
+    done
+    return 1
+}
+
+# Run go from PATH, or via mise when the toolchain is only in mise.
+_caddy::go() {
+    if command -v go >/dev/null 2>&1; then
+        go "$@"
+        return $?
+    fi
+    local mise_bin
+    mise_bin="$(_caddy::mise_bin)" || {
+        print "go not found; the caddy module depends on mise with Go enabled" >&2
+        return 1
+    }
+    if ! "$mise_bin" exec -- go version >/dev/null 2>&1; then
+        "$mise_bin" use --global go@1.25 --yes || {
+            print "go not found; install go via mise (go@1.25)" >&2
+            return 1
+        }
+    fi
+    "$mise_bin" exec -- go "$@"
+}
+
 _caddy::install_binary() {
     _caddy::custom_binary_ready && return 0
     local caddy_version xcaddy_version cloudflare_module temp
@@ -485,41 +649,51 @@ _caddy::install_binary() {
     xcaddy_version="$(mod_config xcaddy_version | head -1)"
     cloudflare_module="$(mod_config cloudflare_module | head -1)"
     [[ -n "$caddy_version" && -n "$xcaddy_version" && -n "$cloudflare_module" ]] || return 1
-    command -v go >/dev/null 2>&1 || {
-        print "go not found; the caddy module depends on mise with Go enabled" >&2
-        return 1
-    }
     temp="$(mktemp)" || return 1
     rm -f "$temp"
-    go run "github.com/caddyserver/xcaddy/cmd/xcaddy@${xcaddy_version}" \
+    _caddy::go run "github.com/caddyserver/xcaddy/cmd/xcaddy@${xcaddy_version}" \
         build "$caddy_version" --output "$temp" --with "$cloudflare_module" || {
         rm -f "$temp"
         return 1
     }
-    _caddy::root install -D -m 0755 "$temp" "$(_caddy::binary)"
+    _caddy::install_at 0755 "$temp" "$(_caddy::binary)"
     rm -f "$temp"
     _caddy::custom_binary_ready
 }
 
 _caddy::ensure_user() {
+    # Darwin runs Caddy as root via LaunchDaemon.
+    _caddy::is_darwin && return 0
     getent passwd caddy >/dev/null 2>&1 && return 0
     _caddy::root useradd --system --home-dir /var/lib/caddy --create-home \
         --shell /usr/sbin/nologin caddy
+}
+
+# Portable install that creates parent dirs (BSD install -D is DESTDIR, not mkdir).
+_caddy::install_at() {
+    local mode="$1" source="$2" target="$3"
+    _caddy::root mkdir -p "${target:h}" || return 1
+    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
+        install -m "$mode" "$source" "$target"
+    else
+        _caddy::root install -o "$(_caddy::file_owner)" -g "$(_caddy::file_group)" \
+            -m "$mode" "$source" "$target"
+    fi
 }
 
 _caddy::install_file() {
     local relative="$1" mode="$2" source target
     source="$MOD_DIR/files$relative"
     target="$(_caddy::root_path "$relative")"
-    _caddy::root install -D -m "$mode" "$source" "$target"
+    _caddy::install_at "$mode" "$source" "$target"
 }
 
 _caddy::deploy() {
-    local managed_path owner=root group=root
-    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
-        owner="$(id -un)"
-        group="$(id -gn)"
-    fi
+    local managed_path owner group caddy_owner caddy_group
+    owner="$(_caddy::file_owner)"
+    group="$(_caddy::file_group)"
+    caddy_owner="$(_caddy::caddy_user)"
+    caddy_group="$(_caddy::caddy_group)"
     _caddy::root install -d -m 0755 \
         "$(_caddy::root_path /etc/caddy)" \
         "$(_caddy::root_path /etc/caddy/apps.d)" \
@@ -535,63 +709,88 @@ _caddy::deploy() {
         "$(_caddy::root_path /etc/caddy/env.d)" \
         "$(_caddy::root_path /var/lib/primer)" \
         "$(_caddy::root_path /var/lib/primer/caddy)" || return 1
-    for managed_path in \
-        /etc/caddy/Caddyfile \
-        /etc/systemd/system/caddy.service \
-        /etc/systemd/system/caddy-validate.service \
-        /etc/systemd/system/tailscaled.service.d/primer-caddy.conf; do
-        _caddy::install_file "$managed_path" 0644 || return 1
-    done
-    _caddy::install_file /usr/local/libexec/primer-caddy-tailnet 0755 || return 1
-    _caddy::install_file /usr/local/libexec/primer-caddy-route 0755 || return 1
-    _caddy::install_file /usr/local/libexec/primer-caddy-fragment 0755 || return 1
-    _caddy::root chown -R caddy:caddy "$(_caddy::root_path /var/lib/caddy)"
+    if _caddy::is_darwin; then
+        for managed_path in \
+            /etc/caddy/Caddyfile \
+            /Library/LaunchDaemons/com.tomagranate.primer-caddy.plist; do
+            _caddy::install_file "$managed_path" 0644 || return 1
+        done
+        _caddy::install_file /usr/local/libexec/primer-caddy-tailnet 0755 || return 1
+        _caddy::install_file /usr/local/libexec/primer-caddy-route 0755 || return 1
+        _caddy::install_file /usr/local/libexec/primer-caddy-fragment 0755 || return 1
+        _caddy::install_file /usr/local/libexec/primer-caddy-run 0755 || return 1
+        _caddy::install_file /usr/local/libexec/primer-caddy-validate 0755 || return 1
+        _caddy::install_file /usr/local/libexec/primer-caddy-systemctl 0755 || return 1
+    else
+        for managed_path in \
+            /etc/caddy/Caddyfile \
+            /etc/systemd/system/caddy.service \
+            /etc/systemd/system/caddy-validate.service \
+            /etc/systemd/system/tailscaled.service.d/primer-caddy.conf; do
+            _caddy::install_file "$managed_path" 0644 || return 1
+        done
+        _caddy::install_file /usr/local/libexec/primer-caddy-tailnet 0755 || return 1
+        _caddy::install_file /usr/local/libexec/primer-caddy-route 0755 || return 1
+        _caddy::install_file /usr/local/libexec/primer-caddy-fragment 0755 || return 1
+    fi
+    _caddy::root chown -R "$caddy_owner:$caddy_group" "$(_caddy::root_path /var/lib/caddy)"
+}
+
+_caddy::managed_file_specs() {
+    if _caddy::is_darwin; then
+        print -r -- '/etc/caddy/Caddyfile 644'
+        print -r -- '/Library/LaunchDaemons/com.tomagranate.primer-caddy.plist 644'
+        print -r -- '/usr/local/libexec/primer-caddy-tailnet 755'
+        print -r -- '/usr/local/libexec/primer-caddy-route 755'
+        print -r -- '/usr/local/libexec/primer-caddy-fragment 755'
+        print -r -- '/usr/local/libexec/primer-caddy-run 755'
+        print -r -- '/usr/local/libexec/primer-caddy-validate 755'
+        print -r -- '/usr/local/libexec/primer-caddy-systemctl 755'
+    else
+        print -r -- '/etc/caddy/Caddyfile 644'
+        print -r -- '/etc/systemd/system/caddy.service 644'
+        print -r -- '/etc/systemd/system/caddy-validate.service 644'
+        print -r -- '/etc/systemd/system/tailscaled.service.d/primer-caddy.conf 644'
+        print -r -- '/usr/local/libexec/primer-caddy-tailnet 755'
+        print -r -- '/usr/local/libexec/primer-caddy-route 755'
+        print -r -- '/usr/local/libexec/primer-caddy-fragment 755'
+    fi
 }
 
 _caddy::definitions_ready() {
-    local spec managed_path expected_mode owner=root group=root
-    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
-        owner="$(id -un)"
-        group="$(id -gn)"
-    fi
+    local spec managed_path expected_mode owner group
+    owner="$(_caddy::file_owner)"
+    group="$(_caddy::file_group)"
     for managed_path in \
         /etc/caddy /etc/caddy/apps.d /etc/caddy/local.d /etc/caddy/env.d \
         /var/lib/primer /var/lib/primer/caddy; do
-        [[ "$(stat -c %a "$(_caddy::root_path "$managed_path")" 2>/dev/null)" == 755 ]] \
-            && [[ "$(stat -c %U "$(_caddy::root_path "$managed_path")" 2>/dev/null)" == "$owner" ]] \
-            && [[ "$(stat -c %G "$(_caddy::root_path "$managed_path")" 2>/dev/null)" == "$group" ]] \
+        [[ "$(_caddy::stat_mode "$(_caddy::root_path "$managed_path")")" == 755 ]] \
+            && [[ "$(_caddy::stat_owner "$(_caddy::root_path "$managed_path")")" == "$owner" ]] \
+            && [[ "$(_caddy::stat_group "$(_caddy::root_path "$managed_path")")" == "$group" ]] \
             || return 1
     done
-    for spec in \
-        '/etc/caddy/Caddyfile 644' \
-        '/etc/systemd/system/caddy.service 644' \
-        '/etc/systemd/system/caddy-validate.service 644' \
-        '/etc/systemd/system/tailscaled.service.d/primer-caddy.conf 644' \
-        '/usr/local/libexec/primer-caddy-tailnet 755' \
-        '/usr/local/libexec/primer-caddy-route 755' \
-        '/usr/local/libexec/primer-caddy-fragment 755'; do
+    while IFS= read -r spec; do
+        [[ -n "$spec" ]] || continue
         managed_path="${spec% *}"
         expected_mode="${spec##* }"
         cmp -s "$MOD_DIR/files$managed_path" "$(_caddy::root_path "$managed_path")" || return 1
-        [[ "$(stat -c %a "$(_caddy::root_path "$managed_path")" 2>/dev/null)" == "$expected_mode" ]] \
-            && [[ "$(stat -c %U "$(_caddy::root_path "$managed_path")" 2>/dev/null)" == "$owner" ]] \
-            && [[ "$(stat -c %G "$(_caddy::root_path "$managed_path")" 2>/dev/null)" == "$group" ]] \
+        [[ "$(_caddy::stat_mode "$(_caddy::root_path "$managed_path")")" == "$expected_mode" ]] \
+            && [[ "$(_caddy::stat_owner "$(_caddy::root_path "$managed_path")")" == "$owner" ]] \
+            && [[ "$(_caddy::stat_group "$(_caddy::root_path "$managed_path")")" == "$group" ]] \
             || return 1
-    done
+    done < <(_caddy::managed_file_specs)
 }
 
 _caddy::routes_ready() {
-    local manifest desired actual route owner=root group=root
-    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
-        owner="$(id -un)"
-        group="$(id -gn)"
-    fi
+    local manifest desired actual route owner group
+    owner="$(_caddy::file_owner)"
+    group="$(_caddy::file_group)"
     manifest="$(_caddy::root_path /etc/caddy/primer-routes)"
     [[ ! -e "$manifest.reload-required" && ! -L "$manifest.reload-required" ]] || return 1
     [[ -f "$manifest" && ! -L "$manifest" ]] \
-        && [[ "$(stat -c %a "$manifest" 2>/dev/null)" == 644 ]] \
-        && [[ "$(stat -c %U "$manifest" 2>/dev/null)" == "$owner" ]] \
-        && [[ "$(stat -c %G "$manifest" 2>/dev/null)" == "$group" ]] \
+        && [[ "$(_caddy::stat_mode "$manifest")" == 644 ]] \
+        && [[ "$(_caddy::stat_owner "$manifest")" == "$owner" ]] \
+        && [[ "$(_caddy::stat_group "$manifest")" == "$group" ]] \
         || return 1
     desired="$(_caddy::desired_routes | sed '/^$/d' | sort -u)"
     actual="$(sed -n '/^[a-z0-9][a-z0-9-]*$/p' "$manifest" | sort -u)"
@@ -603,25 +802,24 @@ _caddy::routes_ready() {
         CADDY_ROUTE_MANIFEST="$manifest" \
         CADDY_EXPECTED_OWNER="$owner" \
         CADDY_EXPECTED_GROUP="$group" \
+        SYSTEMCTL_BIN="$(_caddy::systemctl_bin)" \
             "$(_caddy::route_helper)" status "$route" || return 1
     done <<< "$desired"
 }
 
 _caddy::tailnet_ready() {
-    local file owner=root group=root
-    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
-        owner="$(id -un)"
-        group="$(id -gn)"
-    fi
+    local file owner group
+    owner="$(_caddy::file_owner)"
+    group="$(_caddy::file_group)"
     CADDY_CONFIG_DIR="$(_caddy::root_path /etc/caddy)" \
     CADDY_RUNTIME_DIR="$(_caddy::root_path /run/caddy)" \
         "$(_caddy::root_path /usr/local/libexec/primer-caddy-tailnet)" status || return 1
     for file in \
         "$(_caddy::root_path /etc/caddy/tailnet.caddy)" \
         "$(_caddy::root_path /run/caddy/tailnet.env)"; do
-        [[ "$(stat -c %a "$file" 2>/dev/null)" == 644 ]] \
-            && [[ "$(stat -c %U "$file" 2>/dev/null)" == "$owner" ]] \
-            && [[ "$(stat -c %G "$file" 2>/dev/null)" == "$group" ]] \
+        [[ "$(_caddy::stat_mode "$file")" == 644 ]] \
+            && [[ "$(_caddy::stat_owner "$file")" == "$owner" ]] \
+            && [[ "$(_caddy::stat_group "$file")" == "$group" ]] \
             || return 1
     done
 }
@@ -631,16 +829,14 @@ _caddy::tailnet_fingerprint() {
     for file in \
         "$(_caddy::root_path /etc/caddy/tailnet.caddy)" \
         "$(_caddy::root_path /run/caddy/tailnet.env)"; do
-        [[ -f "$file" ]] && sha256sum "$file" || print -r -- "missing $file"
+        [[ -f "$file" ]] && _caddy::sha256 "$file" || print -r -- "missing $file"
     done
 }
 
 _caddy::refresh_tailnet() {
-    local before after runtime_owner=caddy runtime_group=caddy restart_was_pending=false
-    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
-        runtime_owner="$(id -un)"
-        runtime_group="$(id -gn)"
-    fi
+    local before after runtime_owner runtime_group restart_was_pending=false
+    runtime_owner="$(_caddy::caddy_user)"
+    runtime_group="$(_caddy::caddy_group)"
     _caddy::restart_pending gateway && restart_was_pending=true
     before="$(_caddy::tailnet_fingerprint)"
     _caddy::mark_restart gateway || return 1
@@ -787,6 +983,19 @@ _caddy::dns_ready() {
     unset token
 }
 
+_caddy::dns_lookup() {
+    local type="$1" lookup="$2"
+    if command -v getent >/dev/null 2>&1; then
+        if [[ "$type" == A ]]; then
+            getent ahostsv4 "$lookup" 2>/dev/null
+        else
+            getent ahostsv6 "$lookup" 2>/dev/null
+        fi
+        return $?
+    fi
+    dig +short "$type" "$lookup" 2>/dev/null
+}
+
 _caddy::dns_resolves() {
     local name lookup entry type address results resolved
     local -a addresses names
@@ -797,12 +1006,8 @@ _caddy::dns_resolves() {
         for entry in "${addresses[@]}"; do
             type="${entry%% *}"
             address="${entry#* }"
-            if [[ "$type" == A ]]; then
-                results="$(getent ahostsv4 "$lookup" 2>/dev/null)" || return 1
-            else
-                results="$(getent ahostsv6 "$lookup" 2>/dev/null)" || return 1
-            fi
-            resolved="$(print -r -- "$results" | awk 'NF {print $1}' | sort -u)"
+            results="$(_caddy::dns_lookup "$type" "$lookup")" || return 1
+            resolved="$(print -r -- "$results" | awk 'NF && $1 !~ /^;/ {print $1}' | sort -u)"
             [[ "$resolved" == "$address" ]] || return 1
         done
     done
@@ -816,8 +1021,9 @@ _caddy::reconcile_routes() {
     CADDY_APPS_DIR="$(_caddy::root_path /etc/caddy/apps.d)" \
     CADDY_ROUTE_MANIFEST="$(_caddy::root_path /etc/caddy/primer-routes)" \
     CADDY_ROUTE_LOCK="${CADDY_TEST_ROOT:+${CADDY_ROUTE_LOCK:-}}" \
-    CADDY_EXPECTED_OWNER="${CADDY_TEST_ROOT:+$(id -un)}" \
-    CADDY_EXPECTED_GROUP="${CADDY_TEST_ROOT:+$(id -gn)}" \
+    CADDY_EXPECTED_OWNER="$(_caddy::file_owner)" \
+    CADDY_EXPECTED_GROUP="$(_caddy::file_group)" \
+    SYSTEMCTL_BIN="$(_caddy::systemctl_bin)" \
         _caddy::root "$(_caddy::route_helper)" reconcile "${routes[@]}"
 }
 
@@ -900,6 +1106,7 @@ _caddy::restore_and_clear_migration_routes() {
 }
 
 _caddy::plans_service_managed() {
+    _caddy::is_darwin && return 1
     systemctl cat plans.service >/dev/null 2>&1 \
         && { systemctl is-active --quiet plans.service \
             || systemctl is-enabled --quiet plans.service; }
@@ -908,9 +1115,10 @@ _caddy::plans_service_managed() {
 _caddy::plans_service_matches() {
     local config expected actual unit expected_unit actual_unit fragment matched=false
     local exec_start exec_reload environment user group drop_in_paths command
+    _caddy::is_darwin && return 1
     config="$(_caddy::root_path /etc/caddy/plans.Caddyfile)"
     [[ -f "$config" ]] || return 1
-    actual="$(sha256sum "$config" 2>/dev/null | awk '{print $1}')" || return 1
+    actual="$(_caddy::sha256 "$config" 2>/dev/null | awk '{print $1}')" || return 1
     while IFS= read -r expected; do
         print -r -- "$expected" | grep -Eq '^[0-9a-f]{64}$' || return 1
         [[ "$actual" == "$expected" ]] && matched=true
@@ -919,7 +1127,7 @@ _caddy::plans_service_matches() {
     unit="$(_caddy::root_path /etc/systemd/system/plans.service)"
     expected_unit="$(mod_config migrate_plans_unit_digest | head -1)"
     print -r -- "$expected_unit" | grep -Eq '^[0-9a-f]{64}$' || return 1
-    actual_unit="$(sha256sum "$unit" 2>/dev/null | awk '{print $1}')" || return 1
+    actual_unit="$(_caddy::sha256 "$unit" 2>/dev/null | awk '{print $1}')" || return 1
     [[ "$actual_unit" == "$expected_unit" ]] || return 1
     fragment="$(systemctl show plans.service --property=FragmentPath --value 2>/dev/null)" || return 1
     exec_start="$(systemctl show plans.service --property=ExecStart --value 2>/dev/null)" || return 1
@@ -943,7 +1151,7 @@ _caddy::stage_plans_local_imports() {
     local legacy target import temp expected actual contents="" required=false
     legacy="$(_caddy::root_path /etc/caddy/plans.Caddyfile)"
     target="$(_caddy::root_path /etc/caddy/local.d/migrated-plans-imports.caddy)"
-    actual="$(sha256sum "$legacy" 2>/dev/null | awk '{print $1}')" || return 1
+    actual="$(_caddy::sha256 "$legacy" 2>/dev/null | awk '{print $1}')" || return 1
     # Additional fingerprints describe newer gateways whose configured imports
     # must survive migration. The original Plans-only fingerprint has none.
     while IFS= read -r expected; do
@@ -966,11 +1174,7 @@ _caddy::stage_plans_local_imports() {
         return 1
     fi
     _caddy::mark_restart gateway || { rm -f "$temp"; return 1; }
-    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
-        install -D -m 0644 "$temp" "$target"
-    else
-        _caddy::root install -D -o root -g root -m 0644 "$temp" "$target"
-    fi
+    _caddy::install_at 0644 "$temp" "$target"
     local rc=$?
     rm -f "$temp"
     return "$rc"
@@ -988,13 +1192,14 @@ _caddy::serve_migration_needed() {
     serve_target="$(mod_config migrate_tailscale_serve_target | head -1)"
     [[ -n "$serve_port" ]] || return 1
     serve_status="$(tailscale serve status --json 2>/dev/null)" || return 1
+    # Match one or more MagicDNS hostnames that all proxy "/" to the target.
     print -r -- "$serve_status" | jq -e --arg port "$serve_port" --arg target "$serve_target" \
         '.TCP[$port] != null and
-         ([.Web | to_entries[]? | select(.key | endswith(":" + $port))] | length == 1) and
+         ([.Web | to_entries[]? | select(.key | endswith(":" + $port))] | length) > 0 and
          ([.Web | to_entries[]? | select(.key | endswith(":" + $port)) |
-           .value.Handlers | keys] == [["/"]]) and
-         ([.Web | to_entries[]? | select(.key | endswith(":" + $port)) |
-           .value.Handlers["/"].Proxy] == [$target])' >/dev/null 2>&1
+           .value.Handlers | keys] | all(. == ["/"])) and
+         (([.Web | to_entries[]? | select(.key | endswith(":" + $port)) |
+           .value.Handlers["/"].Proxy] | unique) == [$target])' >/dev/null 2>&1
 }
 
 _caddy::serve_port_present() {
@@ -1008,21 +1213,23 @@ _caddy::serve_port_present() {
 
 _caddy::check_listener_migration() {
     local plans_present=false plans_selected=false plans_managed=false
-    systemctl cat plans.service >/dev/null 2>&1 && plans_present=true
-    _caddy::desired_routes | grep -Fxq plans-media && plans_selected=true
-    if $plans_present && { systemctl is-active --quiet plans.service \
-        || systemctl is-enabled --quiet plans.service; }; then
-        plans_managed=true
-    fi
-    if $plans_managed && ! $plans_selected; then
-        print "Legacy plans.service is active, but the plans-media addon is not selected." >&2
-        print "Select plans-media before Primer migrates the Plans listener." >&2
-        return 1
-    fi
-    if $plans_managed && $plans_selected && ! _caddy::plans_service_matches; then
-        print "Legacy plans.service does not match Primer's expected listener." >&2
-        print "Primer will not replace a customized service." >&2
-        return 1
+    if ! _caddy::is_darwin; then
+        systemctl cat plans.service >/dev/null 2>&1 && plans_present=true
+        _caddy::desired_routes | grep -Fxq plans-media && plans_selected=true
+        if $plans_present && { systemctl is-active --quiet plans.service \
+            || systemctl is-enabled --quiet plans.service; }; then
+            plans_managed=true
+        fi
+        if $plans_managed && ! $plans_selected; then
+            print "Legacy plans.service is active, but the plans-media addon is not selected." >&2
+            print "Select plans-media before Primer migrates the Plans listener." >&2
+            return 1
+        fi
+        if $plans_managed && $plans_selected && ! _caddy::plans_service_matches; then
+            print "Legacy plans.service does not match Primer's expected listener." >&2
+            print "Primer will not replace a customized service." >&2
+            return 1
+        fi
     fi
     if _caddy::serve_port_present && ! _caddy::serve_migration_needed; then
         print "Tailscale Serve port $(mod_config migrate_tailscale_serve_port | head -1) does not target $(mod_config migrate_tailscale_serve_target | head -1)." >&2
@@ -1038,8 +1245,9 @@ _caddy::stage_route() {
     CADDY_APPS_DIR="$(_caddy::root_path /etc/caddy/apps.d)" \
     CADDY_ROUTE_MANIFEST="$(_caddy::root_path /etc/caddy/primer-routes)" \
     CADDY_ROUTE_LOCK="${CADDY_TEST_ROOT:+${CADDY_ROUTE_LOCK:-}}" \
-    CADDY_EXPECTED_OWNER="${CADDY_TEST_ROOT:+$(id -un)}" \
-    CADDY_EXPECTED_GROUP="${CADDY_TEST_ROOT:+$(id -gn)}" \
+    CADDY_EXPECTED_OWNER="$(_caddy::file_owner)" \
+    CADDY_EXPECTED_GROUP="$(_caddy::file_group)" \
+    SYSTEMCTL_BIN="$(_caddy::systemctl_bin)" \
         _caddy::root "$(_caddy::route_helper)" stage "$name" "$source"
 }
 
@@ -1059,11 +1267,7 @@ _caddy::stage_plans_credentials() {
     chmod 0600 "$temp"
     print -r -- "$assignment" >"$temp"
     _caddy::mark_restart gateway || { rm -f "$temp"; return 1; }
-    if [[ -n "${CADDY_TEST_ROOT:-}" ]]; then
-        install -D -m 0600 "$temp" "$target"
-    else
-        _caddy::root install -D -o root -g root -m 0600 "$temp" "$target"
-    fi
+    _caddy::install_at 0600 "$temp" "$target"
     local rc=$?
     rm -f "$temp"
     return "$rc"
@@ -1071,16 +1275,16 @@ _caddy::stage_plans_credentials() {
 
 _caddy::managed_plans_credentials_ready() {
     local file="$1" validity="$1.valid" restart="$1.restart-required"
-    local owner=root assignment fingerprint
-    [[ -n "${CADDY_TEST_ROOT:-}" ]] && owner="$(id -un)"
+    local owner assignment fingerprint
+    owner="$(_caddy::file_owner)"
     assignment="$(_caddy::root sed -n '/^GATE_SECRET=/p' "$file" 2>/dev/null)" || return 1
     [[ -n "$assignment" && "$assignment" != *$'\n'* ]] || return 1
     case "${assignment#GATE_SECRET=}" in
         ''|'""'|"''") return 1 ;;
     esac
-    fingerprint="$(stat -c '%d:%i:%s:%Y' "$file" 2>/dev/null)" || return 1
-    [[ "$(stat -c %a "$file" 2>/dev/null)" == 600 ]] \
-        && [[ "$(stat -c %U "$file" 2>/dev/null)" == "$owner" ]] \
+    fingerprint="$(_caddy::stat_fingerprint "$file")" || return 1
+    [[ "$(_caddy::stat_mode "$file")" == 600 ]] \
+        && [[ "$(_caddy::stat_owner "$file")" == "$owner" ]] \
         && [[ -s "$validity" && "$(<"$validity")" == "$fingerprint" ]] \
         && [[ ! -e "$restart" ]]
 }
@@ -1169,15 +1373,15 @@ _caddy::restore_listeners() {
 
 _caddy::activate_gateway() {
     local gateway_needs_restart="$1"
-    _caddy::root systemctl enable caddy.service || return 1
-    if _caddy::root systemctl is-active --quiet caddy.service; then
+    _caddy::ctl enable caddy.service || return 1
+    if _caddy::ctl is-active --quiet caddy.service; then
         if [[ "$gateway_needs_restart" == true ]]; then
-            _caddy::root systemctl restart caddy.service
+            _caddy::ctl restart caddy.service
         else
-            _caddy::root systemctl reload caddy.service
+            _caddy::ctl reload caddy.service
         fi
     else
-        _caddy::root systemctl start caddy.service
+        _caddy::ctl start caddy.service
     fi
 }
 
@@ -1185,8 +1389,8 @@ _caddy::activate_gateway_with_rollback() {
     local gateway_needs_restart="$1"
     _CADDY_GATEWAY_WAS_ACTIVE=false
     _CADDY_GATEWAY_WAS_ENABLED=false
-    systemctl is-active --quiet caddy.service && _CADDY_GATEWAY_WAS_ACTIVE=true
-    systemctl is-enabled --quiet caddy.service && _CADDY_GATEWAY_WAS_ENABLED=true
+    _caddy::ctl is-active --quiet caddy.service && _CADDY_GATEWAY_WAS_ACTIVE=true
+    _caddy::ctl is-enabled --quiet caddy.service && _CADDY_GATEWAY_WAS_ENABLED=true
     if ! _caddy::migrate_listeners; then
         _caddy::restore_and_clear_migration_routes
         return 1
@@ -1207,19 +1411,19 @@ _caddy::rollback_migration() {
         return 1
     fi
     if $_CADDY_GATEWAY_WAS_ACTIVE; then
-        _caddy::root systemctl start --wait caddy-validate.service || rc=1
-        if _caddy::root systemctl is-active --quiet caddy.service; then
-            _caddy::root systemctl reload caddy.service || rc=1
+        _caddy::ctl start --wait caddy-validate.service || rc=1
+        if _caddy::ctl is-active --quiet caddy.service; then
+            _caddy::ctl reload caddy.service || rc=1
         else
-            _caddy::root systemctl start caddy.service || rc=1
+            _caddy::ctl start caddy.service || rc=1
         fi
     else
-        _caddy::root systemctl stop caddy.service || rc=1
+        _caddy::ctl stop caddy.service || rc=1
     fi
     if $_CADDY_GATEWAY_WAS_ENABLED; then
-        _caddy::root systemctl enable caddy.service || rc=1
+        _caddy::ctl enable caddy.service || rc=1
     else
-        _caddy::root systemctl disable caddy.service || rc=1
+        _caddy::ctl disable caddy.service || rc=1
     fi
     _caddy::restore_listeners || rc=1
     _caddy::clear_migration_snapshot
@@ -1234,9 +1438,21 @@ _caddy::reconcile_routes_with_rollback() {
 }
 
 _caddy::verify_gateway_with_rollback() {
-    _caddy::root systemctl is-active --quiet caddy.service && return 0
+    _caddy::ctl is-active --quiet caddy.service && return 0
     _caddy::rollback_migration
     return 1
+}
+
+_caddy::unit_changed() {
+    if _caddy::is_darwin; then
+        ! cmp -s "$MOD_DIR/files/Library/LaunchDaemons/com.tomagranate.primer-caddy.plist" \
+            "$(_caddy::root_path /Library/LaunchDaemons/com.tomagranate.primer-caddy.plist)" \
+            || ! cmp -s "$MOD_DIR/files/usr/local/libexec/primer-caddy-run" \
+                "$(_caddy::root_path /usr/local/libexec/primer-caddy-run)"
+    else
+        ! cmp -s "$MOD_DIR/files/etc/systemd/system/caddy.service" \
+            "$(_caddy::root_path /etc/systemd/system/caddy.service)"
+    fi
 }
 
 mod_update() {
@@ -1250,7 +1466,11 @@ mod_update() {
             && print "[dry-run] reconcile DNS-only A and AAAA records: $(_caddy::desired_dns_names | tr '\n' ' ')"
         print "[dry-run] reconcile Primer routes: $(_caddy::desired_routes | tr '\n' ' ')"
         print "[dry-run] validate caddy-validate.service before reload"
-        print "[dry-run] sudo systemctl enable --now caddy.service"
+        if _caddy::is_darwin; then
+            print "[dry-run] sudo launchctl bootstrap system /Library/LaunchDaemons/com.tomagranate.primer-caddy.plist"
+        else
+            print "[dry-run] sudo systemctl enable --now caddy.service"
+        fi
         primer::item_update "binary" done
         primer::item_update "configuration" done
         primer::item_update "credentials" done
@@ -1262,8 +1482,7 @@ mod_update() {
     fi
 
     if ! _caddy::custom_binary_ready \
-        || ! cmp -s "$MOD_DIR/files/etc/systemd/system/caddy.service" \
-            "$(_caddy::root_path /etc/systemd/system/caddy.service)" \
+        || _caddy::unit_changed \
         || ! cmp -s "$MOD_DIR/files/etc/caddy/Caddyfile" \
             "$(_caddy::root_path /etc/caddy/Caddyfile)"; then
         _caddy::mark_restart gateway || return 1
@@ -1271,8 +1490,9 @@ mod_update() {
     _caddy::install_binary || { primer::item_update binary failed "build failed"; return 1; }
     primer::item_update binary done
     _caddy::ensure_user || return 1
-    if ! cmp -s "$MOD_DIR/files/etc/systemd/system/tailscaled.service.d/primer-caddy.conf" \
-        "$(_caddy::root_path /etc/systemd/system/tailscaled.service.d/primer-caddy.conf)"; then
+    if ! _caddy::is_darwin \
+        && ! cmp -s "$MOD_DIR/files/etc/systemd/system/tailscaled.service.d/primer-caddy.conf" \
+            "$(_caddy::root_path /etc/systemd/system/tailscaled.service.d/primer-caddy.conf)"; then
         _caddy::mark_restart tailscale || return 1
     fi
     _caddy::deploy || { primer::item_update configuration failed "deploy failed"; return 1; }
@@ -1283,10 +1503,12 @@ mod_update() {
     _caddy::reconcile_dns \
         || { primer::item_update dns failed "Cloudflare update failed"; return 1; }
     primer::item_update dns done
-    _caddy::root systemctl daemon-reload || return 1
-    if _caddy::restart_pending tailscale; then
-        _caddy::root systemctl restart tailscaled.service || return 1
-        _caddy::clear_restart tailscale || return 1
+    if ! _caddy::is_darwin; then
+        _caddy::ctl daemon-reload || return 1
+        if _caddy::restart_pending tailscale; then
+            _caddy::ctl restart tailscaled.service || return 1
+            _caddy::clear_restart tailscale || return 1
+        fi
     fi
     _caddy::refresh_tailnet || return 1
     _caddy::snapshot_migration_routes || return 1
@@ -1294,7 +1516,7 @@ mod_update() {
         _caddy::restore_and_clear_migration_routes
         return 1
     }
-    _caddy::root systemctl start --wait caddy-validate.service || {
+    _caddy::ctl start --wait caddy-validate.service || {
         _caddy::restore_and_clear_migration_routes
         return 1
     }
@@ -1326,8 +1548,8 @@ mod_status() {
         && _caddy::tailnet_ready \
         && ! _caddy::restart_pending gateway \
         && ! _caddy::restart_pending tailscale \
-        && systemctl is-enabled --quiet caddy.service \
-        && systemctl is-active --quiet caddy.service || {
+        && _caddy::ctl is-enabled --quiet caddy.service \
+        && _caddy::ctl is-active --quiet caddy.service || {
             primer::status_msg "gateway not ready"
             return 1
         }

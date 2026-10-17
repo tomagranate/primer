@@ -15,7 +15,11 @@ mode="${1:-install}"
 status="$($tailscale_bin status --json)"
 hostname="$(jq -r '.Self.DNSName // empty' <<<"$status")"
 hostname="${hostname%.}"
-mapfile -t addresses < <(jq -r '.Self.TailscaleIPs[]? // empty' <<<"$status")
+addresses=()
+while IFS= read -r address; do
+    [[ -n "$address" ]] || continue
+    addresses+=("$address")
+done < <(jq -r '.Self.TailscaleIPs[]? // empty' <<<"$status")
 
 if [[ -z "$hostname" || ${#addresses[@]} -eq 0 ]]; then
     echo "Tailscale has no hostname or addresses" >&2
@@ -33,8 +37,9 @@ for address in "${addresses[@]}"; do
 done
 
 if [[ "$mode" == install ]]; then
-    install -d -m 0755 "$config_dir"
-    install -d -o "$runtime_owner" -g "$runtime_group" -m 0755 "$runtime_dir"
+    mkdir -p "$config_dir" "$runtime_dir"
+    chmod 0755 "$config_dir" "$runtime_dir"
+    chown "$runtime_owner:$runtime_group" "$runtime_dir"
     snippet="$(mktemp "$config_dir/.tailnet.caddy.XXXXXX")"
     env_file="$(mktemp "$runtime_dir/.tailnet.env.XXXXXX")"
 else
