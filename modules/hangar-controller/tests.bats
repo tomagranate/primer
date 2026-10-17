@@ -100,6 +100,9 @@ run_module() {
     # E2E VMs get 8 GB; 6 GB ran out of memory.
     grep -Fx 'ci-e2e = "e2e"' "$cfg"
     grep -A2 -Fx '[sizes.e2e]' "$cfg" | grep -Fx 'memory_mb = 8192'
+    # Light jobs get 4 GB with 4 vCPU.
+    grep -Fx 'ci-light = "light"' "$cfg"
+    grep -A2 -Fx '[sizes.light]' "$cfg" | grep -Fx 'memory_mb = 4096'
     [ -f "$ROOT/etc/systemd/system/hangar-controller.service" ]
     grep -Fx "systemctl restart hangar-controller.service" "$MOCK_LOG"
 

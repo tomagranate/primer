@@ -15,6 +15,12 @@ memory_mb = 6144
 vcpu = 4
 memory_mb = 8192
 
+# Nerve's light jobs (builds, Docker, smoke checks) peak under 2.5 GB, so
+# they fit in 4 GB. They keep 4 vCPU so typecheck and builds stay fast.
+[sizes.light]
+vcpu = 4
+memory_mb = 4096
+
 [sizes.large]
 vcpu = 8
 memory_mb = 16384
@@ -26,4 +32,5 @@ ci-container = "medium"
 # dispatcher gave them 4 vCPU and 6 GB.
 ci-deploy = "medium"
 ci-e2e = "e2e"
+ci-light = "light"
 ci-large = "large"
