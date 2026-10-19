@@ -347,12 +347,14 @@ launchers +=
     applications:steam.desktop
 ```
 
-Primer ships four addons:
+Primer ships six addons:
 
 - `gaming` adds the Fedora gaming module and Steam taskbar pin.
 - `plans-media` hosts Agents Plans, Media, and development previews on Fedora KDE.
 - `basil` adds Basil services and routes on Fedora KDE.
 - `command-center` builds the private fleet home page and installs its service and route on Fedora KDE.
+- `hangar-cell` runs CI job VMs on Fedora KDE.
+- `hangar-controller` schedules CI jobs across Hangar cells.
 
 The Command Center addon clones or fast-forwards `~/code/command-center` on `master`.
 It refuses dirty source and an unexpected remote. It builds before restarting the service.
