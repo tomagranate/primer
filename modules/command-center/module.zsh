@@ -83,6 +83,10 @@ mod_update() {
     _command_center::root 'enable Command Center at boot' loginctl enable-linger "${USER:-$LOGNAME}" || return 1
     systemctl --user enable command-center.service || return 1
     systemctl --user restart command-center.service || return 1
+    systemctl --user is-active --quiet command-center.service || {
+        print 'Command Center service is not active.' >&2
+        return 1
+    }
     _command_center::root 'install Command Center route' \
         "$(_command_center::route_helper)" install command-center "$repo/deploy/command-center.caddy" || return 1
     primer::status_msg 'Command Center ready'
