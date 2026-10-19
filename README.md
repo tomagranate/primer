@@ -347,11 +347,16 @@ launchers +=
     applications:steam.desktop
 ```
 
-Primer ships three addons:
+Primer ships four addons:
 
 - `gaming` adds the Fedora gaming module and Steam taskbar pin.
 - `plans-media` hosts Agents Plans, Media, and development previews on Fedora KDE.
 - `basil` adds Basil services and routes on Fedora KDE.
+- `command-center` builds the private fleet home page and installs its service and route on Fedora KDE.
+
+The Command Center addon clones or fast-forwards `~/code/command-center` on `master`.
+It refuses dirty source and an unexpected remote. It builds before restarting the service.
+It also adds the repo to the fleet-review runner list.
 
 The Caddy module replaces any Cloudflare token in
 `/etc/agents-infra/plans.env`. Primer uses the Cloudflare Token Minter in the
