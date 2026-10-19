@@ -62,13 +62,20 @@ make_repo() {
     [ ! -e "$MOCK_LOG" ]
 }
 
-@test "command-center: refuses a dirty checkout before build or restart" {
+@test "command-center: refuses dirty or unreadable source before build or restart" {
     make_repo
     touch "$TEST_HOME/code/command-center/local-work"
     run_module mod_update
     assert_failure
     assert_output --partial 'checkout is dirty'
     [ -f "$TEST_HOME/code/command-center/local-work" ]
+    [ ! -e "$MOCK_LOG" ]
+
+    # A real unreadable index must also stop the update before build or restart.
+    printf 'broken index' > "$TEST_HOME/code/command-center/.git/index"
+    run_module mod_update
+    assert_failure
+    assert_output --partial 'Cannot read Command Center checkout status.'
     [ ! -e "$MOCK_LOG" ]
 }
 

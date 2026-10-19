@@ -19,7 +19,7 @@ _command_center::root() {
 
 # Keep local work and unexpected repositories intact.
 _command_center::update_source() {
-    local repo="$(_command_center::repo)" remote branch
+    local repo="$(_command_center::repo)" remote branch dirty
     if [[ ! -e "$repo" ]]; then
         mkdir -p "${repo:h}" || return 1
         git clone --branch master --single-branch git@github.com:tomagranate/command-center.git "$repo" || return 1
@@ -30,7 +30,11 @@ _command_center::update_source() {
         git@github.com:tomagranate/command-center.git|https://github.com/tomagranate/command-center.git) ;;
         *) print 'Command Center has an unexpected remote.' >&2; return 1 ;;
     esac
-    [[ -z "$(git -C "$repo" status --porcelain)" ]] || { print 'Command Center checkout is dirty.' >&2; return 1; }
+    dirty="$(git -C "$repo" status --porcelain)" || {
+        print 'Cannot read Command Center checkout status.' >&2
+        return 1
+    }
+    [[ -z "$dirty" ]] || { print 'Command Center checkout is dirty.' >&2; return 1; }
     branch="$(git -C "$repo" branch --show-current)" || return 1
     [[ "$branch" == master ]] || { print 'Command Center checkout must use master.' >&2; return 1; }
     git -C "$repo" fetch origin master || return 1
