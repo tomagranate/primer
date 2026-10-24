@@ -86,6 +86,8 @@ run_module() {
     refute_output --partial "private"
     grep -F 'import tailnet-bind' "$TEST_ROOT/plans-media.caddy"
     grep -F 'header_up Authorization "Bearer {env.GATE_SECRET}"' "$TEST_ROOT/plans-media.caddy"
+    grep -F 'https://plans.tomagranate.com:443, https://*.plans.tomagranate.com:443' "$TEST_ROOT/plans-media.caddy"
+    grep -F 'header_up X-Forwarded-Host {host}' "$TEST_ROOT/plans-media.caddy"
     grep -F 'https://preview.tomagranate.com:443, https://*.preview.tomagranate.com:443' "$TEST_ROOT/agents-preview.caddy"
     grep -F 'keepalive off' "$TEST_ROOT/agents-preview.caddy"
     grep -Fx 'agents preview install' "$MOCK_LOG"

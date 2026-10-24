@@ -237,7 +237,7 @@ github_command = gh auth login
     expect(plans.find((node) => node.id === "caddy")?.config["caddy.cloudflare_token_required"])
       .toBe("true");
     expect(plans.find((node) => node.id === "caddy")?.config["caddy.dns_names"])
-      .toBe("\nt3.{machine}.tomagranate.com\nplans.tomagranate.com\npreview.tomagranate.com\n*.preview.tomagranate.com");
+      .toBe("\nt3.{machine}.tomagranate.com\nplans.tomagranate.com\n*.plans.tomagranate.com\npreview.tomagranate.com\n*.preview.tomagranate.com");
     expect(plans.find((node) => node.id === "caddy")?.config["caddy.migrate_plans_route"])
       .toBe("plans-media");
     expect(basil.find((node) => node.id === "basil")?.deps)
