@@ -28,8 +28,10 @@ EOF
         [ "$#" -eq 3 ] || exit 2
         valid_host "$2"
         valid_host "$3"
+        # Each plans prototype is served at <plan id>.$2. The Worker reads
+        # the public host from X-Forwarded-Host, because Host names $3.
         cat <<EOF
-https://$2:443 {
+https://$2:443, https://*.$2:443 {
     import tailnet-bind
     tls {
         dns cloudflare {env.CLOUDFLARE_API_TOKEN}
@@ -37,6 +39,7 @@ https://$2:443 {
     reverse_proxy https://$3 {
         header_up Host $3
         header_up Authorization "Bearer {env.GATE_SECRET}"
+        header_up X-Forwarded-Host {host}
     }
 }
 EOF
