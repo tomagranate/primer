@@ -20,6 +20,7 @@ _hcell::bin_dir() { print -r -- "${HANGAR_BIN_DIR:-/usr/local/bin}" }
 _hcell::images() { print -r -- "${HANGAR_IMAGES_DIR:-/var/lib/libvirt/images/hangar}" }
 _hcell::stack_data() { print -r -- "${HANGAR_STACK_DATA:-/var/lib/hangar/stack}" }
 _hcell::tmpfiles_dir() { print -r -- "${HANGAR_TMPFILES_DIR:-/etc/tmpfiles.d}" }
+_hcell::sysctl_dir() { print -r -- "${HANGAR_SYSCTL_DIR:-/etc/sysctl.d}" }
 _hcell::in_test() { [[ -n "${HANGAR_SYSTEMD_DIR:-}" ]] }
 
 _hcell::version() { _hcell::config hangar_version }
@@ -179,6 +180,20 @@ _hcell::ensure_ksm() {
     _hcell::root systemd-tmpfiles --create "$file"
 }
 
+# The cache stack binds 192.168.124.1, which exists only once libvirt starts
+# the ci-isolated bridge. On boot, Docker restarts the stack's containers
+# before that, so systemd ordering cannot help. Without this, a cache that
+# loses the race fails to bind, and some (apt-cacher-ng, the Actions cache)
+# keep running without listening. Non-local bind lets every service listen
+# at once; traffic flows when the bridge comes up.
+_hcell::ensure_nonlocal_bind() {
+    local file="$(_hcell::sysctl_dir)/90-hangar.conf" line='net.ipv4.ip_nonlocal_bind = 1'
+    # Check the live value too, so a failed apply is retried on the next run.
+    [[ -f "$file" && "$(<"$file")" == "$line" && "$(sysctl -n net.ipv4.ip_nonlocal_bind 2>/dev/null)" == 1 ]] && return 0
+    print -r -- "$line" | _hcell::root install -D -m 0644 /dev/stdin "$file" || return 1
+    _hcell::root sysctl -q -p "$file"
+}
+
 # Members of group hangar may drain this cell through its local socket.
 _hcell::ensure_group() {
     local user="${USER:-$LOGNAME}"
@@ -319,6 +334,7 @@ mod_update() {
     _hcell::ensure_firewall || { primer::status_msg "firewall setup failed"; return 1; }
     _hcell::ensure_libvirt || { primer::status_msg "libvirt setup failed"; return 1; }
     _hcell::ensure_ksm || { primer::status_msg "KSM setup failed"; return 1; }
+    _hcell::ensure_nonlocal_bind || { primer::status_msg "sysctl setup failed"; return 1; }
     _hcell::ensure_selinux_quiet || { primer::status_msg "SELinux module failed"; return 1; }
     _hcell::ensure_group || { primer::status_msg "group setup failed"; return 1; }
     _hcell::ensure_secret || { primer::status_msg "cell token unavailable"; return 1; }
