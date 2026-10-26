@@ -140,6 +140,10 @@ echo "semodule $*" >> "$MOCK_LOG"
 [ "$1" = -i ] && touch "$TEST_HOME/.semodule"
 exit 0
 EOF
+    cat > "$MOCK_DIR/sysctl" <<'EOF'
+#!/bin/sh
+echo "sysctl $*" >> "$MOCK_LOG"
+EOF
     cat > "$MOCK_DIR/systemd-tmpfiles" <<'EOF'
 #!/bin/sh
 echo "systemd-tmpfiles $*" >> "$MOCK_LOG"
@@ -173,6 +177,7 @@ run_module() {
         export HANGAR_IMAGES_DIR='${ROOT}/var/lib/libvirt/images/hangar'
         export HANGAR_STACK_DATA='${ROOT}/var/lib/hangar/stack'
         export HANGAR_TMPFILES_DIR='${ROOT}/etc/tmpfiles.d'
+        export HANGAR_SYSCTL_DIR='${ROOT}/etc/sysctl.d'
         export HANGAR_SYS_NET='${ROOT}/sys/class/net'
         export HANGAR_DEV_KVM='${KVM:-/dev/null}'
         source \"\$PRIMER_DIR/lib/module.zsh\"
@@ -196,6 +201,9 @@ run_module() {
     [ -f "$ROOT/etc/systemd/system/hangar-cell.service" ]
     [ -f "$ROOT/etc/systemd/system/hangar-image.timer" ]
     grep -Fx "w /sys/kernel/mm/ksm/run - - - - 1" "$ROOT/etc/tmpfiles.d/hangar-ksm.conf"
+    # The caches can bind the bridge address before the bridge has it.
+    grep -Fx "net.ipv4.ip_nonlocal_bind = 1" "$ROOT/etc/sysctl.d/90-hangar.conf"
+    grep -Fx "sysctl -q -p $ROOT/etc/sysctl.d/90-hangar.conf" "$MOCK_LOG"
     [ "$(cat "$ROOT/var/lib/libvirt/images/hangar/base/ubuntu-24.04-server-cloudimg-amd64.img")" = "cloud image" ]
 
     # The token from 1Password, readable by root only.
@@ -273,7 +281,7 @@ run_module() {
     [ ! -e "$ROOT/usr/local/bin/hangar" ]
     [ ! -e "$ROOT/etc/hangar" ]
     [ ! -e "$TEST_HOME/.config/gamemode.ini" ]
-    if grep -E "^(gh|curl|op|groupadd|usermod) |net-define|--permanent --zone|systemctl (enable|start|restart)" "$MOCK_LOG"; then
+    if grep -E "^(gh|curl|op|groupadd|usermod|sysctl) |net-define|--permanent --zone|systemctl (enable|start|restart)" "$MOCK_LOG"; then
         echo "dry-run must not change the machine" >&2
         return 1
     fi
@@ -287,7 +295,7 @@ run_module() {
 
     run_module "mod_update"
     assert_success
-    if grep -E "^(gh|curl|op) |net-define|restart hangar-cell|semodule -i" "$MOCK_LOG"; then
+    if grep -E "^(gh|curl|op|sysctl) |net-define|restart hangar-cell|semodule -i" "$MOCK_LOG"; then
         echo "nothing should download, define, or restart again" >&2
         return 1
     fi
