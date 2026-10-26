@@ -188,7 +188,8 @@ _hcell::ensure_ksm() {
 # at once; traffic flows when the bridge comes up.
 _hcell::ensure_nonlocal_bind() {
     local file="$(_hcell::sysctl_dir)/90-hangar.conf" line='net.ipv4.ip_nonlocal_bind = 1'
-    [[ -f "$file" && "$(<"$file")" == "$line" ]] && return 0
+    # Check the live value too, so a failed apply is retried on the next run.
+    [[ -f "$file" && "$(<"$file")" == "$line" && "$(sysctl -n net.ipv4.ip_nonlocal_bind 2>/dev/null)" == 1 ]] && return 0
     print -r -- "$line" | _hcell::root install -D -m 0644 /dev/stdin "$file" || return 1
     _hcell::root sysctl -q -p "$file"
 }

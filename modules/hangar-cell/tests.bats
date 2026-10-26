@@ -142,7 +142,14 @@ exit 0
 EOF
     cat > "$MOCK_DIR/sysctl" <<'EOF'
 #!/bin/sh
+# "sysctl -n" reads the live value; "sysctl -p" applies the file.
+if [ "$1" = -n ]; then
+  [ -f "$TEST_HOME/.nonlocal" ] && echo 1 || echo 0
+  exit 0
+fi
 echo "sysctl $*" >> "$MOCK_LOG"
+[ -n "$SYSCTL_FAIL" ] && exit 1
+touch "$TEST_HOME/.nonlocal"
 EOF
     cat > "$MOCK_DIR/systemd-tmpfiles" <<'EOF'
 #!/bin/sh
@@ -166,7 +173,7 @@ run_module() {
         export USER=tom
         export XDG_CONFIG_HOME='${TEST_HOME}/.config'
         export PATH='${MOCK_DIR}:/usr/bin:/bin'
-        export MOCK_LOG='${MOCK_LOG}' TEST_HOME='${TEST_HOME}' FW_FAIL='${FW_FAIL:-}'
+        export MOCK_LOG='${MOCK_LOG}' TEST_HOME='${TEST_HOME}' FW_FAIL='${FW_FAIL:-}' SYSCTL_FAIL='${SYSCTL_FAIL:-}'
         ${OP_UNSET:+unset OP_SERVICE_ACCOUNT_TOKEN}
         ${OP_UNSET:-export OP_SERVICE_ACCOUNT_TOKEN=ticket}
         export PRIMER_OP_TICKET='${TEST_HOME}/op-ticket'
@@ -305,6 +312,16 @@ run_module() {
     run_module 'mod_status; rc=$?; cat "$MOD_STATUS_FILE"; exit $rc'
     assert_failure
     assert_output --partial "gamemode.ini has no hangar hooks"
+}
+
+@test "hangar-cell: a failed sysctl apply is retried on the next run" {
+    SYSCTL_FAIL=1 run_module "mod_update"
+    assert_failure
+    : > "$MOCK_LOG"
+
+    run_module "mod_update"
+    assert_success
+    grep -Fx "sysctl -q -p $ROOT/etc/sysctl.d/90-hangar.conf" "$MOCK_LOG"
 }
 
 @test "hangar-cell: Wi-Fi machines do not offer Wake-on-LAN" {
