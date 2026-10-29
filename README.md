@@ -390,8 +390,9 @@ file. Cloudflare Tunnel remains only for the public ntfy ingress.
 
 ### Shared Caddy route contract
 
-Every Linux profile has one Caddy service. It owns port 443, certificates,
-validation, and reloads. Primer applications own one raw fragment named
+Every Linux and macOS profile has one Caddy service. Linux uses systemd. macOS
+uses a LaunchDaemon. The service owns port 443, certificates, validation, and
+reloads. Primer applications own one raw fragment named
 `/etc/caddy/apps.d/<app>.caddy`. Local applications use
 `/etc/caddy/local.d/<app>.caddy`.
 
@@ -410,9 +411,10 @@ Tailscale-host routes import `tailnet`. Custom private routes import
 snippets from the current Tailscale IPv4 and IPv6 addresses. Caddy does not
 bind those routes to non-Tailscale interfaces.
 
-T3 uses Cloudflare DNS-01 for `t3.<machine>.tomagranate.com`. Primer creates or
-updates its DNS-only A and AAAA records. It points them to the machine's current
-Tailscale addresses. The Plans addon does the same for
+T3 uses Cloudflare DNS-01 for `t3.<machine>.tomagranate.com`. Profiles may also
+publish a wildcard `*.<machine>.tomagranate.com` for other private apps. Primer
+creates or updates DNS-only A and AAAA records. It points them to the machine's
+current Tailscale addresses. The Plans addon does the same for
 `plans.tomagranate.com`, `preview.tomagranate.com`, and
 `*.preview.tomagranate.com`.
 Primer refuses to overwrite duplicate records. It never enables the Cloudflare

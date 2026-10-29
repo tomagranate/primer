@@ -1,0 +1,30 @@
+#!/bin/bash
+# Load Primer Caddy env files, refresh Tailscale binds, then run Caddy.
+set -euo pipefail
+
+config_dir="${CADDY_CONFIG_DIR:-/etc/caddy}"
+env_dir="${CADDY_ENV_DIR:-$config_dir/env.d}"
+caddy_bin="${CADDY_BIN:-/usr/local/bin/caddy}"
+tailnet_helper="${CADDY_TAILNET_HELPER:-/usr/local/libexec/primer-caddy-tailnet}"
+runtime_owner="${CADDY_RUNTIME_OWNER:-root}"
+runtime_group="${CADDY_RUNTIME_GROUP:-wheel}"
+
+mkdir -p /run/caddy /var/lib/caddy /var/log
+chmod 0755 /run/caddy
+
+if [[ -d "$env_dir" ]]; then
+    shopt -s nullglob
+    for env_file in "$env_dir"/*.env; do
+        [[ -f "$env_file" ]] || continue
+        set -a
+        # shellcheck disable=SC1090
+        source "$env_file"
+        set +a
+    done
+    shopt -u nullglob
+fi
+
+CADDY_RUNTIME_OWNER="$runtime_owner" CADDY_RUNTIME_GROUP="$runtime_group" \
+    "$tailnet_helper"
+
+exec "$caddy_bin" run --config "$config_dir/Caddyfile"
