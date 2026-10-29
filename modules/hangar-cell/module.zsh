@@ -110,7 +110,8 @@ _hcell::ensure_libvirt() {
 }
 
 # Guests reach the internet on 443 (and 5432 for hosted Postgres), DHCP and
-# DNS on the host, and the cache ports. Nothing on the home network.
+# DNS on the host, and the cache ports (443 is the download cache). Nothing
+# on the home network.
 # Adding a rule that exists already succeeds, so every call must succeed.
 _hcell::ensure_firewall() {
     local uplink zone cidr
@@ -128,7 +129,7 @@ _hcell::ensure_firewall() {
     _hcell::root "${fw[@]}" --zone=ci-guests --change-interface=virbr-ci || return 1
     _hcell::root "${fw[@]}" --zone=ci-guests --add-service=dhcp --add-service=dns || return 1
     _hcell::root "${fw[@]}" --zone=ci-guests \
-        --add-port=3000/tcp --add-port=5000/tcp --add-port=5001/tcp --add-port=3142/tcp --add-port=4873/tcp || return 1
+        --add-port=3000/tcp --add-port=5000/tcp --add-port=5001/tcp --add-port=3142/tcp --add-port=4873/tcp --add-port=443/tcp || return 1
 
     _hcell::root firewall-cmd --permanent --get-policies | tr ' ' '\n' | grep -Fxq ci-guests-egress \
         || _hcell::root "${fw[@]}" --new-policy=ci-guests-egress || return 1
@@ -266,7 +267,7 @@ _hcell::install_units() {
 
 _hcell::ensure_stack() {
     local data="$(_hcell::stack_data)" dir
-    for dir in cache registry buildcache apt npm; do
+    for dir in cache registry buildcache apt npm downloads; do
         _hcell::root install -d -m 0755 "$data/$dir" || return 1
     done
     # Verdaccio runs as uid 10001 in its image.
