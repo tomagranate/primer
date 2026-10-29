@@ -10,18 +10,18 @@ function moduleNode(id: string, deps: string[] = []): NodeDef {
   return { id, kind: "module", label: id, deps, needsSudo: false, config: {} };
 }
 
-function login(id: string, status: string, deps: string[] = []): NodeDef {
-  return { id: `interactive:${id}`, kind: "interactive", label: id, deps, needsSudo: false, config: { status } };
+function login(id: string, status: string, deps: string[] = [], requires = ""): NodeDef {
+  return { id: `interactive:${id}`, kind: "interactive", label: id, deps, needsSudo: false, config: { status, requires } };
 }
 
-/** A primer folder whose modules each touch "<id>.ran" in the folder. */
-async function primerDir(ids: string[]): Promise<string> {
+/** A primer folder whose modules each touch "<id>.ran" in the folder, after `delay` seconds. */
+async function primerDir(ids: string[], delay = 0): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "primer-deps-"));
   await mkdir(join(root, "lib"));
   await writeFile(join(root, "lib", "module.zsh"), "ensure_mise() { :; }\n");
   for (const id of ids) {
     await mkdir(join(root, "modules", id), { recursive: true });
-    await writeFile(join(root, "modules", id, "module.zsh"), `mod_update() { touch ${JSON.stringify(join(root, `${id}.ran`))}; }\n`);
+    await writeFile(join(root, "modules", id, "module.zsh"), `mod_update() { sleep ${delay}; touch ${JSON.stringify(join(root, `${id}.ran`))}; }\n`);
   }
   return root;
 }
@@ -76,6 +76,57 @@ describe("dependencies", () => {
       expect(engine.node("interactive:ticket")).toMatchObject({ state: "skipped", detail: "dependency failed" });
       expect(engine.node("cell")?.state).toBe("done");
       expect(existsSync(join(root, "cell.ran"))).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a login with a missing required command is not done, even when its status passes", async () => {
+    const root = await primerDir(["cell"]);
+    try {
+      const engine = await runHeadless([
+        login("vault", "false"),
+        login("mcp", "true", ["interactive:vault"], "primer-test-no-such-command"),
+        moduleNode("cell", ["interactive:mcp"]),
+      ], root);
+      expect(engine.node("interactive:mcp")).toMatchObject({ state: "skipped", detail: "dependency failed" });
+      expect(engine.node("cell")?.state).toBe("skipped");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a login checks its status only after its other dependencies finish", async () => {
+    const root = await primerDir(["maker", "cell"], 0.3);
+    try {
+      const engine = await runHeadless([
+        login("vault", "false"),
+        moduleNode("maker"),
+        login("made", `test -f ${JSON.stringify(join(root, "maker.ran"))}`, ["interactive:vault", "maker"]),
+        moduleNode("cell", ["interactive:made"]),
+      ], root);
+      expect(engine.node("interactive:made")?.state).toBe("done");
+      expect(engine.node("cell")?.state).toBe("done");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("a dry run does not run the status check of a blocked login", async () => {
+    const root = await primerDir([]);
+    const ran = join(root, "status.ran");
+    try {
+      await mkdir(join(root, "modules", "broken"), { recursive: true });
+      await writeFile(join(root, "modules", "broken", "module.zsh"), "mod_update() { return 1; }\n");
+      const engine = new Engine([moduleNode("broken"), login("after", `touch ${JSON.stringify(ran)}`, ["broken"])], {
+        primerDir: root, dryRun: true, skip: [], only: [], runLogRoot: join(root, "logs"),
+      });
+      await engine.start();
+      await engine.waitUntilFinished();
+      engine.cleanup();
+      expect(engine.node("broken")?.state).toBe("failed");
+      expect(engine.node("interactive:after")).toMatchObject({ state: "skipped", detail: "dependency failed" });
+      expect(existsSync(ran)).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

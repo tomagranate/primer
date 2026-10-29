@@ -86,6 +86,11 @@ export interface EngineOptions {
 }
 
 const SETTLED: NodeState[] = ["done", "failed", "skipped"];
+
+/** Commands in a login's `requires` that are not on PATH. */
+function missingCommands(n: EngineNode): string[] {
+  return (n.config["requires"] ?? "").split(/[,\s]+/).filter(Boolean).filter((cmd) => !Bun.which(cmd));
+}
 const MAX_LOG_LINES = 10_000;
 export const MODULE_PROCESS_ISOLATION = {
   detached: true,
@@ -230,17 +235,19 @@ export class Engine {
   /* ── scheduling ── */
 
   private depState(n: EngineNode): "ready" | "blocked" | "waiting" {
+    // Blocked only after every dep settles, so a status check sees their results.
     let waiting = false;
+    let blocked = false;
     for (const dep of n.deps) {
       const depNode = this.node(dep) ?? this.node(`interactive:${dep}`);
       if (!depNode) continue; // dep not in this profile — treat as met
       if (this.filtered.has(depNode.id)) continue; // the user left it out on purpose
       // A preview never blocks modules on interactive work it cannot perform.
       if (this.opts.dryRun && depNode.kind === "interactive") continue;
-      if (depNode.state === "failed" || depNode.state === "skipped") return "blocked";
-      if (depNode.state !== "done") waiting = true;
+      if (depNode.state === "failed" || depNode.state === "skipped") blocked = true;
+      else if (depNode.state !== "done") waiting = true;
     }
-    return waiting ? "waiting" : "ready";
+    return waiting ? "waiting" : blocked ? "blocked" : "ready";
   }
 
   private schedule(): void {
@@ -250,7 +257,7 @@ export class Engine {
       const ds = this.depState(n);
       if (ds === "blocked") {
         // A login that is already done needs none of its dependencies.
-        if (n.kind === "interactive") void this.checkBlockedInteractive(n);
+        if (n.kind === "interactive" && !this.opts.dryRun) void this.checkBlockedInteractive(n);
         else this.settle(n, "skipped", "dependency failed");
         continue;
       }
@@ -436,9 +443,7 @@ export class Engine {
     n.start = Date.now();
     this.opts.onEvent?.(n, "checking");
 
-    const missing = (n.config["requires"] ?? "")
-      .split(/[,\s]+/).filter(Boolean)
-      .filter((cmd) => !Bun.which(cmd));
+    const missing = missingCommands(n);
     if (missing.length) {
       this.settle(n, "skipped", `missing: ${missing.join(", ")}`);
       return;
@@ -461,7 +466,7 @@ export class Engine {
     n.state = "checking";
     n.start = Date.now();
     this.opts.onEvent?.(n, "checking");
-    const ready = await this.interactiveStatusReady(n);
+    const ready = missingCommands(n).length === 0 && await this.interactiveStatusReady(n);
     if (this.interrupted || SETTLED.includes(n.state)) return;
     if (ready) this.settle(n, "done", `already ${n.config["done_detail"] ?? "logged in"}`);
     else this.settle(n, "skipped", "dependency failed");
