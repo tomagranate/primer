@@ -108,6 +108,8 @@ export class Engine {
   private timer?: ReturnType<typeof setInterval>;
   private sudoTimer?: ReturnType<typeof setInterval>;
   private procs = new Map<string, Bun.Subprocess>();
+  /** Modules left out with --skip or --only. Their dependents treat them as met. */
+  private filtered = new Set<string>();
   private runLogs: RunLogStore;
   private logOwners = new WeakMap<string[], string>();
   readonly logDirectory: string;
@@ -204,7 +206,9 @@ export class Engine {
     for (const n of this.nodes) {
       if (n.kind !== "module") continue;
       if (skip.includes(n.id)) this.settle(n, "skipped", "skipped via --skip");
-      if (only.length && !only.includes(n.id)) this.settle(n, "skipped", "not in --only");
+      else if (only.length && !only.includes(n.id)) this.settle(n, "skipped", "not in --only");
+      else continue;
+      this.filtered.add(n.id);
     }
   }
 
@@ -230,6 +234,7 @@ export class Engine {
     for (const dep of n.deps) {
       const depNode = this.node(dep) ?? this.node(`interactive:${dep}`);
       if (!depNode) continue; // dep not in this profile — treat as met
+      if (this.filtered.has(depNode.id)) continue; // the user left it out on purpose
       // A preview never blocks modules on interactive work it cannot perform.
       if (this.opts.dryRun && depNode.kind === "interactive") continue;
       if (depNode.state === "failed" || depNode.state === "skipped") return "blocked";
@@ -243,7 +248,12 @@ export class Engine {
     for (const n of this.nodes) {
       if (n.state !== "pending") continue;
       const ds = this.depState(n);
-      if (ds === "blocked") { this.settle(n, "skipped", "dependency failed"); continue; }
+      if (ds === "blocked") {
+        // A login that is already done needs none of its dependencies.
+        if (n.kind === "interactive") void this.checkBlockedInteractive(n);
+        else this.settle(n, "skipped", "dependency failed");
+        continue;
+      }
       if (ds !== "ready") continue;
       if (n.kind === "interactive") {
         if (this.opts.dryRun) { this.settle(n, "skipped", "dry run"); continue; }
@@ -444,6 +454,17 @@ export class Engine {
     await this.runInteractivePrepare(n);
     if (this.interrupted || SETTLED.includes(n.state)) return;
     this.waitForInteractive(n, false);
+  }
+
+  /** A login whose dependencies did not finish: done if its status already passes. */
+  private async checkBlockedInteractive(n: EngineNode): Promise<void> {
+    n.state = "checking";
+    n.start = Date.now();
+    this.opts.onEvent?.(n, "checking");
+    const ready = await this.interactiveStatusReady(n);
+    if (this.interrupted || SETTLED.includes(n.state)) return;
+    if (ready) this.settle(n, "done", `already ${n.config["done_detail"] ?? "logged in"}`);
+    else this.settle(n, "skipped", "dependency failed");
   }
 
   private async interactiveStatusReady(n: EngineNode): Promise<boolean> {

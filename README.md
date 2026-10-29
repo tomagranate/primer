@@ -47,6 +47,9 @@ functions, and aliases pick up any managed config changes.
 - `--help` - show help text
 - `-h` - show help text
 
+A module that `--skip` or `--only` leaves out does not block the modules that
+need it. Primer treats it as already set up.
+
 ### Examples
 
 ```sh
@@ -512,7 +515,10 @@ names other logins that must complete first, `*_requires` names commands that
 must exist, `*_status` detects whether the account is already logged in,
 `*_prepare` opens an optional setup application, and `*_command` starts the
 login flow. Press Enter to run the command and check `*_status`. Primer shows
-the instructions again until the status check succeeds. Interactive steps stay
+the instructions again until the status check succeeds. When a login's own
+dependencies do not finish, Primer still checks `*_status`. A login that is
+already done counts as done, so a run without a terminal can update modules
+that need it. Interactive steps stay
 in the Primer pane by default. Set `*_mode = terminal` to pause Primer and use
 the terminal.
 Linux profiles also use this flow for Tailscale. After the Tailscale module
