@@ -1,5 +1,5 @@
 [Unit]
-Description=Hangar cell caches: Actions cache, Docker mirror, apt, npm
+Description=Hangar cell caches: Actions cache, Docker mirror, apt, npm, downloads
 After=docker.service virtnetworkd.socket network-online.target
 Requires=docker.service
 
@@ -9,6 +9,8 @@ RemainAfterExit=yes
 # The caches listen on the ci-isolated bridge, so start it for the VMs.
 # Boot order does not matter for binding: see ensure_nonlocal_bind.
 ExecStartPre=-/usr/bin/virsh -c qemu:///system net-start ci-isolated
+# TLS files for the download cache. A failure stops only that cache.
+ExecStartPre=-/usr/local/share/hangar/stack/downloads-tls /var/lib/hangar/stack/tls
 ExecStart=/usr/bin/docker compose -p hangar-stack -f /usr/local/share/hangar/stack/compose.yml up -d --remove-orphans
 ExecStop=/usr/bin/docker compose -p hangar-stack -f /usr/local/share/hangar/stack/compose.yml down
 
