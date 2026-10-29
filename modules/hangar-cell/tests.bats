@@ -229,6 +229,10 @@ run_module() {
     grep -F "usermod -aG hangar tom" "$MOCK_LOG"
     [ -d "$ROOT/var/lib/hangar/stack/npm" ]
     [ -d "$ROOT/var/lib/hangar/stack/buildcache" ]
+    [ -d "$ROOT/var/lib/hangar/stack/downloads" ]
+    # The download cache's TLS files exist before its container starts.
+    grep -Fx "ExecStartPre=-/usr/local/share/hangar/stack/downloads-tls /var/lib/hangar/stack/tls" \
+        "$ROOT/etc/systemd/system/hangar-stack.service"
     grep -Fx "systemctl enable --now hangar-buildcache-clean.timer" "$MOCK_LOG"
     grep -Fx "start=/usr/local/bin/hangar cell drain" "$TEST_HOME/.config/gamemode.ini"
     grep -Fx "end=/usr/local/bin/hangar cell resume" "$TEST_HOME/.config/gamemode.ini"
