@@ -1,0 +1,14 @@
+[Unit]
+Description=Command Center browser streaming bridge
+After=app-dev.lizardbyte.app.Sunshine.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/command-center-stream/releases/3.0.1
+ExecStart=%h/.local/share/command-center-stream/releases/3.0.1/web-server --config-path %h/.local/share/command-center-stream/config.json --bind-address 127.0.0.1:8791 run
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+[Install]
+WantedBy=default.target
