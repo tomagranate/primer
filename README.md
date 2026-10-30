@@ -350,18 +350,58 @@ launchers +=
     applications:steam.desktop
 ```
 
-Primer ships six addons:
+Primer ships seven addons:
 
 - `gaming` adds the Fedora gaming module and Steam taskbar pin.
 - `plans-media` hosts Agents Plans, Media, and development previews on Fedora KDE.
 - `basil` adds Basil services and routes on Fedora KDE.
 - `command-center` builds the private fleet home page and installs its service and route on Fedora KDE.
+- `command-center-stream` runs a browser streaming bridge beside Sunshine on Linux x86_64.
 - `hangar-cell` runs CI job VMs on Fedora KDE.
 - `hangar-controller` schedules CI jobs across Hangar cells.
 
 The Command Center addon clones or fast-forwards `~/code/command-center` on `master`.
 It refuses dirty source and an unexpected remote. It builds before restarting the service.
 It also adds the repo to the fleet-review runner list.
+
+The streaming addon installs Moonlight Web v3.0.1 from a release archive.
+It checks the pinned SHA-256 before extraction. It requires the existing
+`app-dev.lizardbyte.app.Sunshine.service` user unit and a connected Tailscale client.
+It supports the `fedora-kde` and `linux-vps` profiles.
+
+Add `command-center-stream` to the existing addon list with `primer profile set`.
+Keep the other selected addons. Then run:
+
+```sh
+primer update --only command-center-stream
+```
+
+The bridge binds HTTP to `127.0.0.1:8791` only. Its path is
+`/stream/<short-hostname>`, with the hostname in lower case.
+It trusts the `X-CC-User` header. Only an authenticated local proxy must supply this header.
+This addon does not install a proxy route.
+WebRTC uses the machine's Tailscale IPv4 address and UDP ports 40000–40010.
+It uses no STUN or TURN servers.
+
+Check the firewall before streaming. An active `trusted` zone on `tailscale0`
+already permits these ports. The addon does not change firewall rules.
+If ports are blocked, permit UDP 40000–40010 on `tailscale0` only.
+Do not open these ports on a public interface.
+
+The addon stores its config and `data.json` in
+`~/.local/share/command-center-stream/`. Updates keep users and hosts.
+An unchanged update leaves the files and running process unchanged.
+Sunshine keeps its config and pairings.
+
+Primer does not uninstall dropped addons. To remove this bridge, first remove
+`command-center-stream` from the selected addon list. From a Primer checkout, run:
+
+```sh
+zsh modules/command-center-stream/remove.zsh
+```
+
+Removal stops and disables the bridge. It deletes the unit and bridge directory,
+including the bridge's users and hosts. Copy `data.json` first if you need it.
 
 This addon owns the `tomagranate.com` apex. Its Caddy route serves that same host.
 Before the first deployment, list every apex DNS record.
