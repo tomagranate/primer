@@ -49,13 +49,17 @@ teardown() {
         sleep 0.1
     done
     [[ -n "$address" ]]
-    run curl -fsS "http://$address/stream/test-machine/"
+    run curl --max-time 10 -fsS "http://$address/stream/test-machine/"
     assert_success
     assert_output --partial '<html'
-    run curl -fsS -H 'X-CC-User: test-user' "http://$address/stream/test-machine/api/user"
+    run curl --max-time 10 -fsS -H 'X-CC-User: test-user' "http://$address/stream/test-machine/api/user"
     assert_success
     assert_output --partial 'test-user'
-    # The running server creates real users and hosts storage, with no fake file.
+    # Wait for the real server's asynchronous data writer before checking state.
+    for attempt in {1..100}; do
+        [[ -s "$dir/data.json" ]] && break
+        sleep 0.1
+    done
     [[ -s "$dir/data.json" ]]
     sha256sum "$dir/data.json" "$dir/config.json" > "$BATS_TEST_TMPDIR/before.sha256"
     stat -c '%i %Y' "$release/web-server" "$dir/config.json" > "$BATS_TEST_TMPDIR/before.stat"
