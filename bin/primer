@@ -1,0 +1,343 @@
+#!/bin/zsh
+# primer -- CLI for managing your Mac setup
+# Lives in primer/ in the private tomagranate/hangar repo. All downloads go
+# through `gh`, so this machine needs `gh auth login` (setup.sh does it).
+set -eo pipefail
+
+# ── Configuration ─────────────────────────────────────────────────────────────
+
+export PRIMER_REPO="tomagranate/hangar"
+export CONFIG_DIR="$HOME/.config"
+export ZSH_CONFIG_DIR="$CONFIG_DIR/zsh"
+export BIN_DIR="$HOME/bin"
+
+typeset -g PRIMER_DIR=""   # Set after download or from PRIMER_LOCAL
+typeset -g DRY_RUN=false
+typeset -g PRIMER_SKIP=""  # Space-separated modules to skip (--skip <name>)
+typeset -g PRIMER_ONLY=""  # Space-separated modules to run exclusively (--only <name>)
+typeset -g PRIMER_PROFILE="${PRIMER_PROFILE:-}"
+typeset -g PRIMER_RELEASE_VERSION=""
+
+# setup.sh puts a bootstrap gh here when the machine has none yet.
+primer::require_gh() {
+    command -v gh >/dev/null 2>&1 && return 0
+    [[ -x "$HOME/.local/share/primer/bootstrap/gh" ]] && {
+        path=("$HOME/.local/share/primer/bootstrap" $path)
+        return 0
+    }
+    print "Primer needs the GitHub CLI (gh), signed in to GitHub." >&2
+    print "Run the setup script again, or install gh and run: gh auth login" >&2
+    return 1
+}
+
+# Prints one release asset to stdout.
+primer::release_text() {
+    gh release download "$1" --repo "$PRIMER_REPO" --pattern "$2" --output - 2>/dev/null
+}
+
+primer::download_with_spinner() {
+    local label="$1"
+    shift
+
+    if [[ ! -t 2 ]]; then
+        "$@"
+        return
+    fi
+
+    local -a frames=('|' '/' '-' '\')
+    local frame=1 pid result
+    "$@" &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null; do
+        printf '\r  %s %s' "${frames[$frame]}" "$label" >&2
+        frame=$(( frame % 4 + 1 ))
+        sleep 0.1
+    done
+    if wait "$pid"; then
+        result=0
+    else
+        result=$?
+    fi
+    if (( result == 0 )); then
+        printf '\r  Primer binary download complete.\n' >&2
+    else
+        printf '\r  Primer binary download failed.\n' >&2
+    fi
+    return "$result"
+}
+
+# ── Framework Download ────────────────────────────────────────────────────────
+
+primer::resolve_release_version() {
+    primer::require_gh || return 1
+    PRIMER_RELEASE_VERSION="$(primer::release_text primer-latest primer-version.txt)" || {
+        print "Failed to resolve the latest Primer version." >&2
+        return 1
+    }
+    [[ "$PRIMER_RELEASE_VERSION" =~ '^[0-9a-f]{40}$' ]] || {
+        print "Invalid Primer version: $PRIMER_RELEASE_VERSION" >&2
+        return 1
+    }
+}
+
+primer::download_framework() {
+    local cache="$HOME/.cache/primer/framework"
+    local marker="$cache/.primer-version"
+    local staging previous=""
+
+    if [[ -d "$cache" && -f "$marker" ]] && \
+        [[ "$(<"$marker")" == "$PRIMER_RELEASE_VERSION" ]]; then
+        PRIMER_DIR="$cache/primer"
+        return 0
+    fi
+
+    mkdir -p "${cache:h}"
+
+    # Extract into a fresh directory. This drops files deleted upstream.
+    if ! staging="$(mktemp -d "${cache}.new.XXXXXX" 2>/dev/null)"; then
+        print "  ✗  Failed to download primer framework" >&2
+        print "     Could not create a staging directory in ${cache:h}." >&2
+        return 1
+    fi
+
+    # Download the Hangar repo at this commit and keep only primer/.
+    if ! gh api "repos/$PRIMER_REPO/tarball/$PRIMER_RELEASE_VERSION" \
+        | tar -xzf - -C "$staging" --strip-components=1 2>/dev/null; then
+        rm -rf "$staging"
+        print "  ✗  Failed to download primer framework" >&2
+        print "     Check your internet connection and try again." >&2
+        return 1
+    fi
+
+    # The hangar-cell addon reads runners/Cargo.toml next to primer/.
+    print -r -- "$PRIMER_RELEASE_VERSION" > "$staging/.primer-version"
+
+    # Swap the new copy in. Keep the old copy until the swap succeeds.
+    if [[ -e "$cache" ]]; then
+        previous="${cache}.old.$$"
+        rm -rf "$previous"
+        if ! mv "$cache" "$previous"; then
+            rm -rf "$staging"
+            print "  ✗  Failed to download primer framework" >&2
+            print "     Could not replace: $cache" >&2
+            return 1
+        fi
+    fi
+
+    if ! mv "$staging" "$cache"; then
+        if [[ -n "$previous" ]]; then
+            mv "$previous" "$cache" 2>/dev/null || true
+        fi
+        rm -rf "$staging"
+        print "  ✗  Failed to download primer framework" >&2
+        print "     Could not replace: $cache" >&2
+        return 1
+    fi
+
+    if [[ -n "$previous" ]]; then
+        rm -rf "$previous"
+    fi
+
+    PRIMER_DIR="$cache/primer"
+}
+
+primer::should_self_update() {
+    [[ "$1" == "update" && "$DRY_RUN" != true && -z "$PRIMER_LOCAL" ]]
+}
+
+primer::accept_active_xcode_license() {
+    local command="$1"
+    local developer_dir
+
+    [[ "$command" == "update" && "$DRY_RUN" != true ]] || return 0
+    [[ "$(uname -s 2>/dev/null)" == "Darwin" ]] || return 0
+    command -v xcode-select >/dev/null 2>&1 || return 0
+    command -v xcodebuild >/dev/null 2>&1 || return 0
+    developer_dir="$(xcode-select -p 2>/dev/null)" || return 0
+    [[ "$developer_dir" == *.app/Contents/Developer ]] || return 0
+    xcodebuild -license check >/dev/null 2>&1 && return 0
+
+    print "Full Xcode is active. Primer must accept its license before setup can continue."
+    if [[ "$(id -u)" -eq 0 ]]; then
+        xcodebuild -license accept
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo xcodebuild -license accept
+    else
+        print "sudo is required to accept the Xcode license." >&2
+        return 1
+    fi
+}
+
+primer::self_update() {
+    local target="${BIN_DIR}/primer"
+    local tmp="${target}.tmp.$$"
+    local marker="$HOME/.cache/primer/launcher-version"
+
+    if [[ -x "$target" && -f "$marker" ]] && \
+        [[ "$(<"$marker")" == "$PRIMER_RELEASE_VERSION" ]]; then
+        return 0
+    fi
+
+    mkdir -p "$BIN_DIR"
+
+    # Take the launcher from the same commit as the release.
+    if ! gh api -H "Accept: application/vnd.github.raw" \
+        "repos/$PRIMER_REPO/contents/primer/bin/primer?ref=$PRIMER_RELEASE_VERSION" > "$tmp"; then
+        rm -f "$tmp"
+        print "  ✗  Failed to self-update primer CLI" >&2
+        print "     Could not download primer/bin/primer at $PRIMER_RELEASE_VERSION" >&2
+        return 1
+    fi
+
+    if ! chmod +x "$tmp"; then
+        rm -f "$tmp"
+        print "  ✗  Failed to self-update primer CLI" >&2
+        print "     Could not make executable: $tmp" >&2
+        return 1
+    fi
+
+    if ! mv "$tmp" "$target"; then
+        rm -f "$tmp"
+        print "  ✗  Failed to self-update primer CLI" >&2
+        print "     Could not replace: $target" >&2
+        return 1
+    fi
+
+    mkdir -p "${marker:h}"
+    print -r -- "$PRIMER_RELEASE_VERSION" > "$marker"
+}
+
+# ── Help ──────────────────────────────────────────────────────────────────────
+
+primer::help() {
+    cat <<'EOF'
+primer -- machine setup manager
+
+Usage:
+  primer <command> [flags]
+
+Commands:
+  update      Install/update everything (idempotent)
+  status      Check what's installed and healthy
+
+Flags:
+  --dry-run         Preview changes without applying them (update only)
+  --skip <module>   Skip a module by name; repeatable (update only)
+  --only <module>   Run only this module; repeatable (update only)
+  --profile <name>  Force profile: mac, linux-vps, fedora-kde
+  --log             Force plain log output
+  --help            Show this help message
+
+Examples:
+  primer update                          # Run the full setup
+  primer update --dry-run                # Preview what would happen
+  primer update --skip mac-app-store     # Skip App Store installs
+  primer update --only homebrew          # Run only homebrew
+  primer update --profile linux-vps      # Run the Linux VPS profile
+  primer update --log                    # Use headless output without the sidebar
+  primer status                          # Check current state
+
+Environment:
+  PRIMER_LOCAL=/path/to/repo   Use a local checkout instead of GitHub
+  PRIMER_PROFILE=linux-vps     Select profile without a flag
+EOF
+}
+
+primer::run_app() {
+    if [[ "${PRIMER_APP_SOURCE:-0}" == 1 ]]; then
+        command -v bun >/dev/null 2>&1 || {
+            print "PRIMER_APP_SOURCE requires Bun." >&2
+            return 1
+        }
+        exec bun run "$PRIMER_DIR/app/src/index.tsx" "$@"
+    fi
+
+    local os arch asset cache_dir binary tmp expected actual
+    case "$(uname -s 2>/dev/null)" in
+        Darwin) os=darwin ;;
+        Linux) os=linux ;;
+        *) print "Unsupported OS for Primer binary: $(uname -s 2>/dev/null)" >&2; return 1 ;;
+    esac
+    case "$(uname -m 2>/dev/null)" in
+        arm64|aarch64) arch=arm64 ;;
+        x86_64|amd64) arch=x64 ;;
+        *) print "Unsupported architecture for Primer binary: $(uname -m 2>/dev/null)" >&2; return 1 ;;
+    esac
+
+    asset="primer-${os}-${arch}"
+    cache_dir="$HOME/.cache/primer/bin"
+    binary="$cache_dir/${asset}-${PRIMER_RELEASE_VERSION}"
+    if [[ ! -x "$binary" ]]; then
+        mkdir -p "$cache_dir"
+        tmp="$(mktemp "$cache_dir/${asset}.XXXXXX")" || return 1
+        primer::require_gh || { rm -f "$tmp"; return 1; }
+        if ! primer::download_with_spinner "Downloading Primer binary..." \
+            gh release download "primer-$PRIMER_RELEASE_VERSION" --repo "$PRIMER_REPO" \
+                --pattern "$asset" --output "$tmp" --clobber; then
+            rm -f "$tmp"
+            print "Failed to download $asset." >&2
+            return 1
+        fi
+        expected="$(primer::release_text "primer-$PRIMER_RELEASE_VERSION" "${asset}.sha256" | awk '{print $1}')" || {
+            rm -f "$tmp"
+            return 1
+        }
+        if command -v shasum >/dev/null 2>&1; then
+            actual="$(shasum -a 256 "$tmp" | awk '{print $1}')"
+        elif command -v sha256sum >/dev/null 2>&1; then
+            actual="$(sha256sum "$tmp" | awk '{print $1}')"
+        else
+            rm -f "$tmp"
+            print "A SHA-256 checksum tool is required." >&2
+            return 1
+        fi
+        if [[ -z "$expected" || "$actual" != "$expected" ]]; then
+            rm -f "$tmp"
+            print "Checksum verification failed for $asset." >&2
+            return 1
+        fi
+        chmod +x "$tmp"
+        mv "$tmp" "$binary"
+    fi
+
+    exec "$binary" "$@"
+}
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
+main() {
+    local command="" arg
+    for arg in "$@"; do
+        [[ "$arg" == "update" || "$arg" == "status" ]] && command="$arg"
+        [[ "$arg" == "--dry-run" ]] && DRY_RUN=true
+    done
+
+    primer::accept_active_xcode_license "$command" || return 1
+
+    if [[ -z "$PRIMER_LOCAL" || "${PRIMER_APP_SOURCE:-0}" != 1 ]]; then
+        primer::resolve_release_version || return 1
+    fi
+
+    # Keep the launcher itself current before running update.
+    if primer::should_self_update "$command" && [[ "${PRIMER_SELF_UPDATED:-0}" != 1 ]]; then
+        primer::self_update || return 1
+        export PRIMER_SELF_UPDATED=1
+        exec "${BIN_DIR}/primer" "$@"
+    fi
+
+    # Load framework (local or remote)
+    if [[ -n "$PRIMER_LOCAL" ]]; then
+        PRIMER_DIR="$PRIMER_LOCAL"
+    else
+        primer::download_framework || return 1
+    fi
+    export PRIMER_DIR
+
+    # The TypeScript app is Primer's sole execution path. It selects the
+    # sidebar TUI on a terminal and headless output when no TTY is available.
+    primer::run_app "$@"
+}
+
+if [[ -z "${PRIMER_SOURCE_ONLY:-}" ]]; then
+    main "$@"
+fi
